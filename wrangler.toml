@@ -1,0 +1,23 @@
+name = "mailagents-api"
+main = "src/worker.js"
+compatibility_date = "2026-03-05"
+compatibility_flags = ["nodejs_compat"]
+
+[observability]
+enabled = true
+
+[vars]
+BASE_CHAIN_ID = "84532"
+STORAGE_BACKEND = "memory"
+SIWE_MODE = "mock"
+SIWE_DOMAIN = "localhost"
+SIWE_URI = "https://localhost"
+SIWE_STATEMENT = "Sign in to Agent Mail Cloud"
+SIWE_CHALLENGE_TTL_MS = "300000"
+PAYMENT_MODE = "mock"
+X402_HMAC_SKEW_SEC = "300"
+
+# Secrets should be configured with:
+# wrangler secret put JWT_SECRET
+# wrangler secret put X402_HMAC_SECRET
+# wrangler secret put DATABASE_URL

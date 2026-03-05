@@ -5,10 +5,11 @@ This guide is for API customers and integration teams. It covers:
 - authentication and API call flow
 - payment header usage (`mock` / `hmac`)
 - common troubleshooting
+- Node and Cloudflare Worker deployment options
 
 ## 1. Quick Start
 
-### 1.1 Docker Compose (Recommended)
+### 1.1 Docker Compose (Recommended for full local stack)
 
 ```bash
 cp .env.example .env
@@ -38,6 +39,13 @@ Expected response:
 ```bash
 npm install
 npm start
+```
+
+### 1.3 Cloudflare Worker Startup (local)
+
+```bash
+npm install
+npm run worker:dev
 ```
 
 ## 2. Minimal End-to-End API Flow (5 Steps)
@@ -160,7 +168,28 @@ SIWE_MESSAGE='<EIP-4361 message>' \
 npm run siwe:verify
 ```
 
-## 5. Common Commands
+## 5. Cloudflare Worker Deployment
+
+1. Ensure `wrangler.toml` is present and updated.
+2. Set required secrets:
+
+```bash
+npx wrangler secret put JWT_SECRET
+npx wrangler secret put X402_HMAC_SECRET
+npx wrangler secret put DATABASE_URL
+```
+
+3. Deploy:
+
+```bash
+npm run worker:deploy
+```
+
+Notes:
+- Use Hyperdrive connection string for `DATABASE_URL` when using Postgres from Workers.
+- Run DB migration/seed outside Worker startup.
+
+## 6. Common Commands
 
 Using Makefile:
 
@@ -178,11 +207,13 @@ Using npm scripts:
 npm run db:migrate
 npm run db:seed
 npm run smoke
+npm run worker:dev
+npm run worker:deploy
 ```
 
-## 6. Troubleshooting
+## 7. Troubleshooting
 
-### 6.1 `401 unauthorized`
+### 7.1 `401 unauthorized`
 
 Common causes:
 - missing `Authorization` header
@@ -193,7 +224,7 @@ Checks:
 1. re-run challenge + verify
 2. confirm header format is `Authorization: Bearer <token>`
 
-### 6.2 `402 payment_required` or `invalid_payment_proof`
+### 7.2 `402 payment_required` or `invalid_payment_proof`
 
 Common causes:
 - missing `x-payment-proof`
@@ -204,7 +235,7 @@ Checks:
 1. verify header format
 2. verify method/path/timestamp exactly match the signed payload
 
-### 6.3 `409 no_available_mailbox`
+### 7.3 `409 no_available_mailbox`
 
 Cause:
 - mailbox pool exhausted
@@ -213,14 +244,21 @@ Actions:
 1. release active mailboxes
 2. run seed to add more mailboxes
 
-### 6.4 Docker issues
+### 7.4 Docker issues
 
 - `Cannot connect to the Docker daemon`
   - start Docker Desktop / daemon
 - `permission denied ... docker.sock`
   - fix docker socket/user permissions
 
-## 7. Related Documents
+### 7.5 Worker deployment issues
+
+- `wrangler` authentication failed
+  - run `wrangler login`
+- missing secret errors
+  - add required secrets with `wrangler secret put ...`
+
+## 8. Related Documents
 
 - API contract: `docs/openapi.yaml`
 - Database DDL: `docs/db/schema.sql`

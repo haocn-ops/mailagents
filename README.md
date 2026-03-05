@@ -5,7 +5,7 @@ This repository implements a V1 API scaffold based on:
 - `docs/openapi.yaml`
 - `docs/db/schema.sql`
 
-Start with the user documentation: `docs/user-guide.md`
+Start with the customer-facing guide: `docs/user-guide.md`.
 
 Current capabilities:
 - SIWE challenge/verify (`mock` and `strict` modes)
@@ -16,8 +16,9 @@ Current capabilities:
 - Usage summary and invoice query
 - x402-style protection (`mock` and `hmac`)
 - Switchable storage backend: `memory` (default) / `postgres`
+- Dual runtime support: Node server + Cloudflare Worker entry
 
-## Quick Start
+## Local Quick Start (Node)
 
 ```bash
 npm start
@@ -51,6 +52,46 @@ Compose automatically:
 - runs seed data
 - starts API with `postgres` backend
 
+## Cloudflare Workers Deployment
+
+### 1. Install dependencies
+
+```bash
+npm install
+```
+
+### 2. Configure `wrangler.toml`
+
+The repository already includes `wrangler.toml` with:
+- `main = "src/worker.js"`
+- `compatibility_flags = ["nodejs_compat"]`
+
+Update `vars` values as needed.
+
+### 3. Set secrets
+
+```bash
+npx wrangler secret put JWT_SECRET
+npx wrangler secret put X402_HMAC_SECRET
+npx wrangler secret put DATABASE_URL
+```
+
+### 4. Run locally
+
+```bash
+npm run worker:dev
+```
+
+### 5. Deploy
+
+```bash
+npm run worker:deploy
+```
+
+Note:
+- If using Postgres in Worker runtime, configure `DATABASE_URL` via Hyperdrive connection string.
+- For first migration/seed, run them from CI or trusted backend job, not from Worker cold start.
+
 ## Makefile
 
 ```bash
@@ -77,6 +118,8 @@ npm test
 - `npm run db:seed` - Seed tenant/agent/mailboxes/invoice data
 - `npm run siwe:verify` - Verify SIWE message + signature from CLI
 - `npm run smoke` - Local API smoke test
+- `npm run worker:dev` - Run Worker locally with Wrangler
+- `npm run worker:deploy` - Deploy Worker
 
 ## Environment Variables
 
@@ -110,24 +153,6 @@ SIWE verify CLI:
 - `SIWE_SIGNATURE`
 - optional: `SIWE_ADDRESS`, `SIWE_NONCE`
 
-## PostgreSQL Mode
-
-```bash
-npm install
-DATABASE_URL='postgres://user:pass@localhost:5432/mailcloud' npm run db:migrate
-DATABASE_URL='postgres://user:pass@localhost:5432/mailcloud' npm run db:seed
-STORAGE_BACKEND=postgres DATABASE_URL='postgres://user:pass@localhost:5432/mailcloud' npm start
-```
-
-## SIWE Strict Mode
-
-```bash
-npm install
-SIWE_MODE=strict SIWE_DOMAIN=localhost SIWE_URI=http://localhost npm start
-```
-
-If `siwe` dependency is missing in strict mode, the API returns `500 siwe_unavailable`.
-
 ## Notes
 
-On-chain settlement, Redis queues, and real mail backend integrations are not implemented yet.
+On-chain settlement, Redis queues, and full mail backend integrations are not implemented yet.

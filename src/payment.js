@@ -8,6 +8,17 @@ function success() {
   return { ok: true };
 }
 
+function getHeader(req, name) {
+  const key = String(name || "").toLowerCase();
+  if (req?.headers?.get && typeof req.headers.get === "function") {
+    return req.headers.get(key);
+  }
+  if (req?.headers && typeof req.headers === "object") {
+    return req.headers[key] ?? req.headers[name];
+  }
+  return undefined;
+}
+
 function safeEqualHex(a, b) {
   const bufA = Buffer.from(a, "hex");
   const bufB = Buffer.from(b, "hex");
@@ -16,6 +27,15 @@ function safeEqualHex(a, b) {
 
 function hmacHex(secret, text) {
   return createHmac("sha256", secret).update(text).digest("hex");
+}
+
+function getPath(req) {
+  if (!req?.url) return "";
+  try {
+    return new URL(req.url, "http://localhost").pathname;
+  } catch {
+    return String(req.url).split("?")[0];
+  }
 }
 
 export function buildHmacPaymentProof({ secret, method, path, timestampSec }) {
@@ -32,7 +52,7 @@ export function createPaymentVerifier({ mode, hmacSecret, hmacSkewSec }) {
           return fail("payment_misconfigured", "x402 hmac secret is not configured");
         }
 
-        const proofRaw = String(req.headers["x-payment-proof"] || "").trim();
+        const proofRaw = String(getHeader(req, "x-payment-proof") || "").trim();
         if (!proofRaw) {
           return fail("payment_required", "x402 payment proof is required for this endpoint");
         }
@@ -52,8 +72,7 @@ export function createPaymentVerifier({ mode, hmacSecret, hmacSkewSec }) {
           return fail("invalid_payment_proof", "payment proof timestamp is expired");
         }
 
-        const path = req.url ? req.url.split("?")[0] : "";
-        const payload = `${req.method || "GET"}\n${path}\n${ts}`;
+        const payload = `${req.method || "GET"}\n${getPath(req)}\n${ts}`;
         const expected = hmacHex(hmacSecret, payload);
 
         if (!safeEqualHex(sig, expected)) {
@@ -67,7 +86,7 @@ export function createPaymentVerifier({ mode, hmacSecret, hmacSkewSec }) {
 
   return {
     verify(req) {
-      const proof = req.headers["x-payment-proof"];
+      const proof = getHeader(req, "x-payment-proof");
       if (!proof) {
         return fail("payment_required", "x402 payment proof is required for this endpoint");
       }
