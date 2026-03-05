@@ -39,7 +39,8 @@ export function createSiweService({ mode, chainId, domain, uri, statement }) {
 
   return {
     async createChallengeMessage(walletAddress, nonce) {
-      const normalizedAddress = String(walletAddress || "").trim().toLowerCase();
+      const rawAddress = String(walletAddress || "").trim();
+      const normalizedAddress = rawAddress.toLowerCase();
 
       if (normalizedMode !== "strict") {
         return [
@@ -54,7 +55,7 @@ export function createSiweService({ mode, chainId, domain, uri, statement }) {
       const SiweMessage = siwe.SiweMessage || siwe;
       const message = new SiweMessage({
         domain,
-        address: normalizedAddress,
+        address: rawAddress,
         statement,
         uri,
         version: "1",

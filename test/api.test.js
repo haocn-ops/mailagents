@@ -277,7 +277,7 @@ test("hmac payment verifier validates method/path/timestamp", async () => {
   assert.equal(verifier.verify(badReq).ok, false);
 });
 
-test("siwe strict mode reports missing dependency clearly", async () => {
+test("siwe strict mode is available or reports missing dependency clearly", async () => {
   const siwe = createSiweService({
     mode: "strict",
     chainId: 84532,
@@ -286,8 +286,14 @@ test("siwe strict mode reports missing dependency clearly", async () => {
     statement: "Sign in",
   });
 
-  await assert.rejects(
-    siwe.createChallengeMessage("0xabc0000000000000000000000000000000000001", "nonce"),
-    /SIWE strict mode requires package 'siwe'/,
-  );
+  try {
+    const message = await siwe.createChallengeMessage(
+      "0x71C7656EC7ab88b098defB751B7401B5f6d8976F",
+      "a1b2c3d4e5f6g7h8",
+    );
+    assert.ok(typeof message === "string");
+    assert.ok(message.includes("Sign in"));
+  } catch (err) {
+    assert.match(String(err.message || err), /SIWE strict mode requires package 'siwe'/);
+  }
 });
