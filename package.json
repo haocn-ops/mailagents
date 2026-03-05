@@ -1,0 +1,19 @@
+{
+  "name": "agent-mail-cloud",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Agent Mail Cloud V1 API scaffold based on docs/openapi.yaml",
+  "optionalDependencies": {
+    "pg": "^8.16.3",
+    "siwe": "^3.0.0"
+  },
+  "scripts": {
+    "start": "node src/server.js",
+    "test": "node --test",
+    "db:migrate": "node scripts/db-migrate.js",
+    "db:seed": "node scripts/db-seed.js",
+    "siwe:verify": "node scripts/siwe-verify.js",
+    "smoke": "bash scripts/smoke.sh"
+  }
+}

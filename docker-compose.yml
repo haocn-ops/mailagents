@@ -1,0 +1,44 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: mailagents-db
+    environment:
+      POSTGRES_DB: mailcloud
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d mailcloud"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: mailagents-api
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      PORT: 3000
+      STORAGE_BACKEND: postgres
+      DATABASE_URL: postgres://postgres:postgres@db:5432/mailcloud
+    ports:
+      - "3000:3000"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/healthz >/dev/null"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    command: >-
+      sh -lc "npm run db:migrate && npm run db:seed && npm start"
+
+volumes:
+  pgdata:

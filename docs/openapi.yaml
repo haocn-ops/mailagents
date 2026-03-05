@@ -1,0 +1,363 @@
+openapi: 3.1.0
+info:
+  title: Agent Mail Cloud API
+  version: 0.1.0
+servers:
+  - url: https://api.yourmailcloud.com
+security:
+  - bearerAuth: []
+
+tags:
+  - name: Auth
+  - name: Mailboxes
+  - name: Messages
+  - name: Webhooks
+  - name: Usage
+  - name: Billing
+
+paths:
+  /v1/auth/siwe/challenge:
+    post:
+      tags: [Auth]
+      summary: Create SIWE challenge
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [wallet_address]
+              properties:
+                wallet_address:
+                  type: string
+      responses:
+        '200':
+          description: Challenge generated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  nonce:
+                    type: string
+                  message:
+                    type: string
+
+  /v1/auth/siwe/verify:
+    post:
+      tags: [Auth]
+      summary: Verify SIWE signature and issue token
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [message, signature]
+              properties:
+                message:
+                  type: string
+                signature:
+                  type: string
+      responses:
+        '200':
+          description: Authenticated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  access_token:
+                    type: string
+                  token_type:
+                    type: string
+                    example: Bearer
+                  expires_in:
+                    type: integer
+                  did:
+                    type: string
+                  tenant_id:
+                    type: string
+                    format: uuid
+                  agent_id:
+                    type: string
+                    format: uuid
+
+  /v1/mailboxes/allocate:
+    post:
+      tags: [Mailboxes]
+      summary: Allocate mailbox lease (x402 protected)
+      description: This endpoint requires x402 payment.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AllocateMailboxRequest'
+      responses:
+        '200':
+          description: Lease allocated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AllocateMailboxResponse'
+        '402':
+          description: Payment required
+        '409':
+          description: No available mailbox in current policy
+
+  /v1/mailboxes/release:
+    post:
+      tags: [Mailboxes]
+      summary: Release mailbox lease
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [mailbox_id]
+              properties:
+                mailbox_id:
+                  type: string
+                  format: uuid
+      responses:
+        '200':
+          description: Released
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: released
+
+  /v1/messages/latest:
+    get:
+      tags: [Messages]
+      summary: Fetch latest parsed messages (x402 protected)
+      description: This endpoint requires x402 payment.
+      parameters:
+        - in: query
+          name: mailbox_id
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - in: query
+          name: since
+          required: false
+          schema:
+            type: string
+            format: date-time
+        - in: query
+          name: limit
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        '200':
+          description: Messages fetched
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  messages:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/MessageView'
+
+  /v1/webhooks:
+    post:
+      tags: [Webhooks]
+      summary: Create webhook subscription (x402 protected)
+      description: This endpoint requires x402 payment.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateWebhookRequest'
+      responses:
+        '200':
+          description: Webhook created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookView'
+        '402':
+          description: Payment required
+
+  /v1/usage/summary:
+    get:
+      tags: [Usage]
+      summary: Get usage summary by billing period
+      parameters:
+        - in: query
+          name: period
+          required: true
+          schema:
+            type: string
+            example: 2026-03
+      responses:
+        '200':
+          description: Usage summary
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  period:
+                    type: string
+                  api_calls:
+                    type: number
+                  active_mailboxes:
+                    type: number
+                  message_parses:
+                    type: number
+                  billable_units:
+                    type: number
+
+  /v1/billing/invoices/{invoice_id}:
+    get:
+      tags: [Billing]
+      summary: Get invoice details
+      parameters:
+        - in: path
+          name: invoice_id
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Invoice detail
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvoiceDetail'
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    AllocateMailboxRequest:
+      type: object
+      required: [agent_id, purpose, ttl_hours]
+      properties:
+        agent_id:
+          type: string
+          format: uuid
+        purpose:
+          type: string
+          maxLength: 120
+        ttl_hours:
+          type: integer
+          minimum: 1
+          maximum: 720
+
+    AllocateMailboxResponse:
+      type: object
+      properties:
+        mailbox_id:
+          type: string
+          format: uuid
+        address:
+          type: string
+          format: email
+        lease_expires_at:
+          type: string
+          format: date-time
+
+    MessageView:
+      type: object
+      properties:
+        message_id:
+          type: string
+          format: uuid
+        sender:
+          type: string
+        sender_domain:
+          type: string
+        subject:
+          type: string
+        received_at:
+          type: string
+          format: date-time
+        otp_code:
+          type: string
+          nullable: true
+        verification_link:
+          type: string
+          nullable: true
+
+    CreateWebhookRequest:
+      type: object
+      required: [event_types, target_url, secret]
+      properties:
+        event_types:
+          type: array
+          items:
+            type: string
+            enum: [mail.received, otp.extracted]
+        target_url:
+          type: string
+          format: uri
+        secret:
+          type: string
+          minLength: 16
+
+    WebhookView:
+      type: object
+      properties:
+        webhook_id:
+          type: string
+          format: uuid
+        event_types:
+          type: array
+          items:
+            type: string
+        target_url:
+          type: string
+          format: uri
+        status:
+          type: string
+          enum: [active, paused, disabled]
+
+    InvoiceDetail:
+      type: object
+      properties:
+        invoice_id:
+          type: string
+          format: uuid
+        tenant_id:
+          type: string
+          format: uuid
+        period_start:
+          type: string
+          format: date
+        period_end:
+          type: string
+          format: date
+        amount_usdc:
+          type: number
+        status:
+          type: string
+          enum: [draft, issued, paid, void]
+        statement_hash:
+          type: string
+          nullable: true
+        settlement_tx_hash:
+          type: string
+          nullable: true

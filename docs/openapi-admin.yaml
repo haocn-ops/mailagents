@@ -1,0 +1,685 @@
+openapi: 3.1.0
+info:
+  title: Agent Mail Cloud Admin API
+  version: 0.1.0
+servers:
+  - url: https://api.yourmailcloud.com
+security:
+  - bearerAuth: []
+
+tags:
+  - name: Overview
+  - name: Tenants
+  - name: Mailboxes
+  - name: Messages
+  - name: Webhooks
+  - name: Billing
+  - name: Risk
+  - name: Audit
+
+paths:
+  /v1/admin/overview/metrics:
+    get:
+      tags: [Overview]
+      summary: Get dashboard metrics
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OverviewMetrics'
+
+  /v1/admin/overview/timeseries:
+    get:
+      tags: [Overview]
+      summary: Get dashboard time series
+      parameters:
+        - $ref: '#/components/parameters/From'
+        - $ref: '#/components/parameters/To'
+        - in: query
+          name: bucket
+          schema:
+            type: string
+            enum: [minute, hour, day]
+            default: hour
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  points:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/TimeseriesPoint'
+
+  /v1/admin/tenants:
+    get:
+      tags: [Tenants]
+      summary: List tenants
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+        - in: query
+          name: status
+          schema:
+            type: string
+            enum: [active, suspended, archived]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Tenant'
+                  page:
+                    type: integer
+                  page_size:
+                    type: integer
+                  total:
+                    type: integer
+
+  /v1/admin/tenants/{tenant_id}:
+    get:
+      tags: [Tenants]
+      summary: Get tenant detail
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TenantDetail'
+    patch:
+      tags: [Tenants]
+      summary: Update tenant status or quota
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TenantPatchRequest'
+      responses:
+        '200':
+          description: Updated
+
+  /v1/admin/mailboxes:
+    get:
+      tags: [Mailboxes]
+      summary: List mailboxes
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+        - in: query
+          name: status
+          schema:
+            type: string
+            enum: [available, leased, frozen, retired]
+        - in: query
+          name: tenant_id
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Mailbox'
+
+  /v1/admin/mailboxes/{mailbox_id}/freeze:
+    post:
+      tags: [Mailboxes]
+      summary: Freeze mailbox
+      parameters:
+        - $ref: '#/components/parameters/MailboxId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              properties:
+                reason:
+                  type: string
+                  maxLength: 240
+      responses:
+        '200':
+          description: Frozen
+
+  /v1/admin/mailboxes/{mailbox_id}/release:
+    post:
+      tags: [Mailboxes]
+      summary: Release active lease
+      parameters:
+        - $ref: '#/components/parameters/MailboxId'
+      responses:
+        '200':
+          description: Released
+
+  /v1/admin/messages:
+    get:
+      tags: [Messages]
+      summary: List messages
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+        - in: query
+          name: mailbox_id
+          schema:
+            type: string
+            format: uuid
+        - in: query
+          name: parsed_status
+          schema:
+            type: string
+            enum: [pending, parsed, failed]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/MessageItem'
+
+  /v1/admin/messages/{message_id}/reparse:
+    post:
+      tags: [Messages]
+      summary: Re-run parser for a message
+      parameters:
+        - $ref: '#/components/parameters/MessageId'
+      responses:
+        '202':
+          description: Accepted
+
+  /v1/admin/messages/{message_id}/replay-webhook:
+    post:
+      tags: [Messages]
+      summary: Replay webhook for a message
+      parameters:
+        - $ref: '#/components/parameters/MessageId'
+      responses:
+        '202':
+          description: Accepted
+
+  /v1/admin/webhooks:
+    get:
+      tags: [Webhooks]
+      summary: List webhooks
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/WebhookItem'
+
+  /v1/admin/webhooks/{webhook_id}/replay:
+    post:
+      tags: [Webhooks]
+      summary: Replay webhook events in a time range
+      parameters:
+        - $ref: '#/components/parameters/WebhookId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [from, to]
+              properties:
+                from:
+                  type: string
+                  format: date-time
+                to:
+                  type: string
+                  format: date-time
+      responses:
+        '202':
+          description: Accepted
+
+  /v1/admin/webhooks/{webhook_id}/rotate-secret:
+    post:
+      tags: [Webhooks]
+      summary: Rotate webhook signing secret
+      parameters:
+        - $ref: '#/components/parameters/WebhookId'
+      responses:
+        '200':
+          description: Rotated
+
+  /v1/admin/invoices:
+    get:
+      tags: [Billing]
+      summary: List invoices
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+        - in: query
+          name: period
+          schema:
+            type: string
+            example: '2026-03'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/InvoiceItem'
+
+  /v1/admin/invoices/{invoice_id}/issue:
+    post:
+      tags: [Billing]
+      summary: Issue a draft invoice
+      parameters:
+        - $ref: '#/components/parameters/InvoiceId'
+      responses:
+        '200':
+          description: Issued
+
+  /v1/admin/risk/events:
+    get:
+      tags: [Risk]
+      summary: List risk events
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/RiskEvent'
+
+  /v1/admin/risk/policies:
+    post:
+      tags: [Risk]
+      summary: Create or update risk policy
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [policy_type, value, action]
+              properties:
+                policy_type:
+                  type: string
+                  enum: [domain_denylist, tenant_rate_limit, tenant_watch]
+                value:
+                  type: string
+                action:
+                  type: string
+                  enum: [add, remove, update]
+      responses:
+        '200':
+          description: Updated
+
+  /v1/admin/audit/logs:
+    get:
+      tags: [Audit]
+      summary: Query audit logs
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+        - in: query
+          name: request_id
+          schema:
+            type: string
+        - in: query
+          name: tenant_id
+          schema:
+            type: string
+            format: uuid
+        - in: query
+          name: actor_did
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/AuditLogItem'
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  parameters:
+    Page:
+      in: query
+      name: page
+      schema:
+        type: integer
+        minimum: 1
+        default: 1
+    PageSize:
+      in: query
+      name: page_size
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 200
+        default: 20
+    From:
+      in: query
+      name: from
+      schema:
+        type: string
+        format: date-time
+    To:
+      in: query
+      name: to
+      schema:
+        type: string
+        format: date-time
+    TenantId:
+      in: path
+      name: tenant_id
+      required: true
+      schema:
+        type: string
+        format: uuid
+    MailboxId:
+      in: path
+      name: mailbox_id
+      required: true
+      schema:
+        type: string
+        format: uuid
+    MessageId:
+      in: path
+      name: message_id
+      required: true
+      schema:
+        type: string
+        format: uuid
+    WebhookId:
+      in: path
+      name: webhook_id
+      required: true
+      schema:
+        type: string
+        format: uuid
+    InvoiceId:
+      in: path
+      name: invoice_id
+      required: true
+      schema:
+        type: string
+        format: uuid
+
+  schemas:
+    OverviewMetrics:
+      type: object
+      properties:
+        active_tenants_24h:
+          type: integer
+        active_mailbox_leases:
+          type: integer
+        inbound_messages_24h:
+          type: integer
+        otp_extract_success_rate:
+          type: number
+          format: float
+        webhook_success_rate:
+          type: number
+          format: float
+        payment_conversion_rate:
+          type: number
+          format: float
+
+    TimeseriesPoint:
+      type: object
+      properties:
+        ts:
+          type: string
+          format: date-time
+        value:
+          type: number
+
+    Tenant:
+      type: object
+      properties:
+        tenant_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        status:
+          type: string
+        primary_did:
+          type: string
+        active_agents:
+          type: integer
+        active_mailboxes:
+          type: integer
+        monthly_usage:
+          type: number
+        updated_at:
+          type: string
+          format: date-time
+
+    TenantDetail:
+      allOf:
+        - $ref: '#/components/schemas/Tenant'
+        - type: object
+          properties:
+            quotas:
+              type: object
+              properties:
+                qps:
+                  type: integer
+                mailbox_limit:
+                  type: integer
+
+    TenantPatchRequest:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [active, suspended, archived]
+        quotas:
+          type: object
+          properties:
+            qps:
+              type: integer
+              minimum: 1
+            mailbox_limit:
+              type: integer
+              minimum: 1
+
+    Mailbox:
+      type: object
+      properties:
+        mailbox_id:
+          type: string
+          format: uuid
+        address:
+          type: string
+          format: email
+        type:
+          type: string
+          enum: [alias, real]
+        status:
+          type: string
+          enum: [available, leased, frozen, retired]
+        tenant_id:
+          type: string
+          format: uuid
+        agent_id:
+          type: string
+          format: uuid
+          nullable: true
+        lease_expires_at:
+          type: string
+          format: date-time
+          nullable: true
+
+    MessageItem:
+      type: object
+      properties:
+        message_id:
+          type: string
+          format: uuid
+        mailbox_id:
+          type: string
+          format: uuid
+        sender_domain:
+          type: string
+        subject:
+          type: string
+        received_at:
+          type: string
+          format: date-time
+        parsed_status:
+          type: string
+          enum: [pending, parsed, failed]
+        otp_extracted:
+          type: boolean
+
+    WebhookItem:
+      type: object
+      properties:
+        webhook_id:
+          type: string
+          format: uuid
+        tenant_id:
+          type: string
+          format: uuid
+        target_url:
+          type: string
+          format: uri
+        event_types:
+          type: array
+          items:
+            type: string
+        status:
+          type: string
+          enum: [active, paused, disabled]
+        last_delivery_at:
+          type: string
+          format: date-time
+          nullable: true
+        last_status_code:
+          type: integer
+          nullable: true
+
+    InvoiceItem:
+      type: object
+      properties:
+        invoice_id:
+          type: string
+          format: uuid
+        tenant_id:
+          type: string
+          format: uuid
+        period:
+          type: string
+        amount_usdc:
+          type: number
+        status:
+          type: string
+          enum: [draft, issued, paid, void]
+        settlement_tx_hash:
+          type: string
+          nullable: true
+
+    RiskEvent:
+      type: object
+      properties:
+        event_id:
+          type: string
+          format: uuid
+        tenant_id:
+          type: string
+          format: uuid
+        severity:
+          type: string
+          enum: [low, medium, high, critical]
+        type:
+          type: string
+        detail:
+          type: string
+        occurred_at:
+          type: string
+          format: date-time
+
+    AuditLogItem:
+      type: object
+      properties:
+        log_id:
+          type: string
+          format: uuid
+        timestamp:
+          type: string
+          format: date-time
+        tenant_id:
+          type: string
+          format: uuid
+        actor_did:
+          type: string
+        action:
+          type: string
+        resource_type:
+          type: string
+        resource_id:
+          type: string
+        result:
+          type: string
+          enum: [success, failed]
+
