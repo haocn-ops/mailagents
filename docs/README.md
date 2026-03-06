@@ -11,6 +11,8 @@
 - [Cloudflare DNS Setup](./cloudflare-dns-setup.md)
 - [Mailu Host Preparation](./mailu-host-prep.md)
 - [Mailu Setup Download](./mailu-setup-download.md)
+- [Mailu Colocated Rewrite](./mailu-colocated-rewrite.md)
+- [Mailu Certificate Renewal](./mailu-cert-renewal.md)
 - [Single-Host Deployment](./single-host-deployment.md)
 - [Admin Dashboard Design](./admin-dashboard.md)
 - [Business API Contract](./openapi.yaml)
@@ -29,8 +31,10 @@
 8. `cloudflare-dns-setup.md` - exact DNS and MX records for Cloudflare
 9. `mailu-host-prep.md` - host preparation, port ownership, and directory layout for Mailu
 10. `mailu-setup-download.md` - fetch the official Mailu generated compose/env files from a setup id
-11. `single-host-deployment.md` - one-place deployment path on a VPS or cloud host
-12. `openapi.yaml` - business API contract
-13. `admin-dashboard.md` - dashboard IA and operation flows
-14. `openapi-admin.yaml` - admin API contract
-15. `db/schema.sql` - schema implementation
+11. `mailu-colocated-rewrite.md` - adapt the generated Mailu baseline to a host already running Nginx
+12. `mailu-cert-renewal.md` - keep Mailu mail TLS in sync with host Let's Encrypt renewal
+13. `single-host-deployment.md` - one-place deployment path on a VPS or cloud host
+14. `openapi.yaml` - business API contract
+15. `admin-dashboard.md` - dashboard IA and operation flows
+16. `openapi-admin.yaml` - admin API contract
+17. `db/schema.sql` - schema implementation

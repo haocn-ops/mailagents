@@ -235,3 +235,5 @@ Mailu host preparation notes live in `docs/mailu-host-prep.md`.
 `mailu-dev` is a local development simulator only; it is not the final Mailu fork implementation.
 An example host Nginx reverse proxy for Mailu web UI lives in `deploy/nginx/mailu-web.conf.example`.
 Mailu setup download notes live in `docs/mailu-setup-download.md`.
+Mailu colocated rewrite notes live in `docs/mailu-colocated-rewrite.md`.
+Mailu certificate renewal notes live in `docs/mailu-cert-renewal.md`.
