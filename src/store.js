@@ -8,12 +8,14 @@ export function createStoreFromConfig(runtimeConfig) {
       databaseUrl: runtimeConfig.databaseUrl,
       chainId: runtimeConfig.baseChainId,
       challengeTtlMs: runtimeConfig.siweChallengeTtlMs,
+      mailboxDomain: runtimeConfig.mailboxDomain,
     });
   }
 
   return new MemoryStore({
     chainId: runtimeConfig.baseChainId,
     challengeTtlMs: runtimeConfig.siweChallengeTtlMs,
+    mailboxDomain: runtimeConfig.mailboxDomain,
   });
 }
 

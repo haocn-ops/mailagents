@@ -34,6 +34,14 @@ Expected response:
 {"status":"ok","service":"agent-mail-cloud"}
 ```
 
+To customize allocated mailbox addresses, set:
+
+```bash
+export MAILBOX_DOMAIN=inbox.mailagents.net
+```
+
+This changes generated addresses from `*@pool.mailcloud.local` to `*@inbox.mailagents.net`.
+
 ### 1.2 Local Node.js Startup
 
 ```bash
@@ -200,6 +208,7 @@ Notes:
 - Run DB migration/seed outside Worker startup.
 - The latest schema also persists admin data used by `/admin`: tenant quotas, webhook delivery status, risk policies, and risk events.
 - If you already have an older database, apply the matching schema changes before switching `STORAGE_BACKEND=postgres`.
+- `MAILBOX_DOMAIN` only controls generated mailbox addresses. Real inbound mail on that domain still requires DNS, MX, and a receiver/ingestion pipeline.
 
 ## 6. Common Commands
 

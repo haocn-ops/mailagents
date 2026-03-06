@@ -2,9 +2,10 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { hashSecret, normalizeAddress } from "../utils.js";
 
 export class MemoryStore {
-  constructor({ chainId, challengeTtlMs }) {
+  constructor({ chainId, challengeTtlMs, mailboxDomain = "pool.mailcloud.local" }) {
     this.chainId = chainId;
     this.challengeTtlMs = challengeTtlMs;
+    this.mailboxDomain = mailboxDomain;
     this.state = {
       challenges: new Map(),
       tenantsByWallet: new Map(),
@@ -82,6 +83,10 @@ export class MemoryStore {
       .reduce((sum, record) => sum + Number(record.quantity || 0), 0);
   }
 
+  _buildMailboxAddress(prefix, index) {
+    return `${prefix}-${index}@${this.mailboxDomain}`;
+  }
+
   _newTenantForWallet(walletAddress) {
     const address = normalizeAddress(walletAddress);
     const tenantId = randomUUID();
@@ -116,11 +121,12 @@ export class MemoryStore {
 
     for (let i = 0; i < 5; i += 1) {
       const mailboxId = randomUUID();
-      const addressName = `${address.slice(2, 8) || "agent"}-${i + 1}@pool.mailcloud.local`;
+      const addressName = this._buildMailboxAddress(address.slice(2, 8) || "agent", i + 1);
       this.state.mailboxes.set(mailboxId, {
         id: mailboxId,
         tenantId,
         address: addressName,
+        providerRef: null,
         status: "available",
         createdAt: new Date().toISOString(),
       });
@@ -276,6 +282,14 @@ export class MemoryStore {
     });
 
     return { mailbox, lease: activeLease };
+  }
+
+  async saveMailboxProviderRef(mailboxId, providerRef) {
+    const mailbox = this.state.mailboxes.get(mailboxId);
+    if (!mailbox) return null;
+    mailbox.providerRef = providerRef;
+    mailbox.updatedAt = new Date().toISOString();
+    return mailbox;
   }
 
   async getLatestMessages({ tenantId, mailboxId, since, limit }) {

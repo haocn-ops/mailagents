@@ -32,7 +32,7 @@ flowchart LR
   B --> D
   D --> E[Identity Service SIWE DID]
   D --> F[Mailbox Orchestrator]
-  F --> G[Mail Backend Mailu or mailcow]
+  F --> G[Self-hosted Mail Backend Mailu Fork]
   G --> H[Inbound Parser OTP Link]
   H --> I[Webhook Dispatcher]
   D --> J[Usage Meter]
@@ -55,7 +55,9 @@ flowchart LR
 - Mailbox Orchestrator
   - 郵箱池生命周期管理
 - Mail Backend
-  - 底層收件（Mailu 或 mailcow）
+  - 自建並修改的 Mailu 郵件底座
+  - 不依賴第三方託管郵箱 API
+  - 對 Control Plane 暴露內部集成接口
 - Inbound Parser
   - OTP、驗證鏈接提取
 - Usage Meter + Billing
@@ -70,7 +72,7 @@ flowchart LR
 - API：Express/Fastify
 - DB：PostgreSQL 15+
 - Queue：Redis + BullMQ（或 RabbitMQ）
-- 郵件底座：Mailu（MVP 快速落地）
+- 郵件底座：自建 Mailu Fork（MVP 快速落地，後續按產品需求改造）
 - 對象存儲：S3 兼容（存 raw message）
 - 鏈上：Base（8453 / 84532）
 - 支付：x402 + USDC
@@ -80,6 +82,19 @@ flowchart LR
 - x402（seller middleware）
 - SIWE 驗簽庫
 - OpenTelemetry（可選，建議）
+
+### 3.3 Mailu 定位與邊界
+- Mailu 是本項目的郵件數據面，不是外部 SaaS 依賴。
+- 我們以開源 Mailu 為基礎自行部署、維護與修改。
+- `mailagents` 是控制面，負責身份、配額、計費、審計、風控與對外 API。
+- Mailu fork 負責真實域名、郵箱賬號/別名、SMTP/IMAP/存儲、入站事件。
+- `mailagents` 與 Mailu 之間使用內部接口對接，而不是以“第三方郵件服務商”方式集成。
+
+### 3.4 開發原則（之後一律按此執行）
+- 任何“正式郵箱功能”優先落在 Mailu fork，而不是臨時 mock 或第三方轉發方案。
+- `MAILBOX_DOMAIN` 只能視為控制面配置，不代表真實收信能力已完成。
+- 新增與郵箱生命周期、入站收信、原文存取、事件同步相關的需求時，先更新 Mailu fork 設計文檔，再寫代碼。
+- 如需增加臨時適配層，必須明確標註其為過渡實現，不得替代最終 Mailu fork 架構。
 
 ## 4. 身份與權限設計
 
@@ -182,6 +197,14 @@ flowchart LR
 - Webhook 投遞：指數退避，最多 8 次。
 - Parser 任務：最多 3 次，失敗進 dead-letter queue。
 
+### 8.3 Mailu 內部事件對接
+- Mailu fork 應在新郵件入站後生成內部事件。
+- `mailagents` parser/dispatcher worker 消費該事件並寫入：
+  - `messages`
+  - `message_events`
+  - `audit_logs`
+- `messages/latest` 不應直接依賴第三方 webhook 轉發結果，而應依賴 Mailu 真實入站數據。
+
 ## 9. 安全與合規
 
 ### 9.1 安全要求
@@ -233,6 +256,8 @@ flowchart LR
 - 單體 API + 模塊化內聚（V1）
 - Parser/Dispatcher 走獨立 worker
 - PostgreSQL 主從 + 每日備份
+- Mailu fork 獨立部署，作為內部郵件基礎設施
+- `api.<domain>` 與 `inbox.<domain>` 分離，前者給 Control Plane，後者給 Mailu
 
 ## 12. 里程碑計劃（8 週）
 
@@ -242,7 +267,7 @@ flowchart LR
 - allocate/release API
 
 ### 里程碑 M2（第 3-4 週）
-- Mail backend 打通
+- Mailu fork 打通
 - parser 提取 OTP/link
 - messages/latest API
 
@@ -275,9 +300,11 @@ flowchart LR
 - `docs/db/schema.sql`（DDL）
 - `docs/runbooks/incident.md`（故障手冊）
 - `docs/security/threat-model.md`（威脅模型）
+- `docs/mailu-fork-architecture.md`（Mailu fork 邊界與內部集成）
 
 ## 16. 相關文檔
 - `docs/admin-dashboard.md`（後台 IA、權限、流程）
+- `docs/mailu-fork-architecture.md`（今後涉及郵箱能力的主設計文檔）
 - `docs/openapi-admin.yaml`（Admin API 契約）
 
 - `docs/openapi.yaml`（業務 API 契約）

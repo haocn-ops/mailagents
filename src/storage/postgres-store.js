@@ -2,10 +2,11 @@ import { randomBytes } from "node:crypto";
 import { hashSecret, normalizeAddress } from "../utils.js";
 
 export class PostgresStore {
-  constructor({ databaseUrl, chainId, challengeTtlMs }) {
+  constructor({ databaseUrl, chainId, challengeTtlMs, mailboxDomain = "pool.mailcloud.local" }) {
     this.databaseUrl = databaseUrl;
     this.chainId = chainId;
     this.challengeTtlMs = challengeTtlMs;
+    this.mailboxDomain = mailboxDomain;
     this.pool = null;
     this.challenges = new Map();
   }
@@ -58,6 +59,10 @@ export class PostgresStore {
       page_size: pageSize,
       total: items.length,
     };
+  }
+
+  _buildMailboxAddress(prefix, index) {
+    return `${prefix}-${index}@${this.mailboxDomain}`;
   }
 
   async _recordAudit({ tenantId = null, agentId = null, actorDid = null, action, resourceType, resourceId, requestId = null, metadata = {} }, client = null) {
@@ -162,7 +167,7 @@ export class PostgresStore {
         await this._query(
           `insert into mailboxes (tenant_id, address, status)
            values ($1, $2, 'available')`,
-          [tenantId, `${mailboxPrefix}-${i + 1}@pool.mailcloud.local`],
+          [tenantId, this._buildMailboxAddress(mailboxPrefix, i + 1)],
           client,
         );
       }
@@ -214,7 +219,7 @@ export class PostgresStore {
   async allocateMailbox({ tenantId, agentId, purpose, ttlHours }) {
     return this._withTx(async (client) => {
       const mailboxResult = await this._query(
-        `select id, address
+        `select id, address, provider_ref
            from mailboxes
           where tenant_id = $1 and status = 'available'
           order by created_at asc
@@ -280,6 +285,7 @@ export class PostgresStore {
         mailbox: {
           id: mailbox.id,
           address: mailbox.address,
+          providerRef: mailbox.provider_ref,
         },
         lease: {
           id: leaseResult.rows[0].id,
@@ -292,7 +298,7 @@ export class PostgresStore {
   async releaseMailbox({ tenantId, mailboxId }) {
     return this._withTx(async (client) => {
       const mailboxResult = await this._query(
-        `select id from mailboxes where id = $1 and tenant_id = $2 limit 1`,
+        `select id, address, provider_ref from mailboxes where id = $1 and tenant_id = $2 limit 1`,
         [mailboxId, tenantId],
         client,
       );
@@ -328,8 +334,31 @@ export class PostgresStore {
         client,
       );
 
-      return { mailbox: { id: mailboxId }, lease: {} };
+      return {
+        mailbox: {
+          id: mailboxId,
+          address: mailboxResult.rows[0].address,
+          providerRef: mailboxResult.rows[0].provider_ref,
+        },
+        lease: {},
+      };
     });
+  }
+
+  async saveMailboxProviderRef(mailboxId, providerRef) {
+    const result = await this._query(
+      `update mailboxes
+          set provider_ref = $2
+        where id = $1
+      returning id, address, provider_ref`,
+      [mailboxId, providerRef],
+    );
+    if (result.rowCount === 0) return null;
+    return {
+      id: result.rows[0].id,
+      address: result.rows[0].address,
+      providerRef: result.rows[0].provider_ref,
+    };
   }
 
   async getLatestMessages({ tenantId, mailboxId, since, limit }) {

@@ -27,6 +27,7 @@ async function main() {
   const tenantName = process.env.SEED_TENANT_NAME || `seed-${walletAddress.slice(2, 8)}`;
   const agentName = process.env.SEED_AGENT_NAME || "seed-agent";
   const mailboxCount = Math.max(1, Number(process.env.SEED_MAILBOX_COUNT || 5));
+  const mailboxDomain = process.env.MAILBOX_DOMAIN || "pool.mailcloud.local";
   const did = `did:pkh:eip155:${chainId}:${walletAddress}`;
 
   await client.connect();
@@ -79,7 +80,7 @@ async function main() {
     }
 
     for (let i = 0; i < mailboxCount; i += 1) {
-      const address = `${walletAddress.slice(2, 8)}-seed-${i + 1}@pool.mailcloud.local`;
+      const address = `${walletAddress.slice(2, 8)}-seed-${i + 1}@${mailboxDomain}`;
       await client.query(
         `insert into mailboxes (tenant_id, address, status)
          values ($1, $2, 'available')

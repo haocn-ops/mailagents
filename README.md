@@ -2,6 +2,7 @@
 
 This repository implements a V1 API scaffold based on:
 - `docs/development.md`
+- `docs/mailu-fork-architecture.md`
 - `docs/openapi.yaml`
 - `docs/db/schema.sql`
 
@@ -19,6 +20,8 @@ Current capabilities:
 - Dual runtime support: Node server + Cloudflare Worker entry
 - Live Admin Dashboard backed by `/v1/admin/*`
 - Postgres-backed admin persistence for tenant quotas, webhook delivery state, risk policies, and risk events
+- Configurable mailbox domain via `MAILBOX_DOMAIN`
+- Mail backend abstraction with `noop` and `mailu` providers
 
 ## Local Quick Start (Node)
 
@@ -132,8 +135,15 @@ Core:
 - `PORT` (default: `3000`)
 - `JWT_SECRET`
 - `BASE_CHAIN_ID` (default: `84532`)
+- `MAILBOX_DOMAIN` (default: `inbox.mailagents.net` in current deployment)
+- `MAIL_PROVIDER` (`noop` or `mailu`)
 - `STORAGE_BACKEND` (`memory` or `postgres`)
 - `DATABASE_URL` (required for `postgres`)
+- `MAILU_BASE_URL`
+- `MAILU_API_TOKEN`
+- `MAILU_RELEASE_MODE`
+- `MAILU_QUOTA_BYTES`
+- `MAILU_AUTH_SCHEME`
 
 SIWE:
 - `SIWE_MODE` (`mock` default, or `strict`)
@@ -161,3 +171,5 @@ SIWE verify CLI:
 ## Notes
 
 On-chain settlement, Redis queues, and full mail backend integrations are not implemented yet.
+Setting `MAILBOX_DOMAIN` changes allocated mailbox addresses to your chosen domain. The current recommended pattern is `api.mailagents.net` for API traffic and `inbox.mailagents.net` for mailbox addresses. Real inbound email still requires DNS, MX, and a mail ingestion backend.
+Mailu fork architecture notes live in `docs/mailu-fork-architecture.md`.

@@ -219,6 +219,24 @@ test("usage summary and invoice detail are available", async () => {
   assert.equal(invoiceDetail.body.invoice_id, invoice.id);
 });
 
+test("memory store uses configured mailbox domain", async () => {
+  const store = new MemoryStore({
+    chainId: 84532,
+    challengeTtlMs: 1000,
+    mailboxDomain: "inbox.example.com",
+  });
+
+  const identity = await store.getOrCreateIdentity("0xabc0000000000000000000000000000000000abc");
+  const allocation = await store.allocateMailbox({
+    tenantId: identity.tenantId,
+    agentId: identity.agentId,
+    purpose: "signup",
+    ttlHours: 1,
+  });
+
+  assert.match(allocation.mailbox.address, /@inbox\.example\.com$/);
+});
+
 test("siwe challenge expires by ttl", async () => {
   const app = createApp({
     store: new MemoryStore({ chainId: 84532, challengeTtlMs: 1 }),

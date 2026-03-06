@@ -8,10 +8,15 @@ function makeApp() {
   const cfg = createConfig({
     JWT_SECRET: "test-secret",
     BASE_CHAIN_ID: "84532",
+    MAILBOX_DOMAIN: "inbox.example.com",
     SIWE_MODE: "mock",
     PAYMENT_MODE: "mock",
   });
-  const store = new MemoryStore({ chainId: cfg.baseChainId, challengeTtlMs: cfg.siweChallengeTtlMs });
+  const store = new MemoryStore({
+    chainId: cfg.baseChainId,
+    challengeTtlMs: cfg.siweChallengeTtlMs,
+    mailboxDomain: cfg.mailboxDomain,
+  });
   return createFetchApp({ config: cfg, store });
 }
 
@@ -107,6 +112,7 @@ test("fetch app admin API exposes live overview and lists", async () => {
   assert.equal(mailboxesRes.status, 200);
   const mailboxes = await mailboxesRes.json();
   assert.equal(mailboxes.items.find((item) => item.mailbox_id === allocation.mailbox_id).status, "leased");
+  assert.match(mailboxes.items[0].address, /@inbox\.example\.com$/);
 });
 
 test("fetch app admin actions mutate live resources", async () => {
@@ -177,4 +183,62 @@ test("fetch app admin actions mutate live resources", async () => {
   assert.equal(auditRes.status, 200);
   const audit = await auditRes.json();
   assert.ok(audit.items.some((item) => item.action === "message.reparse"));
+});
+
+test("fetch app provisions and releases mailboxes via mail provider", async () => {
+  const cfg = createConfig({
+    JWT_SECRET: "test-secret",
+    BASE_CHAIN_ID: "84532",
+    MAILBOX_DOMAIN: "inbox.example.com",
+    SIWE_MODE: "mock",
+    PAYMENT_MODE: "mock",
+  });
+  const store = new MemoryStore({
+    chainId: cfg.baseChainId,
+    challengeTtlMs: cfg.siweChallengeTtlMs,
+    mailboxDomain: cfg.mailboxDomain,
+  });
+  const calls = [];
+  const mailProvider = {
+    async provisionMailbox(payload) {
+      calls.push(["provision", payload.address]);
+      return { providerRef: `mailu:${payload.address}` };
+    },
+    async releaseMailbox(payload) {
+      calls.push(["release", payload.address]);
+      return { status: "released" };
+    },
+  };
+  const app = createFetchApp({ config: cfg, store, mailProvider });
+  const verify = await issueToken(app, "0xabc0000000000000000000000000000000000abc");
+
+  const allocateRes = await app(
+    new Request("http://localhost/v1/mailboxes/allocate", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${verify.access_token}`,
+        "x-payment-proof": "mock-proof",
+      },
+      body: JSON.stringify({ agent_id: verify.agent_id, purpose: "mailu-test", ttl_hours: 1 }),
+    }),
+  );
+  assert.equal(allocateRes.status, 200);
+  const allocation = await allocateRes.json();
+
+  const releaseRes = await app(
+    new Request("http://localhost/v1/mailboxes/release", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${verify.access_token}`,
+      },
+      body: JSON.stringify({ mailbox_id: allocation.mailbox_id }),
+    }),
+  );
+  assert.equal(releaseRes.status, 200);
+  assert.deepEqual(calls, [
+    ["provision", "abc000-1@inbox.example.com"],
+    ["release", "abc000-1@inbox.example.com"],
+  ]);
 });

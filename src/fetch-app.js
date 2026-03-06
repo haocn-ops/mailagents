@@ -3,6 +3,7 @@ import { createConfig } from "./config.js";
 import { createPaymentVerifier } from "./payment.js";
 import { createSiweService } from "./siwe.js";
 import { renderAdminDashboardHtml } from "./admin-ui.js";
+import { createMailProvider } from "./mail/index.js";
 import { getDefaultStore } from "./store.js";
 import { createNonce, createRequestId, parseBearerToken, parsePeriod } from "./utils.js";
 
@@ -55,6 +56,7 @@ export function createFetchApp(deps = {}) {
       uri: runtimeConfig.siweUri,
       statement: runtimeConfig.siweStatement,
     });
+  const mailProvider = deps.mailProvider || createMailProvider(runtimeConfig);
 
   async function requireAuth(request, requestId) {
     const token = parseBearerToken(request.headers.get("authorization"));
@@ -230,6 +232,26 @@ export function createFetchApp(deps = {}) {
           return jsonResponse(409, { error: "no_available_mailbox", message: "No available mailbox for current tenant" }, requestId);
         }
 
+        try {
+          const provider = await mailProvider.provisionMailbox({
+            tenantId: auth.payload.tenant_id,
+            agentId,
+            mailboxId: result.mailbox.id,
+            address: result.mailbox.address,
+            ttlHours,
+          });
+          if (provider?.providerRef) {
+            await store.saveMailboxProviderRef(result.mailbox.id, provider.providerRef);
+          }
+        } catch (err) {
+          await store.releaseMailbox({ tenantId: auth.payload.tenant_id, mailboxId: result.mailbox.id });
+          return jsonResponse(
+            502,
+            { error: "mail_backend_error", message: err.message || "Mail backend provisioning failed" },
+            requestId,
+          );
+        }
+
         await store.recordUsage({
           tenantId: auth.payload.tenant_id,
           agentId: auth.payload.agent_id,
@@ -262,6 +284,21 @@ export function createFetchApp(deps = {}) {
         const result = await store.releaseMailbox({ tenantId: auth.payload.tenant_id, mailboxId });
         if (!result) {
           return jsonResponse(404, { error: "not_found", message: "Mailbox not found" }, requestId);
+        }
+
+        try {
+          await mailProvider.releaseMailbox({
+            tenantId: auth.payload.tenant_id,
+            mailboxId,
+            address: result.mailbox.address,
+            providerRef: result.mailbox.providerRef || null,
+          });
+        } catch (err) {
+          return jsonResponse(
+            502,
+            { error: "mail_backend_error", message: err.message || "Mail backend release failed" },
+            requestId,
+          );
         }
 
         await store.recordUsage({
