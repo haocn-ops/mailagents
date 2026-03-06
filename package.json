@@ -22,6 +22,7 @@
     "mailu-dev": "node scripts/mailu-dev.js",
     "smoke:mailu": "bash scripts/mailu-dev-smoke.sh",
     "verify:prod": "bash scripts/prod-verify.sh",
+    "verify:dns": "bash scripts/check-mail-dns.sh",
     "start:prod": "node src/server.js",
     "worker:dev": "wrangler dev",
     "worker:deploy": "wrangler deploy"

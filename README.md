@@ -83,6 +83,7 @@ docker compose -f docker-compose.prod.yml up --build -d
 
 Production rollout details live in `docs/production-runbook.md`.
 If you want everything in one place, use `docs/single-host-deployment.md`.
+Cloudflare DNS and MX details live in `docs/cloudflare-dns-setup.md`.
 
 ## Cloudflare Workers Deployment
 
@@ -155,6 +156,7 @@ npm test
 - `npm run siwe:verify` - Verify SIWE message + signature from CLI
 - `npm run preflight:prod` - Validate production readiness of current env vars
 - `npm run verify:prod` - Basic post-deploy production verification
+- `npm run verify:dns -- mailagents.net 149.28.123.3` - Validate API and mailbox DNS records
 - `npm run smoke` - Local API smoke test
 - `npm run mailu-dev` - Run the local Mailu dev simulator
 - `npm run smoke:mailu` - Local API + `mailu-dev` integration smoke test
@@ -227,4 +229,5 @@ Internal Mailu-to-control-plane contract lives in `docs/mailu-internal-api.md`.
 Mailbox reconciliation notes live in `docs/mailbox-reconciliation.md`.
 Production rollout notes live in `docs/production-runbook.md`.
 Real Mailu cutover notes live in `docs/mailu-cutover-checklist.md`.
+Cloudflare DNS setup notes live in `docs/cloudflare-dns-setup.md`.
 `mailu-dev` is a local development simulator only; it is not the final Mailu fork implementation.
