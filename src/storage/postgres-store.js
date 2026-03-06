@@ -415,6 +415,25 @@ export class PostgresStore {
     };
   }
 
+  async getTenantMailbox(tenantId, mailboxId) {
+    const result = await this._query(
+      `select id, tenant_id, address, provider_ref, status
+         from mailboxes
+        where id = $1 and tenant_id = $2
+        limit 1`,
+      [mailboxId, tenantId],
+    );
+    if (result.rowCount === 0) return null;
+    const row = result.rows[0];
+    return {
+      id: row.id,
+      tenantId: row.tenant_id,
+      address: row.address,
+      providerRef: row.provider_ref,
+      status: row.status,
+    };
+  }
+
   async getActiveLeaseByMailboxId(mailboxId) {
     const result = await this._query(
       `select id, tenant_id, agent_id, purpose, status, started_at, expires_at, released_at

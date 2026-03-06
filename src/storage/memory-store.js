@@ -321,6 +321,18 @@ export class MemoryStore {
     return [...this.state.mailboxes.values()].find((mailbox) => mailbox.address.toLowerCase() === normalized) || null;
   }
 
+  async getTenantMailbox(tenantId, mailboxId) {
+    const mailbox = this.state.mailboxes.get(mailboxId);
+    if (!mailbox || mailbox.tenantId !== tenantId) return null;
+    return {
+      id: mailbox.id,
+      tenantId: mailbox.tenantId,
+      address: mailbox.address,
+      status: mailbox.status,
+      providerRef: mailbox.providerRef || null,
+    };
+  }
+
   async getActiveLeaseByMailboxId(mailboxId) {
     const lease = this._currentLeaseByMailbox(mailboxId);
     if (!lease) return null;

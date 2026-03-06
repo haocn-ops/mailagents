@@ -293,8 +293,9 @@ export function createFetchApp(deps = {}) {
           return jsonResponse(409, { error: "no_available_mailbox", message: "No available mailbox for current tenant" }, requestId);
         }
 
+        let provider = null;
         try {
-          const provider = await mailBackend.provisionMailbox({
+          provider = await mailBackend.provisionMailbox({
             tenantId: auth.payload.tenant_id,
             agentId,
             mailboxId: result.mailbox.id,
@@ -327,6 +328,9 @@ export function createFetchApp(deps = {}) {
             mailbox_id: result.mailbox.id,
             address: result.mailbox.address,
             lease_expires_at: result.lease.expiresAt,
+            webmail_login: provider?.credentials?.login || null,
+            webmail_password: provider?.credentials?.password || null,
+            webmail_url: provider?.credentials?.webmailUrl || null,
           },
           requestId,
         );
@@ -370,7 +374,51 @@ export function createFetchApp(deps = {}) {
           requestId,
         });
 
-        return jsonResponse(200, { status: "released" }, requestId);
+        return jsonResponse(200, { mailbox_id: mailboxId, status: "released" }, requestId);
+      }
+
+      if (method === "POST" && path === "/v1/mailboxes/credentials/reset") {
+        const auth = await requireAuth(request, requestId);
+        if (!auth.ok) return auth.response;
+
+        const body = await readJsonBody(request);
+        const mailboxId = String(body.mailbox_id || "");
+        if (!mailboxId) {
+          return jsonResponse(400, { error: "bad_request", message: "mailbox_id is required" }, requestId);
+        }
+
+        const mailbox = await store.getTenantMailbox(auth.payload.tenant_id, mailboxId);
+        if (!mailbox) {
+          return jsonResponse(404, { error: "not_found", message: "Mailbox not found" }, requestId);
+        }
+
+        const credentials = await mailBackend.issueMailboxCredentials({
+          tenantId: auth.payload.tenant_id,
+          agentId: auth.payload.agent_id,
+          mailboxId,
+          address: mailbox.address,
+          providerRef: mailbox.providerRef || null,
+        });
+
+        await store.recordUsage({
+          tenantId: auth.payload.tenant_id,
+          agentId: auth.payload.agent_id,
+          endpoint: "POST /v1/mailboxes/credentials/reset",
+          quantity: 1,
+          requestId,
+        });
+
+        return jsonResponse(
+          200,
+          {
+            mailbox_id: mailbox.id,
+            address: mailbox.address,
+            webmail_login: credentials?.login || mailbox.address,
+            webmail_password: credentials?.password || null,
+            webmail_url: credentials?.webmailUrl || null,
+          },
+          requestId,
+        );
       }
 
       if (method === "GET" && path === "/v1/mailboxes") {

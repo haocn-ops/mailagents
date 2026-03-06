@@ -2,6 +2,19 @@ export class NoopMailBackend {
   async provisionMailbox({ address }) {
     return {
       providerRef: `noop:${address}`,
+      credentials: {
+        login: address,
+        password: "noop-password",
+        webmailUrl: "https://example.test/webmail/",
+      },
+    };
+  }
+
+  async issueMailboxCredentials({ address }) {
+    return {
+      login: address,
+      password: "noop-password",
+      webmailUrl: "https://example.test/webmail/",
     };
   }
 

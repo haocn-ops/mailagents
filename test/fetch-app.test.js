@@ -91,6 +91,9 @@ test("fetch app exposes tenant mailbox and webhook lists", async () => {
     }),
   );
   assert.equal(allocateRes.status, 200);
+  const allocated = await allocateRes.json();
+  assert.equal(allocated.webmail_login, allocated.address);
+  assert.equal(allocated.webmail_password, "noop-password");
 
   const webhookRes = await app(
     new Request("http://localhost/v1/webhooks", {
@@ -130,6 +133,40 @@ test("fetch app exposes tenant mailbox and webhook lists", async () => {
   const webhooks = await webhooksRes.json();
   assert.equal(webhooks.items.length, 1);
   assert.equal(webhooks.items[0].target_url, "https://example.com/user-app-webhook");
+});
+
+test("fetch app issues webmail credentials for an existing tenant mailbox", async () => {
+  const app = makeApp();
+  const verify = await issueToken(app, "0xabc0000000000000000000000000000000000777");
+
+  const allocateRes = await app(
+    new Request("http://localhost/v1/mailboxes/allocate", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${verify.access_token}`,
+        "x-payment-proof": "mock-proof",
+      },
+      body: JSON.stringify({ agent_id: verify.agent_id, purpose: "webmail", ttl_hours: 1 }),
+    }),
+  );
+  const allocation = await allocateRes.json();
+
+  const issueRes = await app(
+    new Request("http://localhost/v1/mailboxes/credentials/reset", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${verify.access_token}`,
+      },
+      body: JSON.stringify({ mailbox_id: allocation.mailbox_id }),
+    }),
+  );
+  assert.equal(issueRes.status, 200);
+  const issued = await issueRes.json();
+  assert.equal(issued.mailbox_id, allocation.mailbox_id);
+  assert.equal(issued.webmail_login, allocation.address);
+  assert.equal(issued.webmail_password, "noop-password");
 });
 
 test("fetch app exposes tenant message detail and invoice list", async () => {

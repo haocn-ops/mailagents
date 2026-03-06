@@ -422,6 +422,7 @@ export function renderUserAppHtml() {
       did: "",
       selectedMailboxId: "",
       mailboxes: [],
+      mailboxCredentials: {},
       messages: [],
       webhooks: [],
       invoices: [],
@@ -475,7 +476,8 @@ export function renderUserAppHtml() {
     function saveMailboxState() {
       try {
         localStorage.setItem(storageKey(), JSON.stringify({
-          selectedMailboxId: state.selectedMailboxId
+          selectedMailboxId: state.selectedMailboxId,
+          mailboxCredentials: state.mailboxCredentials
         }));
       } catch (_) {}
     }
@@ -486,6 +488,7 @@ export function renderUserAppHtml() {
         if (!raw) return;
         var parsed = JSON.parse(raw);
         state.selectedMailboxId = parsed.selectedMailboxId || "";
+        state.mailboxCredentials = parsed.mailboxCredentials && typeof parsed.mailboxCredentials === "object" ? parsed.mailboxCredentials : {};
       } catch (_) {}
     }
 
@@ -553,14 +556,18 @@ export function renderUserAppHtml() {
       }
       els.mailboxes.innerHTML = state.mailboxes.map(function(item) {
         var selected = item.mailbox_id === state.selectedMailboxId;
+        var creds = state.mailboxCredentials[item.mailbox_id] || null;
         return '<article class="mailbox">' +
           '<div class="mailbox-top">' +
             '<div><div><strong>' + item.address + '</strong></div><div class="muted">lease expires ' + item.lease_expires_at + '</div></div>' +
             '<div><span class="tag">' + (selected ? "selected" : "cached") + '</span></div>' +
           '</div>' +
           '<code>' + item.mailbox_id + '</code>' +
+          (creds ? '<div class="muted">webmail login <code>' + creds.login + '</code></div><div class="muted">webmail password <code>' + creds.password + '</code></div>' : '') +
           '<div class="actions">' +
             '<button class="ghost" data-select-mailbox="' + item.mailbox_id + '">Select</button>' +
+            '<button class="secondary" data-reset-webmail="' + item.mailbox_id + '">Issue Webmail Password</button>' +
+            ((creds && creds.webmail_url) ? '<a class="ghost" href="' + creds.webmail_url + '" target="_blank" rel="noreferrer">Open Webmail</a>' : '') +
           '</div>' +
         '</article>';
       }).join("");
@@ -703,22 +710,51 @@ export function renderUserAppHtml() {
         })
       });
       state.selectedMailboxId = result.mailbox_id;
+      if (result.webmail_login && result.webmail_password) {
+        state.mailboxCredentials[result.mailbox_id] = {
+          login: result.webmail_login,
+          password: result.webmail_password,
+          webmail_url: result.webmail_url || ""
+        };
+      }
       await refreshMailboxes();
+      saveMailboxState();
       addLog("allocated mailbox " + result.address);
       return result;
     }
 
     async function releaseMailbox() {
       if (!state.selectedMailboxId) throw new Error("select a mailbox first");
+      var releasedMailboxId = state.selectedMailboxId;
       await fetchJson("/v1/mailboxes/release", {
         method: "POST",
         headers: authHeaders(true),
-        body: JSON.stringify({ mailbox_id: state.selectedMailboxId })
+        body: JSON.stringify({ mailbox_id: releasedMailboxId })
       });
       await refreshMailboxes();
       state.messages = [];
       renderMessages();
+      delete state.mailboxCredentials[releasedMailboxId];
+      saveMailboxState();
       addLog("released selected mailbox");
+    }
+
+    async function issueWebmailPassword(mailboxId) {
+      if (!state.token) throw new Error("sign in first");
+      var result = await fetchJson("/v1/mailboxes/credentials/reset", {
+        method: "POST",
+        headers: authHeaders(true),
+        body: JSON.stringify({ mailbox_id: mailboxId || state.selectedMailboxId })
+      });
+      state.mailboxCredentials[result.mailbox_id] = {
+        login: result.webmail_login,
+        password: result.webmail_password,
+        webmail_url: result.webmail_url || ""
+      };
+      saveMailboxState();
+      renderMailboxes();
+      addLog("issued webmail password for " + result.address);
+      return result;
     }
 
     async function refreshMessages() {
@@ -819,10 +855,17 @@ export function renderUserAppHtml() {
     function wireMailboxSelect() {
       els.mailboxes.addEventListener("click", function(event) {
         var button = event.target.closest("[data-select-mailbox]");
+        if (button) {
+          state.selectedMailboxId = button.getAttribute("data-select-mailbox") || "";
+          saveMailboxState();
+          renderMailboxes();
+          return;
+        }
+        button = event.target.closest("[data-reset-webmail]");
         if (!button) return;
-        state.selectedMailboxId = button.getAttribute("data-select-mailbox") || "";
-        saveMailboxState();
-        renderMailboxes();
+        issueWebmailPassword(button.getAttribute("data-reset-webmail") || "").catch(function(err) {
+          addLog("issue webmail password failed: " + err.message);
+        });
       });
     }
 

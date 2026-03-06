@@ -43,6 +43,14 @@ export class MailuInternalAdapter {
     };
   }
 
+  _webmailUrl() {
+    return `${this.baseUrl}/webmail/`;
+  }
+
+  _generatePassword() {
+    return randomBytes(18).toString("base64url");
+  }
+
   async _request(method, path, body, expected = [200]) {
     this._assertConfigured();
     const response = await fetch(`${this.baseUrl}/api/v1${path}`, {
@@ -98,7 +106,7 @@ export class MailuInternalAdapter {
   async provisionMailbox({ address }) {
     await this.ensureDomain();
 
-    const password = randomBytes(18).toString("hex");
+    const password = this._generatePassword();
     try {
       await this._request(
         "POST",
@@ -120,6 +128,7 @@ export class MailuInternalAdapter {
         "PATCH",
         `/user/${encodeURIComponent(address)}`,
         {
+          raw_password: password,
           enabled: true,
           enable_imap: true,
           enable_pop: false,
@@ -135,6 +144,42 @@ export class MailuInternalAdapter {
         kind: "mailu-user",
         email: address,
       }),
+      credentials: {
+        login: address,
+        password,
+        webmailUrl: this._webmailUrl(),
+      },
+    };
+  }
+
+  async issueMailboxCredentials({ address }) {
+    await this.ensureDomain();
+    const password = this._generatePassword();
+
+    try {
+      await this._request(
+        "PATCH",
+        `/user/${encodeURIComponent(address)}`,
+        {
+          raw_password: password,
+          enabled: true,
+          enable_imap: true,
+          enable_pop: false,
+          quota_bytes: this.quotaBytes,
+          comment: "Managed by agent-mail-cloud",
+        },
+        [200],
+      );
+    } catch (err) {
+      if (err.status !== 404) throw err;
+      const provisioned = await this.provisionMailbox({ address });
+      return provisioned.credentials;
+    }
+
+    return {
+      login: address,
+      password,
+      webmailUrl: this._webmailUrl(),
     };
   }
 
