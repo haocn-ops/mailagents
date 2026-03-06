@@ -42,8 +42,25 @@ const candidates = await store.listMessagesForReparse({
 
 const inspected = [];
 let updated = 0;
+let skippedNoSource = 0;
 
 for (const item of candidates) {
+  const hasSource = Boolean(
+    String(item.subject || "").trim() ||
+    String(item.textExcerpt || "").trim() ||
+    String(item.htmlExcerpt || "").trim() ||
+    String(item.htmlBody || "").trim(),
+  );
+  if (!hasSource) {
+    skippedNoSource += 1;
+    inspected.push({
+      message_id: item.messageId,
+      skipped: true,
+      reason: "no_source_payload",
+    });
+    continue;
+  }
+
   const parsed = parseInboundContent({
     subject: item.subject,
     textExcerpt: item.textExcerpt,
@@ -83,5 +100,6 @@ console.log(JSON.stringify({
   apply: args.apply,
   scanned: candidates.length,
   updated,
+  skipped_no_source: skippedNoSource,
   items: inspected,
 }, null, 2));
