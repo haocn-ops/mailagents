@@ -2,6 +2,8 @@
 
 This runbook covers the control-plane production rollout for `mailagents`.
 
+If you want the whole stack in one place, start with `docs/single-host-deployment.md`.
+
 ## 1. Scope
 
 This repository is production-ready for the control plane only when all of the following are true:

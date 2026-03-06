@@ -2,6 +2,12 @@
 
 This document defines the recommended first production topology for Agent Mail Cloud.
 
+Current preferred deployment mode:
+
+- single-host VPS or cloud instance
+- Docker Compose for `mailagents`
+- Mailu fork deployed on the same host or same private network
+
 ## 1. Recommended Layout
 
 Use three independent infrastructure units:
@@ -54,11 +60,18 @@ Use three independent infrastructure units:
 
 ## 5. First Production Rollout Recommendation
 
-- one VM or container group for control plane
-- one managed PostgreSQL instance
-- one separate VM or cluster for Mailu fork
+- one VPS or cloud instance as the first production host
+- Docker Compose for `mailagents`
+- PostgreSQL on the same host for initial simplicity, or move it out later
+- Mailu fork on the same host if you want one-place deployment
 
-Do not colocate PostgreSQL and Mailu on the same tiny host if you expect sustained inbound traffic.
+If you colocate API, PostgreSQL, and Mailu on one host, use at least:
+
+- 4 vCPU
+- 8 GB RAM
+- 100+ GB SSD
+
+Do not colocate all components on a tiny host.
 
 ## 6. Operational Baselines
 

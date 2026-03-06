@@ -82,6 +82,7 @@ docker compose -f docker-compose.prod.yml up --build -d
 ```
 
 Production rollout details live in `docs/production-runbook.md`.
+If you want everything in one place, use `docs/single-host-deployment.md`.
 
 ## Cloudflare Workers Deployment
 

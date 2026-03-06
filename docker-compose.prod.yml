@@ -1,10 +1,29 @@
 services:
+  db:
+    image: postgres:16-alpine
+    container_name: mailagents-db-prod
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: mailcloud
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - pgdata_prod:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d mailcloud"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
   api:
     build:
       context: .
       dockerfile: Dockerfile
     container_name: mailagents-api-prod
     restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
     env_file:
       - .env.production
     environment:
@@ -12,6 +31,8 @@ services:
       ENFORCE_SAFE_STARTUP: "true"
       REQUIRE_PROD_PREFLIGHT: "true"
       PORT: 3000
+      STORAGE_BACKEND: postgres
+      DATABASE_URL: postgres://postgres:postgres@db:5432/mailcloud
     ports:
       - "3000:3000"
     healthcheck:
@@ -19,3 +40,8 @@ services:
       interval: 10s
       timeout: 5s
       retries: 12
+    command: >-
+      sh -lc "npm run db:migrate && npm run db:upgrade && npm start:prod"
+
+volumes:
+  pgdata_prod:
