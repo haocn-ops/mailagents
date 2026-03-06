@@ -8,7 +8,9 @@ function buildAuthHeader(token, scheme) {
   return scheme === "RAW" ? token : `Bearer ${token}`;
 }
 
-export class MailuProvider {
+// Transitional adapter: today it targets Mailu's REST API, but its semantic role
+// is "internal mail backend adapter" for the self-hosted Mailu fork.
+export class MailuInternalAdapter {
   constructor({
     mailboxDomain,
     baseUrl,

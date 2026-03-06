@@ -1,6 +1,10 @@
 # Mailu Integration Plan
 
-This document restores the original V1 design intent from `docs/development.md`: Mailu is the mailbox backend, while `mailagents` remains the control plane.
+This document describes the current transitional implementation state.
+
+Authoritative architecture lives in `docs/mailu-fork-architecture.md`.
+
+This file exists to explain the short-term adapter currently present in the codebase while we move toward the final Mailu fork boundary.
 
 ## Scope
 
@@ -11,8 +15,9 @@ This document restores the original V1 design intent from `docs/development.md`:
 ## Current implementation status
 
 - `MAIL_PROVIDER=noop|mailu`
-- `MAIL_PROVIDER=mailu` provisions Mailu users via REST API
-- `allocateMailbox` now calls the configured mail provider
+- `MAIL_PROVIDER=mailu` currently uses a transitional internal adapter
+- the adapter still talks to Mailu REST API paths directly
+- `allocateMailbox` now calls the configured mail backend adapter
 - `releaseMailbox` now disables or deletes the Mailu user, depending on `MAILU_RELEASE_MODE`
 
 ## Mailu API endpoints in use
@@ -40,7 +45,8 @@ This document restores the original V1 design intent from `docs/development.md`:
 
 ## Remaining work
 
-1. Persist Mailu mailbox credentials or switch to a shared admin retrieval path.
-2. Add inbound sync from Mailu mail storage into `messages` and `message_events`.
-3. Add reconciliation jobs for local mailbox records versus Mailu state.
-4. Add runbooks for Mailu API auth rotation and domain bootstrap.
+1. Replace the direct REST assumptions with an internal Mailu fork integration boundary.
+2. Persist Mailu mailbox credentials or switch to a shared admin retrieval path.
+3. Add inbound sync from Mailu mail storage into `messages` and `message_events`.
+4. Add reconciliation jobs for local mailbox records versus Mailu state.
+5. Add runbooks for Mailu API auth rotation and domain bootstrap.

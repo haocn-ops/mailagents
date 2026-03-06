@@ -1,9 +1,9 @@
-import { MailuProvider } from "./mailu-provider.js";
-import { NoopMailProvider } from "./noop-provider.js";
+import { MailuInternalAdapter } from "./mailu-internal-adapter.js";
+import { NoopMailBackend } from "./noop-backend.js";
 
-export function createMailProvider(runtimeConfig) {
+export function createMailBackendAdapter(runtimeConfig) {
   if (runtimeConfig.mailProvider === "mailu") {
-    return new MailuProvider({
+    return new MailuInternalAdapter({
       mailboxDomain: runtimeConfig.mailboxDomain,
       baseUrl: runtimeConfig.mailuBaseUrl,
       apiToken: runtimeConfig.mailuApiToken,
@@ -13,5 +13,5 @@ export function createMailProvider(runtimeConfig) {
     });
   }
 
-  return new NoopMailProvider();
+  return new NoopMailBackend();
 }

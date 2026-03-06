@@ -1,9 +1,9 @@
 import { createJwt, verifyJwt } from "./auth.js";
 import { createConfig } from "./config.js";
+import { createMailBackendAdapter } from "./mail-backend/index.js";
 import { createPaymentVerifier } from "./payment.js";
 import { createSiweService } from "./siwe.js";
 import { renderAdminDashboardHtml } from "./admin-ui.js";
-import { createMailProvider } from "./mail/index.js";
 import { getDefaultStore } from "./store.js";
 import { createNonce, createRequestId, parseBearerToken, parsePeriod } from "./utils.js";
 
@@ -56,7 +56,7 @@ export function createFetchApp(deps = {}) {
       uri: runtimeConfig.siweUri,
       statement: runtimeConfig.siweStatement,
     });
-  const mailProvider = deps.mailProvider || createMailProvider(runtimeConfig);
+  const mailBackend = deps.mailBackend || deps.mailProvider || createMailBackendAdapter(runtimeConfig);
 
   async function requireAuth(request, requestId) {
     const token = parseBearerToken(request.headers.get("authorization"));
@@ -233,7 +233,7 @@ export function createFetchApp(deps = {}) {
         }
 
         try {
-          const provider = await mailProvider.provisionMailbox({
+          const provider = await mailBackend.provisionMailbox({
             tenantId: auth.payload.tenant_id,
             agentId,
             mailboxId: result.mailbox.id,
@@ -287,7 +287,7 @@ export function createFetchApp(deps = {}) {
         }
 
         try {
-          await mailProvider.releaseMailbox({
+          await mailBackend.releaseMailbox({
             tenantId: auth.payload.tenant_id,
             mailboxId,
             address: result.mailbox.address,

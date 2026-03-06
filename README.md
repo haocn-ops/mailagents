@@ -21,7 +21,7 @@ Current capabilities:
 - Live Admin Dashboard backed by `/v1/admin/*`
 - Postgres-backed admin persistence for tenant quotas, webhook delivery state, risk policies, and risk events
 - Configurable mailbox domain via `MAILBOX_DOMAIN`
-- Mail backend abstraction with `noop` and `mailu` providers
+- Mail backend adapter layer with `noop` and `mailu` backends
 
 ## Local Quick Start (Node)
 
@@ -173,3 +173,4 @@ SIWE verify CLI:
 On-chain settlement, Redis queues, and full mail backend integrations are not implemented yet.
 Setting `MAILBOX_DOMAIN` changes allocated mailbox addresses to your chosen domain. The current recommended pattern is `api.mailagents.net` for API traffic and `inbox.mailagents.net` for mailbox addresses. Real inbound email still requires DNS, MX, and a mail ingestion backend.
 Mailu fork architecture notes live in `docs/mailu-fork-architecture.md`.
+Current transitional adapter notes live in `docs/mailu-integration.md`.

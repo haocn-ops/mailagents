@@ -199,7 +199,7 @@ test("fetch app provisions and releases mailboxes via mail provider", async () =
     mailboxDomain: cfg.mailboxDomain,
   });
   const calls = [];
-  const mailProvider = {
+  const mailBackend = {
     async provisionMailbox(payload) {
       calls.push(["provision", payload.address]);
       return { providerRef: `mailu:${payload.address}` };
@@ -209,7 +209,7 @@ test("fetch app provisions and releases mailboxes via mail provider", async () =
       return { status: "released" };
     },
   };
-  const app = createFetchApp({ config: cfg, store, mailProvider });
+  const app = createFetchApp({ config: cfg, store, mailBackend });
   const verify = await issueToken(app, "0xabc0000000000000000000000000000000000abc");
 
   const allocateRes = await app(
