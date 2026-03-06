@@ -84,6 +84,7 @@ docker compose -f docker-compose.prod.yml up --build -d
 Production rollout details live in `docs/production-runbook.md`.
 If you want everything in one place, use `docs/single-host-deployment.md`.
 Cloudflare DNS and MX details live in `docs/cloudflare-dns-setup.md`.
+Mailu host preparation details live in `docs/mailu-host-prep.md`.
 
 ## Cloudflare Workers Deployment
 
@@ -230,4 +231,6 @@ Mailbox reconciliation notes live in `docs/mailbox-reconciliation.md`.
 Production rollout notes live in `docs/production-runbook.md`.
 Real Mailu cutover notes live in `docs/mailu-cutover-checklist.md`.
 Cloudflare DNS setup notes live in `docs/cloudflare-dns-setup.md`.
+Mailu host preparation notes live in `docs/mailu-host-prep.md`.
 `mailu-dev` is a local development simulator only; it is not the final Mailu fork implementation.
+An example host Nginx reverse proxy for Mailu web UI lives in `deploy/nginx/mailu-web.conf.example`.
