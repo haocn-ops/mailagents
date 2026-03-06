@@ -382,7 +382,7 @@ export class MemoryStore {
     const mailbox = this.state.mailboxes.get(message.mailboxId);
     this.state.messageEvents.set(messageId, {
       messageId,
-      eventType: otpCode || verificationLink ? "otp.extracted" : "mail.parsed",
+      eventType: otpCode || verificationLink ? "otp.extracted" : "mail.parse_failed",
       otpCode: otpCode || null,
       verificationLink: verificationLink || null,
       payload,
@@ -717,7 +717,13 @@ export class MemoryStore {
   async adminListMessages({ page, pageSize, mailboxId, parsedStatus }) {
     let items = [...this.state.messages.values()].map((message) => {
       const event = this.state.messageEvents.get(message.id);
-      const status = event ? "parsed" : "pending";
+      const status = !event
+        ? "pending"
+        : event.eventType === "otp.extracted"
+          ? "parsed"
+          : event.eventType === "mail.parse_failed"
+            ? "failed"
+            : "pending";
       return {
         message_id: message.id,
         mailbox_id: message.mailboxId,

@@ -468,3 +468,98 @@ test("fetch app dispatches subscribed webhook after parsing inbound mail", async
   const webhooks = await webhooksRes.json();
   assert.equal(webhooks.items[0].last_status_code, 200);
 });
+
+test("fetch app parses otp and link from html inbound content", async () => {
+  const app = makeApp();
+  const verify = await issueToken(app, "0xabc0000000000000000000000000000000000777");
+
+  const allocateRes = await app(
+    new Request("http://localhost/v1/mailboxes/allocate", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${verify.access_token}`,
+        "x-payment-proof": "mock-proof",
+      },
+      body: JSON.stringify({ agent_id: verify.agent_id, purpose: "html-parse", ttl_hours: 1 }),
+    }),
+  );
+  const allocation = await allocateRes.json();
+
+  const inboundRes = await app(
+    new Request("http://localhost/internal/inbound/events", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: "Bearer internal-secret",
+      },
+      body: JSON.stringify({
+        address: allocation.address,
+        sender_domain: "example.com",
+        subject: "Verify login",
+        html_body: "<html><body><p>Your verification code: <strong>ABCD12</strong></p><a href='https://verify.example.com/t/1'>Continue</a></body></html>",
+      }),
+    }),
+  );
+  assert.equal(inboundRes.status, 202);
+
+  const latestRes = await app(
+    new Request(`http://localhost/v1/messages/latest?mailbox_id=${allocation.mailbox_id}&limit=20`, {
+      method: "GET",
+      headers: {
+        authorization: `Bearer ${verify.access_token}`,
+        "x-payment-proof": "mock-proof",
+      },
+    }),
+  );
+  const latest = await latestRes.json();
+  const parsed = latest.messages.find((item) => item.subject === "Verify login");
+  assert.equal(parsed.otp_code, "ABCD12");
+  assert.match(parsed.verification_link, /https:\/\/verify\.example\.com\/t\/1/);
+});
+
+test("fetch app marks message as failed when parser finds no otp or link", async () => {
+  const app = makeApp();
+  const verify = await issueToken(app, "0xabc0000000000000000000000000000000000666");
+
+  const allocateRes = await app(
+    new Request("http://localhost/v1/mailboxes/allocate", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${verify.access_token}`,
+        "x-payment-proof": "mock-proof",
+      },
+      body: JSON.stringify({ agent_id: verify.agent_id, purpose: "parse-fail", ttl_hours: 1 }),
+    }),
+  );
+  const allocation = await allocateRes.json();
+
+  const inboundRes = await app(
+    new Request("http://localhost/internal/inbound/events", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: "Bearer internal-secret",
+      },
+      body: JSON.stringify({
+        address: allocation.address,
+        sender_domain: "example.com",
+        subject: "Welcome",
+        text_excerpt: "Thanks for joining our service.",
+      }),
+    }),
+  );
+  assert.equal(inboundRes.status, 202);
+
+  const messagesRes = await app(
+    new Request("http://localhost/v1/admin/messages?page=1&page_size=50", {
+      method: "GET",
+      headers: { authorization: `Bearer ${verify.access_token}` },
+    }),
+  );
+  const messages = await messagesRes.json();
+  const failed = messages.items.find((item) => item.subject === "Welcome");
+  assert.equal(failed.parsed_status, "failed");
+  assert.equal(failed.otp_extracted, false);
+});

@@ -482,7 +482,7 @@ export class PostgresStore {
          values ($1, $2, $3, $4, $5::jsonb)`,
         [
           messageId,
-          otpCode || verificationLink ? "otp.extracted" : "mail.parsed",
+          otpCode || verificationLink ? "otp.extracted" : "mail.parse_failed",
           otpCode || null,
           verificationLink || null,
           JSON.stringify(payload),
@@ -1004,7 +1004,11 @@ export class PostgresStore {
               m.received_at,
               case when exists (
                 select 1 from message_events me where me.message_id = m.id and me.event_type = 'otp.extracted'
-              ) then 'parsed' else 'pending' end as parsed_status,
+              ) then 'parsed'
+              when exists (
+                select 1 from message_events me where me.message_id = m.id and me.event_type = 'mail.parse_failed'
+              ) then 'failed'
+              else 'pending' end as parsed_status,
               exists (
                 select 1 from message_events me where me.message_id = m.id and me.event_type = 'otp.extracted' and me.otp_code is not null
               ) as otp_extracted

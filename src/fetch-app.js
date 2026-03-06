@@ -494,6 +494,8 @@ export function createFetchApp(deps = {}) {
         const rawRef = String(body.raw_ref || "").trim() || null;
         const receivedAt = String(body.received_at || "").trim() || new Date().toISOString();
         const textExcerpt = String(body.text_excerpt || "").trim() || null;
+        const htmlExcerpt = String(body.html_excerpt || "").trim() || null;
+        const htmlBody = String(body.html_body || "").trim() || null;
         const headers = body.headers && typeof body.headers === "object" ? body.headers : {};
 
         if (!mailboxAddress || !senderDomain) {
@@ -521,6 +523,8 @@ export function createFetchApp(deps = {}) {
           payload: {
             headers,
             text_excerpt: textExcerpt,
+            html_excerpt: htmlExcerpt,
+            html_body: htmlBody,
           },
           requestId,
         });
@@ -528,6 +532,8 @@ export function createFetchApp(deps = {}) {
         const parsed = parseInboundContent({
           subject,
           textExcerpt,
+          htmlExcerpt,
+          htmlBody,
         });
         await store.applyMessageParseResult({
           messageId: ingested.messageId,
@@ -536,6 +542,7 @@ export function createFetchApp(deps = {}) {
           payload: {
             parser: "builtin",
             source: "mailu-internal-event",
+            parser_status: parsed.parserStatus,
           },
           requestId,
         });
