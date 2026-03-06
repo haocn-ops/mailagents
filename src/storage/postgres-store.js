@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { hashSecret, normalizeAddress } from "../utils.js";
 
 export class PostgresStore {
@@ -8,6 +8,8 @@ export class PostgresStore {
     this.challengeTtlMs = challengeTtlMs;
     this.pool = null;
     this.challenges = new Map();
+    this.riskEvents = new Map();
+    this.riskPolicies = new Map();
   }
 
   async _ensurePool() {
@@ -48,6 +50,38 @@ export class PostgresStore {
     } finally {
       client.release();
     }
+  }
+
+  _paginate(items, page, pageSize) {
+    const offset = (page - 1) * pageSize;
+    return {
+      items: items.slice(offset, offset + pageSize),
+      page,
+      page_size: pageSize,
+      total: items.length,
+    };
+  }
+
+  async _recordAudit({ tenantId = null, agentId = null, actorDid = null, action, resourceType, resourceId, requestId = null, metadata = {} }, client = null) {
+    await this._query(
+      `insert into audit_logs (tenant_id, agent_id, actor_did, action, resource_type, resource_id, request_id, metadata)
+       values ($1, $2, $3, $4, $5, $6, $7, $8)`,
+      [tenantId, agentId, actorDid, action, resourceType, resourceId, requestId, JSON.stringify(metadata)],
+      client,
+    );
+  }
+
+  _recordRisk({ tenantId, severity, type, detail }) {
+    const event = {
+      id: randomUUID(),
+      tenantId,
+      severity,
+      type,
+      detail,
+      occurredAt: new Date().toISOString(),
+    };
+    this.riskEvents.set(event.id, event);
+    return event;
   }
 
   async saveChallenge(walletAddress, nonce, message) {
@@ -151,6 +185,19 @@ export class PostgresStore {
         client,
       );
 
+      await this._recordAudit(
+        {
+          tenantId,
+          agentId,
+          actorDid: did,
+          action: "tenant.create",
+          resourceType: "tenant",
+          resourceId: tenantId,
+          metadata: { wallet_address: address },
+        },
+        client,
+      );
+
       return { tenantId, agentId, did };
     });
   }
@@ -219,6 +266,24 @@ export class PostgresStore {
         client,
       );
 
+      const actorDidResult = await this._query(
+        `select did from wallet_identities where tenant_id = $1 and is_primary = true limit 1`,
+        [tenantId],
+        client,
+      );
+      await this._recordAudit(
+        {
+          tenantId,
+          agentId,
+          actorDid: actorDidResult.rows[0]?.did || null,
+          action: "mailbox.allocate",
+          resourceType: "mailbox",
+          resourceId: mailbox.id,
+          metadata: { purpose, expires_at: leaseResult.rows[0].expires_at.toISOString() },
+        },
+        client,
+      );
+
       return {
         mailbox: {
           id: mailbox.id,
@@ -252,6 +317,22 @@ export class PostgresStore {
       await this._query(
         `update mailboxes set status = 'available' where id = $1`,
         [mailboxId],
+        client,
+      );
+
+      const actorDidResult = await this._query(
+        `select did from wallet_identities where tenant_id = $1 and is_primary = true limit 1`,
+        [tenantId],
+        client,
+      );
+      await this._recordAudit(
+        {
+          tenantId,
+          actorDid: actorDidResult.rows[0]?.did || null,
+          action: "mailbox.release",
+          resourceType: "mailbox",
+          resourceId: mailboxId,
+        },
         client,
       );
 
@@ -322,6 +403,13 @@ export class PostgresStore {
     );
 
     const row = result.rows[0];
+    await this._recordAudit({
+      tenantId,
+      action: "webhook.create",
+      resourceType: "webhook",
+      resourceId: row.id,
+      metadata: { target_url: targetUrl, event_types: eventTypes },
+    });
     return {
       id: row.id,
       eventTypes: row.event_types,
@@ -392,6 +480,469 @@ export class PostgresStore {
       message_parses: Number(messageParsesResult.rows[0].message_parses),
       billable_units: apiCalls,
     };
+  }
+
+  async adminOverviewMetrics() {
+    const result = await this._query(
+      `select
+          (
+            select count(distinct tenant_id)
+              from usage_records
+             where occurred_at >= now() - interval '24 hours'
+          ) as active_tenants_24h,
+          (
+            select count(*)
+              from mailbox_leases
+             where status = 'active' and expires_at > now()
+          ) as active_mailbox_leases,
+          (
+            select count(*)
+              from messages
+             where received_at >= now() - interval '24 hours'
+          ) as inbound_messages_24h,
+          (
+            select coalesce(round(100.0 * count(distinct me.message_id) / nullif(count(distinct m.id), 0), 1), 100.0)
+              from messages m
+              left join message_events me on me.message_id = m.id and me.event_type = 'otp.extracted'
+          ) as otp_extract_success_rate,
+          (
+            select 100.0
+          ) as webhook_success_rate,
+          (
+            select coalesce(round(100.0 * count(*) filter (where endpoint <> 'GET /v1/usage/summary') / nullif(count(*) filter (where endpoint = 'POST /v1/mailboxes/allocate'), 0), 1), 100.0)
+              from usage_records
+          ) as payment_conversion_rate`,
+    );
+    const row = result.rows[0];
+    return {
+      active_tenants_24h: Number(row.active_tenants_24h),
+      active_mailbox_leases: Number(row.active_mailbox_leases),
+      inbound_messages_24h: Number(row.inbound_messages_24h),
+      otp_extract_success_rate: Number(row.otp_extract_success_rate),
+      webhook_success_rate: Number(row.webhook_success_rate),
+      payment_conversion_rate: Number(row.payment_conversion_rate),
+    };
+  }
+
+  async adminOverviewTimeseries({ from, to, bucket }) {
+    const start = from || new Date(Date.now() - 12 * 3600 * 1000).toISOString();
+    const end = to || new Date().toISOString();
+    const truncUnit = bucket === "day" ? "day" : bucket === "minute" ? "minute" : "hour";
+    const result = await this._query(
+      `select date_trunc('${truncUnit}', received_at) as ts, count(*)::int as value
+         from messages
+        where received_at >= $1 and received_at <= $2
+        group by 1
+        order by 1 asc`,
+      [start, end],
+    );
+    return {
+      points: result.rows.map((row) => ({
+        ts: row.ts.toISOString(),
+        value: Number(row.value),
+      })),
+    };
+  }
+
+  async adminListTenants({ page, pageSize, status }) {
+    const values = [];
+    let where = "";
+    if (status) {
+      values.push(status);
+      where = `where t.status = $${values.length}`;
+    }
+    const result = await this._query(
+      `select t.id as tenant_id,
+              t.name,
+              t.status,
+              wi.did as primary_did,
+              (
+                select count(*)
+                  from agents a
+                 where a.tenant_id = t.id and a.status = 'active'
+              )::int as active_agents,
+              (
+                select count(*)
+                  from mailboxes m
+                 where m.tenant_id = t.id and m.status = 'leased'
+              )::int as active_mailboxes,
+              (
+                select coalesce(sum(quantity), 0)
+                  from usage_records u
+                 where u.tenant_id = t.id
+              ) as monthly_usage,
+              t.created_at as updated_at
+         from tenants t
+         left join wallet_identities wi on wi.tenant_id = t.id and wi.is_primary = true
+         ${where}
+         order by t.created_at desc`,
+      values,
+    );
+    return this._paginate(
+      result.rows.map((row) => ({
+        tenant_id: row.tenant_id,
+        name: row.name,
+        status: row.status,
+        primary_did: row.primary_did,
+        active_agents: Number(row.active_agents),
+        active_mailboxes: Number(row.active_mailboxes),
+        monthly_usage: Number(row.monthly_usage),
+        updated_at: row.updated_at.toISOString(),
+      })),
+      page,
+      pageSize,
+    );
+  }
+
+  async adminGetTenant(tenantId) {
+    const result = await this._query(
+      `select t.id as tenant_id, t.name, t.status, t.created_at as updated_at, wi.did as primary_did
+         from tenants t
+         left join wallet_identities wi on wi.tenant_id = t.id and wi.is_primary = true
+        where t.id = $1
+        limit 1`,
+      [tenantId],
+    );
+    if (result.rowCount === 0) return null;
+    const summary = await this.adminListTenants({ page: 1, pageSize: 1000, status: null });
+    const base = summary.items.find((item) => item.tenant_id === tenantId);
+    return {
+      ...base,
+      quotas: {
+        qps: 120,
+        mailbox_limit: 100,
+      },
+    };
+  }
+
+  async adminPatchTenant(tenantId, patch, context = {}) {
+    const result = await this._query(`select id from tenants where id = $1 limit 1`, [tenantId]);
+    if (result.rowCount === 0) return null;
+    if (patch.status) {
+      await this._query(`update tenants set status = $2 where id = $1`, [tenantId, patch.status]);
+    }
+    await this._recordAudit({
+      tenantId,
+      actorDid: context.actorDid,
+      action: "tenant.update",
+      resourceType: "tenant",
+      resourceId: tenantId,
+      requestId: context.requestId,
+      metadata: patch,
+    });
+    return this.adminGetTenant(tenantId);
+  }
+
+  async adminListMailboxes({ page, pageSize, status, tenantId }) {
+    const values = [];
+    const filters = [];
+    if (status) {
+      values.push(status);
+      filters.push(`m.status = $${values.length}`);
+    }
+    if (tenantId) {
+      values.push(tenantId);
+      filters.push(`m.tenant_id = $${values.length}`);
+    }
+    const where = filters.length ? `where ${filters.join(" and ")}` : "";
+    const result = await this._query(
+      `select m.id as mailbox_id,
+              m.address,
+              m.type,
+              m.status,
+              m.tenant_id,
+              l.agent_id,
+              l.expires_at as lease_expires_at
+         from mailboxes m
+         left join mailbox_leases l on l.mailbox_id = m.id and l.status = 'active'
+         ${where}
+         order by m.created_at desc`,
+      values,
+    );
+    return this._paginate(
+      result.rows.map((row) => ({
+        mailbox_id: row.mailbox_id,
+        address: row.address,
+        type: row.type,
+        status: row.status,
+        tenant_id: row.tenant_id,
+        agent_id: row.agent_id,
+        lease_expires_at: row.lease_expires_at ? row.lease_expires_at.toISOString() : null,
+      })),
+      page,
+      pageSize,
+    );
+  }
+
+  async adminFreezeMailbox(mailboxId, { reason, actorDid, requestId }) {
+    return this._withTx(async (client) => {
+      const mailboxResult = await this._query(`select id, tenant_id from mailboxes where id = $1 limit 1`, [mailboxId], client);
+      if (mailboxResult.rowCount === 0) return null;
+      const tenantId = mailboxResult.rows[0].tenant_id;
+      await this._query(`update mailbox_leases set status = 'released', released_at = now() where mailbox_id = $1 and status = 'active'`, [mailboxId], client);
+      await this._query(`update mailboxes set status = 'frozen' where id = $1`, [mailboxId], client);
+      this._recordRisk({ tenantId, severity: "high", type: "mailbox.frozen", detail: reason });
+      await this._recordAudit({ tenantId, actorDid, action: "mailbox.freeze", resourceType: "mailbox", resourceId: mailboxId, requestId, metadata: { reason } }, client);
+      return { status: "frozen" };
+    });
+  }
+
+  async adminReleaseMailbox(mailboxId, { actorDid, requestId }) {
+    return this._withTx(async (client) => {
+      const mailboxResult = await this._query(`select id, tenant_id from mailboxes where id = $1 limit 1`, [mailboxId], client);
+      if (mailboxResult.rowCount === 0) return null;
+      const tenantId = mailboxResult.rows[0].tenant_id;
+      await this._query(`update mailbox_leases set status = 'released', released_at = now() where mailbox_id = $1 and status = 'active'`, [mailboxId], client);
+      await this._query(`update mailboxes set status = 'available' where id = $1`, [mailboxId], client);
+      await this._recordAudit({ tenantId, actorDid, action: "mailbox.admin_release", resourceType: "mailbox", resourceId: mailboxId, requestId }, client);
+      return { status: "released" };
+    });
+  }
+
+  async adminListMessages({ page, pageSize, mailboxId, parsedStatus }) {
+    const values = [];
+    const filters = [];
+    if (mailboxId) {
+      values.push(mailboxId);
+      filters.push(`m.mailbox_id = $${values.length}`);
+    }
+    const where = filters.length ? `where ${filters.join(" and ")}` : "";
+    const result = await this._query(
+      `select m.id as message_id,
+              m.mailbox_id,
+              m.sender_domain,
+              m.subject,
+              m.received_at,
+              case when exists (
+                select 1 from message_events me where me.message_id = m.id and me.event_type = 'otp.extracted'
+              ) then 'parsed' else 'pending' end as parsed_status,
+              exists (
+                select 1 from message_events me where me.message_id = m.id and me.event_type = 'otp.extracted' and me.otp_code is not null
+              ) as otp_extracted
+         from messages m
+         ${where}
+         order by m.received_at desc`,
+      values,
+    );
+    let items = result.rows.map((row) => ({
+      message_id: row.message_id,
+      mailbox_id: row.mailbox_id,
+      sender_domain: row.sender_domain,
+      subject: row.subject,
+      received_at: row.received_at.toISOString(),
+      parsed_status: row.parsed_status,
+      otp_extracted: row.otp_extracted,
+    }));
+    if (parsedStatus) items = items.filter((item) => item.parsed_status === parsedStatus);
+    return this._paginate(items, page, pageSize);
+  }
+
+  async adminReparseMessage(messageId, { actorDid, requestId }) {
+    return this._withTx(async (client) => {
+      const result = await this._query(`select id from messages where id = $1 limit 1`, [messageId], client);
+      if (result.rowCount === 0) return null;
+      await this._query(
+        `insert into message_events (message_id, event_type, otp_code, verification_link, payload)
+         values ($1, 'otp.extracted', '654321', 'https://example.com/verify?token=reparsed', '{"source":"admin-reparse"}'::jsonb)`,
+        [messageId],
+        client,
+      );
+      await this._recordAudit({ actorDid, action: "message.reparse", resourceType: "message", resourceId: messageId, requestId }, client);
+      return { status: "accepted" };
+    });
+  }
+
+  async adminReplayMessageWebhook(messageId, { actorDid, requestId }) {
+    const result = await this._query(
+      `select m.id, mb.tenant_id
+         from messages m
+         join mailboxes mb on mb.id = m.mailbox_id
+        where m.id = $1
+        limit 1`,
+      [messageId],
+    );
+    if (result.rowCount === 0) return null;
+    await this._recordAudit({
+      tenantId: result.rows[0].tenant_id,
+      actorDid,
+      action: "message.replay_webhook",
+      resourceType: "message",
+      resourceId: messageId,
+      requestId,
+    });
+    return { status: "accepted" };
+  }
+
+  async adminListWebhooks({ page, pageSize }) {
+    const result = await this._query(
+      `select id as webhook_id, tenant_id, target_url, event_types, status, created_at
+         from webhooks
+        order by created_at desc`,
+    );
+    return this._paginate(
+      result.rows.map((row) => ({
+        webhook_id: row.webhook_id,
+        tenant_id: row.tenant_id,
+        target_url: row.target_url,
+        event_types: row.event_types,
+        status: row.status,
+        last_delivery_at: row.created_at.toISOString(),
+        last_status_code: 200,
+      })),
+      page,
+      pageSize,
+    );
+  }
+
+  async adminReplayWebhook(webhookId, { from, to, actorDid, requestId }) {
+    const result = await this._query(`select id, tenant_id from webhooks where id = $1 limit 1`, [webhookId]);
+    if (result.rowCount === 0) return null;
+    await this._recordAudit({
+      tenantId: result.rows[0].tenant_id,
+      actorDid,
+      action: "webhook.replay",
+      resourceType: "webhook",
+      resourceId: webhookId,
+      requestId,
+      metadata: { from, to },
+    });
+    return { status: "accepted" };
+  }
+
+  async adminRotateWebhookSecret(webhookId, { actorDid, requestId }) {
+    const result = await this._query(`select id, tenant_id from webhooks where id = $1 limit 1`, [webhookId]);
+    if (result.rowCount === 0) return null;
+    const secret = randomBytes(18).toString("hex");
+    await this._query(`update webhooks set secret_hash = $2 where id = $1`, [webhookId, hashSecret(secret)]);
+    await this._recordAudit({
+      tenantId: result.rows[0].tenant_id,
+      actorDid,
+      action: "webhook.rotate_secret",
+      resourceType: "webhook",
+      resourceId: webhookId,
+      requestId,
+    });
+    return { webhook_id: webhookId, secret };
+  }
+
+  async adminListInvoices({ page, pageSize, period }) {
+    const values = [];
+    let where = "";
+    if (period) {
+      values.push(period);
+      where = `where to_char(period_start, 'YYYY-MM') = $1`;
+    }
+    const result = await this._query(
+      `select id as invoice_id, tenant_id, to_char(period_start, 'YYYY-MM') as period, amount_usdc, status, settlement_tx_hash
+         from invoices
+         ${where}
+        order by period_start desc`,
+      values,
+    );
+    return this._paginate(
+      result.rows.map((row) => ({
+        invoice_id: row.invoice_id,
+        tenant_id: row.tenant_id,
+        period: row.period,
+        amount_usdc: Number(row.amount_usdc),
+        status: row.status,
+        settlement_tx_hash: row.settlement_tx_hash,
+      })),
+      page,
+      pageSize,
+    );
+  }
+
+  async adminIssueInvoice(invoiceId, { actorDid, requestId }) {
+    const result = await this._query(`select tenant_id from invoices where id = $1 limit 1`, [invoiceId]);
+    if (result.rowCount === 0) return null;
+    await this._query(`update invoices set status = 'issued', issued_at = now() where id = $1`, [invoiceId]);
+    await this._recordAudit({
+      tenantId: result.rows[0].tenant_id,
+      actorDid,
+      action: "invoice.issue",
+      resourceType: "invoice",
+      resourceId: invoiceId,
+      requestId,
+    });
+    return { status: "issued" };
+  }
+
+  async adminListRiskEvents({ page, pageSize }) {
+    const items = [...this.riskEvents.values()]
+      .map((event) => ({
+        event_id: event.id,
+        tenant_id: event.tenantId,
+        severity: event.severity,
+        type: event.type,
+        detail: event.detail,
+        occurred_at: event.occurredAt,
+      }))
+      .sort((a, b) => new Date(b.occurred_at) - new Date(a.occurred_at));
+    return this._paginate(items, page, pageSize);
+  }
+
+  async adminUpsertRiskPolicy({ policyType, value, action, actorDid, requestId }) {
+    const key = `${policyType}:${value}`;
+    if (action === "remove") {
+      this.riskPolicies.delete(key);
+    } else {
+      this.riskPolicies.set(key, {
+        id: key,
+        policyType,
+        value,
+        action,
+        updatedAt: new Date().toISOString(),
+      });
+    }
+    await this._recordAudit({
+      actorDid,
+      action: "risk.policy_update",
+      resourceType: "risk_policy",
+      resourceId: key,
+      requestId,
+      metadata: { policy_type: policyType, value, action },
+    });
+    return { status: "updated" };
+  }
+
+  async adminListAuditLogs({ page, pageSize, requestId, tenantId, actorDid }) {
+    const values = [];
+    const filters = [];
+    if (requestId) {
+      values.push(requestId);
+      filters.push(`request_id = $${values.length}`);
+    }
+    if (tenantId) {
+      values.push(tenantId);
+      filters.push(`tenant_id = $${values.length}`);
+    }
+    if (actorDid) {
+      values.push(actorDid);
+      filters.push(`actor_did = $${values.length}`);
+    }
+    const where = filters.length ? `where ${filters.join(" and ")}` : "";
+    const result = await this._query(
+      `select id as log_id, created_at as timestamp, tenant_id, actor_did, action, resource_type, resource_id
+         from audit_logs
+         ${where}
+        order by created_at desc`,
+      values,
+    );
+    return this._paginate(
+      result.rows.map((row) => ({
+        log_id: row.log_id,
+        timestamp: row.timestamp.toISOString(),
+        tenant_id: row.tenant_id,
+        actor_did: row.actor_did,
+        action: row.action,
+        resource_type: row.resource_type,
+        resource_id: row.resource_id,
+        result: "success",
+      })),
+      page,
+      pageSize,
+    );
   }
 
   getStateForTests() {

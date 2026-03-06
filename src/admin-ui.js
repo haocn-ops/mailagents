@@ -30,60 +30,74 @@ export function renderAdminDashboardHtml() {
     .caption { margin: 4px 0 0; color: var(--muted); font-size: 13px; }
     .status { display: flex; gap: 8px; align-items: center; font-family: 'IBM Plex Mono', monospace; font-size: 12px; background: rgba(255,255,255,0.8); border: 1px dashed #aac9c1; border-radius: 999px; padding: 8px 12px; }
     .dot { width: 8px; height: 8px; border-radius: 50%; background: #999; }
-    .dot.ok { background: var(--ok); } .dot.bad { background: var(--warn); }
-    .toolbar { margin-bottom: 16px; display: grid; grid-template-columns: 1fr auto auto; gap: 10px; align-items: center; }
+    .dot.ok { background: var(--ok); }
+    .dot.bad { background: var(--warn); }
+    .toolbar { margin-bottom: 16px; display: grid; grid-template-columns: 1.1fr 1.4fr auto auto auto; gap: 10px; align-items: center; }
     input, select, textarea { width: 100%; border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; font: inherit; color: var(--ink); background: #fff; }
     button.cta { border: 0; border-radius: 10px; background: var(--brand); color: #fff; padding: 10px 14px; font: inherit; cursor: pointer; }
     button.cta.alt { background: #2e4b45; }
-    .grid { display: grid; gap: 14px; } .metrics { grid-template-columns: repeat(6, minmax(120px, 1fr)); }
+    button.cta.ghost { background: #dce9e6; color: #17312d; }
+    .grid { display: grid; gap: 14px; }
+    .metrics { grid-template-columns: repeat(6, minmax(120px, 1fr)); }
     .card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); padding: 14px; animation: enter 280ms ease; }
     .metric .k { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; }
     .metric .v { margin-top: 8px; font-size: 26px; font-weight: 700; }
     .metric .d { margin-top: 4px; font-size: 12px; color: var(--muted); }
-    .panel { display: none; gap: 14px; } .panel.active { display: grid; }
+    .panel { display: none; gap: 14px; }
+    .panel.active { display: grid; }
     .two { grid-template-columns: 1.2fr 1fr; }
     .chart { height: 180px; display: grid; gap: 8px; align-content: end; grid-template-columns: repeat(12, 1fr); }
     .bar { border-radius: 8px 8px 4px 4px; background: linear-gradient(180deg, #2fa695, #0f7165); min-height: 8px; transition: transform 180ms ease; }
-    .bar:hover { transform: translateY(-2px); }
     .table-wrap { overflow: auto; border: 1px solid var(--line); border-radius: 12px; background: #fff; }
     table { width: 100%; border-collapse: collapse; min-width: 900px; font-size: 13px; }
     th, td { padding: 10px 12px; border-bottom: 1px solid #edf2f0; text-align: left; white-space: nowrap; }
     th { position: sticky; top: 0; background: #f8fbfa; font-weight: 600; color: #2d3e3a; }
     .tag { border-radius: 999px; padding: 4px 9px; font-size: 11px; font-family: 'IBM Plex Mono', monospace; display: inline-block; background: #eef3f1; }
-    .tag.ok { background: var(--ok-soft); color: #194e2e; } .tag.warn { background: var(--warn-soft); color: #8a2f18; } .tag.brand { background: var(--brand-soft); color: #075b53; }
+    .tag.ok { background: var(--ok-soft); color: #194e2e; }
+    .tag.warn { background: var(--warn-soft); color: #8a2f18; }
+    .tag.brand { background: var(--brand-soft); color: #075b53; }
     .actions { display: flex; gap: 6px; flex-wrap: wrap; }
     .mini { border: 1px solid var(--line); background: #fff; color: #2f423d; border-radius: 8px; padding: 5px 8px; cursor: pointer; font-size: 12px; }
-    .log { font-family: 'IBM Plex Mono', monospace; font-size: 12px; background: #101917; color: #c8f8ec; border-radius: 12px; padding: 12px; min-height: 120px; white-space: pre-wrap; overflow: auto; }
-    .form-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; } .full { grid-column: 1 / -1; }
+    .hint { font-size: 12px; color: var(--muted); margin-bottom: 8px; }
+    .log { font-family: 'IBM Plex Mono', monospace; font-size: 12px; background: #101917; color: #c8f8ec; border-radius: 12px; padding: 12px; min-height: 140px; white-space: pre-wrap; overflow: auto; }
+    .settings-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+    .empty { color: var(--muted); font-size: 13px; padding: 14px; }
     @keyframes enter { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
-    @media (max-width: 1100px) { .layout { grid-template-columns: 1fr; } .sidebar { position: static; height: auto; border-right: 0; border-bottom: 1px solid var(--line);} .metrics { grid-template-columns: repeat(2, minmax(120px, 1fr)); } .two { grid-template-columns: 1fr; } .toolbar { grid-template-columns: 1fr; }}
+    @media (max-width: 1100px) {
+      .layout { grid-template-columns: 1fr; }
+      .sidebar { position: static; height: auto; border-right: 0; border-bottom: 1px solid var(--line); }
+      .metrics { grid-template-columns: repeat(2, minmax(120px, 1fr)); }
+      .two, .toolbar, .settings-grid { grid-template-columns: 1fr; }
+    }
   </style>
 </head>
 <body>
   <div class="layout">
     <aside class="sidebar">
       <div class="logo">Agent Mail Cloud</div>
-      <div class="sub">Admin Dashboard · V1</div>
+      <div class="sub">Admin Dashboard · Live API</div>
       <div class="nav" id="nav"></div>
     </aside>
     <main class="main">
       <section class="topbar">
         <div>
           <h1 class="title">Operations Control Plane</h1>
-          <p class="caption">Monitor tenants, mailboxes, parsing, webhooks, billing and risk in one place.</p>
+          <p class="caption">Backed by the real Admin API defined in docs/openapi-admin.yaml.</p>
         </div>
         <div class="status"><span id="api-dot" class="dot"></span><span id="api-status">checking API...</span></div>
       </section>
       <section class="toolbar">
         <input id="apiBase" value="${defaultApiBase}" />
-        <button class="cta" id="ping">Ping API</button>
+        <input id="token" placeholder="Bearer token (auto-login works in mock SIWE mode)" />
+        <button class="cta ghost" id="login">Admin Login</button>
+        <button class="cta" id="refresh">Refresh</button>
         <button class="cta alt" id="run-flow">Run Auth + Allocate</button>
       </section>
       <section class="grid metrics" id="metrics"></section>
       <section class="panel active" data-panel="Overview">
         <div class="grid two">
-          <article class="card"><h3>Mail Traffic (last 12h)</h3><div class="chart" id="mail-chart"></div></article>
-          <article class="card"><h3>Endpoint Mix</h3><div class="chart" id="api-chart"></div></article>
+          <article class="card"><h3>Inbound Mail Timeline</h3><div class="chart" id="mail-chart"></div></article>
+          <article class="card"><h3>System State</h3><div class="log" id="state-log"></div></article>
         </div>
         <article class="card"><h3>Live Event Log</h3><div class="log" id="live-log"></div></article>
       </section>
@@ -96,135 +110,410 @@ export function renderAdminDashboardHtml() {
       <section class="panel" data-panel="Audit"><article class="card table-wrap" id="tbl-audit"></article></section>
       <section class="panel" data-panel="Settings">
         <article class="card">
-          <h3>Policy & Access Settings</h3>
-          <div class="form-grid">
-            <div><label>Role</label><select><option>Owner</option><option>Admin</option><option>Operator</option><option>Viewer</option></select></div>
-            <div><label>Tenant QPS Limit</label><input value="120" /></div>
-            <div><label>Agent allocate/hour</label><input value="60" /></div>
-            <div><label>Denylist Domains</label><input value="tempmail.xyz, badmail.cc" /></div>
-            <div class="full"><label>Webhook Retry Policy</label><textarea rows="4">Exponential backoff, max 8 retries, DLQ enabled.</textarea></div>
-            <div class="full"><button class="cta">Save Settings</button></div>
+          <h3>Risk Policy Writer</h3>
+          <p class="hint">Writes directly to <code>/v1/admin/risk/policies</code>.</p>
+          <div class="settings-grid">
+            <select id="policy-type">
+              <option value="domain_denylist">domain_denylist</option>
+              <option value="tenant_rate_limit">tenant_rate_limit</option>
+              <option value="tenant_watch">tenant_watch</option>
+            </select>
+            <input id="policy-value" placeholder="value" />
+            <select id="policy-action">
+              <option value="add">add</option>
+              <option value="update">update</option>
+              <option value="remove">remove</option>
+            </select>
           </div>
+          <div style="margin-top:10px"><button class="cta" id="save-policy">Save Policy</button></div>
         </article>
       </section>
     </main>
   </div>
   <script>
-    var navItems = ["Overview","Tenants","Mailboxes","Messages","Webhooks","Billing","Risk","Audit","Settings"];
-    var metrics = [["Active Tenants","186","+6.2% / 24h"],["Active Leases","742","p95 allocate 1.3s"],["Mail Received","18.4k","1h: 1.1k"],["OTP Success","98.7%","target >95%"],["Webhook Success","99.2%","after retries"],["402→Paid","96.1%","conversion stable"]];
-    var tenants = [["tnt-01f3","Acme Agent Lab","active","did:pkh:eip155:8453:0x12..af",14,96,"1240.50","2026-03-05T13:10Z"],["tnt-02a1","NovaOps","active","did:pkh:eip155:8453:0x88..c1",8,57,"842.20","2026-03-05T12:42Z"],["tnt-08aa","Dex Insight","suspended","did:pkh:eip155:8453:0x44..ff",3,12,"92.30","2026-03-04T23:15Z"]];
-    var mailboxes = [["mbx-782","agent-1@pool.mailcloud.local","alias","leased","tnt-01f3","agt-a1","2026-03-05T15:00Z"],["mbx-613","agent-2@pool.mailcloud.local","alias","available","tnt-01f3","-","-"],["mbx-012","agent-3@pool.mailcloud.local","real","frozen","tnt-08aa","agt-z9","2026-03-05T09:30Z"]];
-    var messages = [["msg-9a1","mbx-782","example.com","Verify your account","2026-03-05T13:08Z","parsed",true],["msg-2d4","mbx-012","riskmail.cc","Your OTP","2026-03-05T09:15Z","failed",false],["msg-7c2","mbx-782","vendor.io","Confirm sign-in","2026-03-05T12:59Z","parsed",true]];
-    var webhooks = [["wh-100","tnt-01f3","https://ops.acme.ai/hook","otp.extracted","active","2026-03-05T13:09Z",200],["wh-201","tnt-02a1","https://novaops.io/cb","mail.received","paused","2026-03-05T11:02Z",503]];
-    var billing = [["inv-883","tnt-01f3","2026-03","1240.50","issued","0x9ab...ee1"],["inv-901","tnt-02a1","2026-03","842.20","paid","0x1bc...2af"],["inv-701","tnt-08aa","2026-03","92.30","draft","-"]];
-    var risk = [["2026-03-05T13:00Z","tnt-08aa","denylist.hit","tempmail.xyz","high"],["2026-03-05T12:10Z","tnt-02a1","rate.limit","allocate/hour > 60","medium"],["2026-03-04T23:12Z","tnt-08aa","webhook.fail.burst","12 failures / 5m","high"]];
-    var audit = [["2026-03-05T13:11Z","did:pkh...af","mailbox.freeze","mailbox","mbx-012","ok"],["2026-03-05T12:50Z","did:pkh...c1","webhook.replay","webhook","wh-201","ok"],["2026-03-05T12:25Z","did:pkh...ff","tenant.disable","tenant","tnt-08aa","ok"]];
-    var nav = document.getElementById('nav');
-    var metricsEl = document.getElementById('metrics');
-    var logEl = document.getElementById('live-log');
-    var apiBaseEl = document.getElementById('apiBase');
-    var apiDot = document.getElementById('api-dot');
-    var apiStatus = document.getElementById('api-status');
+    var navItems = ["Overview", "Tenants", "Mailboxes", "Messages", "Webhooks", "Billing", "Risk", "Audit", "Settings"];
+    var metricDefs = [
+      ["active_tenants_24h", "Active Tenants"],
+      ["active_mailbox_leases", "Active Leases"],
+      ["inbound_messages_24h", "Inbound 24h"],
+      ["otp_extract_success_rate", "OTP Success"],
+      ["webhook_success_rate", "Webhook Success"],
+      ["payment_conversion_rate", "Payment Conversion"]
+    ];
+    var nav = document.getElementById("nav");
+    var metricsEl = document.getElementById("metrics");
+    var logEl = document.getElementById("live-log");
+    var stateLogEl = document.getElementById("state-log");
+    var apiBaseEl = document.getElementById("apiBase");
+    var tokenEl = document.getElementById("token");
+    var apiDot = document.getElementById("api-dot");
+    var apiStatus = document.getElementById("api-status");
 
-    function addLog(line){ logEl.textContent = '[' + new Date().toISOString() + '] ' + line + '\n' + logEl.textContent; }
-    function mkTag(value){ var lower = String(value).toLowerCase(); var cls = (lower.indexOf('active')>-1||lower.indexOf('ok')>-1||lower.indexOf('paid')>-1||lower==='true') ? 'ok' : (lower.indexOf('high')>-1||lower.indexOf('fail')>-1||lower.indexOf('suspend')>-1||lower.indexOf('frozen')>-1||lower.indexOf('503')>-1 ? 'warn':'brand'); return '<span class="tag '+cls+'">'+value+'</span>'; }
-
-    function renderTable(targetId, headers, rows, actionLabels){
-      var host = document.getElementById(targetId);
-      var headerHtml = headers.map(function(h){ return '<th>'+h+'</th>'; }).join('');
-      var rowHtml = rows.map(function(r){
-        var tds = r.map(function(v){
-          var asString = String(v);
-          var statusKeys = ['active','suspended','leased','available','frozen','parsed','failed','paid','draft','issued','high','medium','ok','true','false'];
-          return statusKeys.indexOf(asString.toLowerCase())>-1 ? '<td>'+mkTag(asString)+'</td>' : '<td>'+asString+'</td>';
-        }).join('');
-        var actions = actionLabels.length ? '<td><div class="actions">'+actionLabels.map(function(a){ return '<button class="mini" data-action="'+a+'">'+a+'</button>'; }).join('')+'</div></td>' : '';
-        return '<tr>'+tds+actions+'</tr>';
-      }).join('');
-      host.innerHTML = '<table><thead><tr>'+headerHtml+(actionLabels.length?'<th>actions</th>':'')+'</tr></thead><tbody>'+rowHtml+'</tbody></table>';
+    function addLog(line) {
+      logEl.textContent = "[" + new Date().toISOString() + "] " + line + "\\n" + logEl.textContent;
     }
 
-    metrics.forEach(function(m){
-      var card = document.createElement('article');
-      card.className = 'card metric';
-      card.innerHTML = '<div class="k">'+m[0]+'</div><div class="v">'+m[1]+'</div><div class="d">'+m[2]+'</div>';
-      metricsEl.appendChild(card);
-    });
+    function setState(text) {
+      stateLogEl.textContent = text;
+    }
 
-    navItems.forEach(function(name, i){
-      var btn = document.createElement('button');
+    function mkTag(value) {
+      var lower = String(value).toLowerCase();
+      var cls = (lower.indexOf("active") > -1 || lower.indexOf("ok") > -1 || lower.indexOf("paid") > -1 || lower.indexOf("success") > -1 || lower === "true") ? "ok" : (lower.indexOf("high") > -1 || lower.indexOf("fail") > -1 || lower.indexOf("suspend") > -1 || lower.indexOf("frozen") > -1 || lower.indexOf("critical") > -1 ? "warn" : "brand");
+      return '<span class="tag ' + cls + '">' + value + "</span>";
+    }
+
+    function formatValue(value) {
+      if (value === null || value === undefined || value === "") return "-";
+      if (typeof value === "boolean") return mkTag(String(value));
+      var asString = String(value);
+      var statusKeys = ["active", "suspended", "archived", "leased", "available", "frozen", "retired", "parsed", "failed", "pending", "paid", "draft", "issued", "void", "high", "medium", "low", "critical", "success", "failed", "true", "false"];
+      if (statusKeys.indexOf(asString.toLowerCase()) > -1) return mkTag(asString);
+      return asString;
+    }
+
+    function renderMetrics(metrics) {
+      metricsEl.innerHTML = "";
+      metricDefs.forEach(function(def) {
+        var value = metrics[def[0]];
+        var suffix = def[0].indexOf("rate") > -1 ? "%" : "";
+        var card = document.createElement("article");
+        card.className = "card metric";
+        card.innerHTML = '<div class="k">' + def[1] + '</div><div class="v">' + (value == null ? "-" : value + suffix) + '</div><div class="d">live from admin API</div>';
+        metricsEl.appendChild(card);
+      });
+    }
+
+    function renderTable(targetId, headers, rows, actions) {
+      var host = document.getElementById(targetId);
+      if (!rows.length) {
+        host.innerHTML = '<div class="empty">No records yet.</div>';
+        return;
+      }
+      var headerHtml = headers.map(function(h) { return "<th>" + h.label + "</th>"; }).join("");
+      var rowHtml = rows.map(function(row) {
+        var cols = headers.map(function(h) { return "<td>" + formatValue(row[h.key]) + "</td>"; }).join("");
+        var actionHtml = "";
+        if (actions && actions.length) {
+          actionHtml = '<td><div class="actions">' + actions.map(function(action) {
+            return '<button class="mini" data-action="' + action.name + '" data-id="' + row[action.idKey] + '">' + action.label + "</button>";
+          }).join("") + "</div></td>";
+        }
+        return "<tr>" + cols + actionHtml + "</tr>";
+      }).join("");
+      host.innerHTML = "<table><thead><tr>" + headerHtml + (actions && actions.length ? "<th>actions</th>" : "") + "</tr></thead><tbody>" + rowHtml + "</tbody></table>";
+    }
+
+    function drawBars(values) {
+      var chart = document.getElementById("mail-chart");
+      chart.innerHTML = "";
+      values.slice(-12).forEach(function(point) {
+        var bar = document.createElement("div");
+        bar.className = "bar";
+        bar.style.height = String(Math.max(8, Number(point.value || 0) * 12)) + "%";
+        bar.title = point.ts + " => " + point.value;
+        chart.appendChild(bar);
+      });
+    }
+
+    function baseUrl() {
+      return apiBaseEl.value.trim().replace(/\\/$/, "");
+    }
+
+    function authHeaders() {
+      var headers = { "content-type": "application/json" };
+      if (tokenEl.value.trim()) headers.authorization = "Bearer " + tokenEl.value.trim();
+      return headers;
+    }
+
+    async function fetchJson(path, options) {
+      var res = await fetch(baseUrl() + path, options || {});
+      var body = await res.json().catch(function() { return {}; });
+      if (!res.ok) {
+        throw new Error((body && body.message) || ("HTTP " + res.status));
+      }
+      return body;
+    }
+
+    async function ping() {
+      try {
+        var body = await fetchJson("/healthz");
+        apiDot.className = "dot ok";
+        apiStatus.textContent = "API " + body.status;
+        addLog("healthz ok @ " + baseUrl());
+      } catch (err) {
+        apiDot.className = "dot bad";
+        apiStatus.textContent = "API unreachable";
+        addLog("healthz failed: " + err.message);
+      }
+    }
+
+    async function adminLogin() {
+      var wallet = "0xabc0000000000000000000000000000000000666";
+      var challenge = await fetchJson("/v1/auth/siwe/challenge", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ wallet_address: wallet })
+      });
+      var verify = await fetchJson("/v1/auth/siwe/verify", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ message: challenge.message, signature: "0xdev" })
+      });
+      tokenEl.value = verify.access_token;
+      addLog("admin token issued for tenant=" + verify.tenant_id);
+      return verify;
+    }
+
+    async function ensureToken() {
+      if (tokenEl.value.trim()) return;
+      await adminLogin();
+    }
+
+    async function runFlow() {
+      try {
+        var verify = await adminLogin();
+        var alloc = await fetchJson("/v1/mailboxes/allocate", {
+          method: "POST",
+          headers: Object.assign({}, authHeaders(), { "x-payment-proof": "mock-proof" }),
+          body: JSON.stringify({ agent_id: verify.agent_id, purpose: "admin-flow", ttl_hours: 1 })
+        });
+        addLog("flow ok tenant=" + verify.tenant_id + " mailbox=" + alloc.mailbox_id);
+        await refreshDashboard();
+      } catch (err) {
+        addLog("flow failed: " + err.message);
+      }
+    }
+
+    async function loadOverview() {
+      var metrics = await fetchJson("/v1/admin/overview/metrics", { headers: authHeaders() });
+      var timeseries = await fetchJson("/v1/admin/overview/timeseries?bucket=hour", { headers: authHeaders() });
+      renderMetrics(metrics);
+      drawBars(timeseries.points || []);
+      setState(
+        "api_base=" + baseUrl() + "\\n" +
+        "token_present=" + String(Boolean(tokenEl.value.trim())) + "\\n" +
+        "points=" + String((timeseries.points || []).length) + "\\n" +
+        "last_refresh=" + new Date().toISOString()
+      );
+    }
+
+    async function loadTables() {
+      var tenants = await fetchJson("/v1/admin/tenants?page=1&page_size=50", { headers: authHeaders() });
+      renderTable("tbl-tenants", [
+        { key: "tenant_id", label: "tenant_id" },
+        { key: "name", label: "name" },
+        { key: "status", label: "status" },
+        { key: "primary_did", label: "primary_did" },
+        { key: "active_agents", label: "active_agents" },
+        { key: "active_mailboxes", label: "active_mailboxes" },
+        { key: "monthly_usage", label: "monthly_usage" },
+        { key: "updated_at", label: "updated_at" }
+      ], tenants.items || [], [
+        { name: "tenant.disable", label: "Suspend", idKey: "tenant_id" }
+      ]);
+
+      var mailboxes = await fetchJson("/v1/admin/mailboxes?page=1&page_size=50", { headers: authHeaders() });
+      renderTable("tbl-mailboxes", [
+        { key: "mailbox_id", label: "mailbox_id" },
+        { key: "address", label: "address" },
+        { key: "type", label: "type" },
+        { key: "status", label: "status" },
+        { key: "tenant_id", label: "tenant_id" },
+        { key: "agent_id", label: "agent_id" },
+        { key: "lease_expires_at", label: "lease_expires_at" }
+      ], mailboxes.items || [], [
+        { name: "mailbox.freeze", label: "Freeze", idKey: "mailbox_id" },
+        { name: "mailbox.release", label: "Release", idKey: "mailbox_id" }
+      ]);
+
+      var messages = await fetchJson("/v1/admin/messages?page=1&page_size=50", { headers: authHeaders() });
+      renderTable("tbl-messages", [
+        { key: "message_id", label: "message_id" },
+        { key: "mailbox_id", label: "mailbox_id" },
+        { key: "sender_domain", label: "sender_domain" },
+        { key: "subject", label: "subject" },
+        { key: "received_at", label: "received_at" },
+        { key: "parsed_status", label: "parsed_status" },
+        { key: "otp_extracted", label: "otp_extracted" }
+      ], messages.items || [], [
+        { name: "message.reparse", label: "Reparse", idKey: "message_id" },
+        { name: "message.replay", label: "Replay Webhook", idKey: "message_id" }
+      ]);
+
+      var webhooks = await fetchJson("/v1/admin/webhooks?page=1&page_size=50", { headers: authHeaders() });
+      renderTable("tbl-webhooks", [
+        { key: "webhook_id", label: "webhook_id" },
+        { key: "tenant_id", label: "tenant_id" },
+        { key: "target_url", label: "target_url" },
+        { key: "event_types", label: "event_types" },
+        { key: "status", label: "status" },
+        { key: "last_delivery_at", label: "last_delivery_at" },
+        { key: "last_status_code", label: "last_status_code" }
+      ], (webhooks.items || []).map(function(item) {
+        item.event_types = Array.isArray(item.event_types) ? item.event_types.join(", ") : item.event_types;
+        return item;
+      }), [
+        { name: "webhook.replay", label: "Replay", idKey: "webhook_id" },
+        { name: "webhook.rotate", label: "Rotate Secret", idKey: "webhook_id" }
+      ]);
+
+      var invoices = await fetchJson("/v1/admin/invoices?page=1&page_size=50", { headers: authHeaders() });
+      renderTable("tbl-billing", [
+        { key: "invoice_id", label: "invoice_id" },
+        { key: "tenant_id", label: "tenant_id" },
+        { key: "period", label: "period" },
+        { key: "amount_usdc", label: "amount_usdc" },
+        { key: "status", label: "status" },
+        { key: "settlement_tx_hash", label: "settlement_tx_hash" }
+      ], invoices.items || [], [
+        { name: "invoice.issue", label: "Issue", idKey: "invoice_id" }
+      ]);
+
+      var risk = await fetchJson("/v1/admin/risk/events?page=1&page_size=50", { headers: authHeaders() });
+      renderTable("tbl-risk", [
+        { key: "event_id", label: "event_id" },
+        { key: "tenant_id", label: "tenant_id" },
+        { key: "severity", label: "severity" },
+        { key: "type", label: "type" },
+        { key: "detail", label: "detail" },
+        { key: "occurred_at", label: "occurred_at" }
+      ], risk.items || []);
+
+      var audit = await fetchJson("/v1/admin/audit/logs?page=1&page_size=50", { headers: authHeaders() });
+      renderTable("tbl-audit", [
+        { key: "log_id", label: "log_id" },
+        { key: "timestamp", label: "timestamp" },
+        { key: "tenant_id", label: "tenant_id" },
+        { key: "actor_did", label: "actor_did" },
+        { key: "action", label: "action" },
+        { key: "resource_type", label: "resource_type" },
+        { key: "resource_id", label: "resource_id" },
+        { key: "result", label: "result" }
+      ], audit.items || []);
+    }
+
+    async function handleTableAction(evt) {
+      var button = evt.target.closest(".mini");
+      if (!button) return;
+      try {
+        await ensureToken();
+        var id = button.dataset.id;
+        var action = button.dataset.action;
+        if (action === "tenant.disable") {
+          await fetchJson("/v1/admin/tenants/" + id, {
+            method: "PATCH",
+            headers: authHeaders(),
+            body: JSON.stringify({ status: "suspended" })
+          });
+        } else if (action === "mailbox.freeze") {
+          await fetchJson("/v1/admin/mailboxes/" + id + "/freeze", {
+            method: "POST",
+            headers: authHeaders(),
+            body: JSON.stringify({ reason: "dashboard freeze" })
+          });
+        } else if (action === "mailbox.release") {
+          await fetchJson("/v1/admin/mailboxes/" + id + "/release", {
+            method: "POST",
+            headers: authHeaders(),
+            body: "{}"
+          });
+        } else if (action === "message.reparse") {
+          await fetchJson("/v1/admin/messages/" + id + "/reparse", {
+            method: "POST",
+            headers: authHeaders(),
+            body: "{}"
+          });
+        } else if (action === "message.replay") {
+          await fetchJson("/v1/admin/messages/" + id + "/replay-webhook", {
+            method: "POST",
+            headers: authHeaders(),
+            body: "{}"
+          });
+        } else if (action === "webhook.replay") {
+          var now = new Date();
+          var from = new Date(now.getTime() - 3600 * 1000).toISOString();
+          await fetchJson("/v1/admin/webhooks/" + id + "/replay", {
+            method: "POST",
+            headers: authHeaders(),
+            body: JSON.stringify({ from: from, to: now.toISOString() })
+          });
+        } else if (action === "webhook.rotate") {
+          var rotated = await fetchJson("/v1/admin/webhooks/" + id + "/rotate-secret", {
+            method: "POST",
+            headers: authHeaders(),
+            body: "{}"
+          });
+          addLog("webhook secret rotated: " + rotated.secret);
+        } else if (action === "invoice.issue") {
+          await fetchJson("/v1/admin/invoices/" + id + "/issue", {
+            method: "POST",
+            headers: authHeaders(),
+            body: "{}"
+          });
+        }
+        addLog("action ok: " + action + " id=" + id);
+        await refreshDashboard();
+      } catch (err) {
+        addLog("action failed: " + err.message);
+      }
+    }
+
+    async function savePolicy() {
+      try {
+        await ensureToken();
+        await fetchJson("/v1/admin/risk/policies", {
+          method: "POST",
+          headers: authHeaders(),
+          body: JSON.stringify({
+            policy_type: document.getElementById("policy-type").value,
+            value: document.getElementById("policy-value").value,
+            action: document.getElementById("policy-action").value
+          })
+        });
+        addLog("risk policy updated");
+        await refreshDashboard();
+      } catch (err) {
+        addLog("policy update failed: " + err.message);
+      }
+    }
+
+    async function refreshDashboard() {
+      try {
+        await ping();
+        await ensureToken();
+        await loadOverview();
+        await loadTables();
+        addLog("dashboard refreshed");
+      } catch (err) {
+        addLog("refresh failed: " + err.message);
+      }
+    }
+
+    navItems.forEach(function(name, index) {
+      var btn = document.createElement("button");
       btn.textContent = name;
-      if(i===0){ btn.classList.add('active'); }
-      btn.onclick = function(){
-        document.querySelectorAll('.nav button').forEach(function(b){ b.classList.remove('active'); });
-        btn.classList.add('active');
-        document.querySelectorAll('.panel').forEach(function(p){ p.classList.remove('active'); });
-        var panel = document.querySelector('[data-panel="'+name+'"]');
-        if(panel){ panel.classList.add('active'); }
+      if (index === 0) btn.classList.add("active");
+      btn.onclick = function() {
+        document.querySelectorAll(".nav button").forEach(function(item) { item.classList.remove("active"); });
+        document.querySelectorAll(".panel").forEach(function(item) { item.classList.remove("active"); });
+        btn.classList.add("active");
+        var panel = document.querySelector('[data-panel="' + name + '"]');
+        if (panel) panel.classList.add("active");
       };
       nav.appendChild(btn);
     });
 
-    function drawBars(id, values){
-      var el = document.getElementById(id);
-      values.forEach(function(v){
-        var b = document.createElement('div');
-        b.className = 'bar';
-        b.style.height = String(Math.max(8, v)) + '%';
-        el.appendChild(b);
-      });
-    }
+    document.body.addEventListener("click", handleTableAction);
+    document.getElementById("login").addEventListener("click", function() {
+      adminLogin().then(refreshDashboard).catch(function(err) { addLog("login failed: " + err.message); });
+    });
+    document.getElementById("refresh").addEventListener("click", refreshDashboard);
+    document.getElementById("run-flow").addEventListener("click", runFlow);
+    document.getElementById("save-policy").addEventListener("click", savePolicy);
 
-    drawBars('mail-chart',[28,36,31,44,42,61,58,73,65,70,82,76]);
-    drawBars('api-chart',[22,34,41,39,52,49,63,60,66,59,72,68]);
-
-    renderTable('tbl-tenants',['tenant_id','name','status','primary_did','active_agents','active_mailboxes','monthly_usage','updated_at'],tenants,['View','Disable','Reset Token']);
-    renderTable('tbl-mailboxes',['mailbox_id','address','type','status','tenant_id','agent_id','lease_expires_at'],mailboxes,['Freeze','Release','History']);
-    renderTable('tbl-messages',['message_id','mailbox_id','sender_domain','subject','received_at','parsed_status','otp_extracted'],messages,['Reparse','Block Domain','Replay Webhook']);
-    renderTable('tbl-webhooks',['webhook_id','tenant_id','target_url','event_types','status','last_delivery_at','last_status_code'],webhooks,['Replay','Rotate Secret','Pause']);
-    renderTable('tbl-billing',['invoice_id','tenant_id','period','amount_usdc','status','settlement_tx_hash'],billing,['Issue','Mark Paid','Export CSV']);
-    renderTable('tbl-risk',['time','tenant_id','event','detail','severity'],risk,['Observe','Block Domain','Tune Policy']);
-    renderTable('tbl-audit',['timestamp','actor_did','action','resource_type','resource_id','result'],audit,['Export JSON']);
-
-    document.querySelectorAll('.mini').forEach(function(btn){ btn.addEventListener('click', function(){ addLog('action:' + btn.dataset.action + ' triggered'); }); });
-
-    async function ping(){
-      var base = apiBaseEl.value.trim().replace(/\/$/, '');
-      try {
-        var res = await fetch(base + '/healthz');
-        if(!res.ok){ throw new Error('HTTP ' + res.status); }
-        var body = await res.json();
-        apiDot.className = 'dot ok';
-        apiStatus.textContent = 'API ' + body.status;
-        addLog('healthz ok @ ' + base);
-      } catch(err){
-        apiDot.className = 'dot bad';
-        apiStatus.textContent = 'API unreachable';
-        addLog('healthz failed: ' + err.message);
-      }
-    }
-
-    async function runFlow(){
-      var base = apiBaseEl.value.trim().replace(/\/$/, '');
-      try {
-        var wallet = '0xabc0000000000000000000000000000000000666';
-        var ch = await fetch(base + '/v1/auth/siwe/challenge', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ wallet_address: wallet }) }).then(function(r){ return r.json(); });
-        var vr = await fetch(base + '/v1/auth/siwe/verify', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ message: ch.message, signature: '0xdev' }) }).then(function(r){ return r.json(); });
-        var alloc = await fetch(base + '/v1/mailboxes/allocate', {
-          method: 'POST',
-          headers: { 'content-type': 'application/json', authorization: 'Bearer ' + vr.access_token, 'x-payment-proof': 'mock-proof' },
-          body: JSON.stringify({ agent_id: vr.agent_id, purpose: 'admin-flow', ttl_hours: 1 }),
-        }).then(function(r){ return r.json(); });
-        addLog('flow ok tenant=' + vr.tenant_id + ' mailbox=' + alloc.mailbox_id);
-      } catch(err){
-        addLog('flow failed: ' + err.message);
-      }
-    }
-
-    document.getElementById('ping').addEventListener('click', ping);
-    document.getElementById('run-flow').addEventListener('click', runFlow);
-    addLog('dashboard ready');
-    ping();
+    addLog("dashboard ready");
+    refreshDashboard();
   </script>
 </body>
 </html>`;
