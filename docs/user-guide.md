@@ -48,6 +48,16 @@ npm install
 npm run worker:dev
 ```
 
+### 1.4 Admin Dashboard
+
+After deployment, open:
+
+`https://<your-worker>.workers.dev/admin`
+
+For your current environment:
+
+`https://mailagents-api.izhenghaocn.workers.dev/admin`
+
 ## 2. Minimal End-to-End API Flow (5 Steps)
 
 The examples below use `mock` payment mode.

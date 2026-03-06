@@ -2,6 +2,7 @@ import { createJwt, verifyJwt } from "./auth.js";
 import { createConfig } from "./config.js";
 import { createPaymentVerifier } from "./payment.js";
 import { createSiweService } from "./siwe.js";
+import { renderAdminDashboardHtml } from "./admin-ui.js";
 import { getDefaultStore } from "./store.js";
 import { createNonce, createRequestId, parseBearerToken, parsePeriod } from "./utils.js";
 
@@ -94,6 +95,16 @@ export function createFetchApp(deps = {}) {
     try {
       if (method === "GET" && path === "/healthz") {
         return jsonResponse(200, { status: "ok", service: "agent-mail-cloud" }, requestId);
+      }
+
+      if (method === "GET" && (path === "/admin" || path === "/admin/")) {
+        return new Response(renderAdminDashboardHtml(), {
+          status: 200,
+          headers: {
+            "content-type": "text/html; charset=utf-8",
+            "cache-control": "no-store",
+          },
+        });
       }
 
       if (method === "POST" && path === "/v1/auth/siwe/challenge") {

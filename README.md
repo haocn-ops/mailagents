@@ -27,6 +27,7 @@ npm start
 Default URL: `http://localhost:3000`
 
 Health endpoint: `GET /healthz`
+Admin dashboard URL (same deployment): `/admin`
 
 ## Docker Compose (One-Command Setup)
 
