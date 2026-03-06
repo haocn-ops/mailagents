@@ -2,10 +2,12 @@ import { createJwt, verifyJwt } from "./auth.js";
 import { createConfig } from "./config.js";
 import { createMailBackendAdapter } from "./mail-backend/index.js";
 import { createPaymentVerifier } from "./payment.js";
+import { parseInboundContent } from "./parser.js";
 import { createSiweService } from "./siwe.js";
 import { renderAdminDashboardHtml } from "./admin-ui.js";
 import { getDefaultStore } from "./store.js";
 import { createNonce, createRequestId, parseBearerToken, parsePeriod } from "./utils.js";
+import { createWebhookDispatcher } from "./webhook-dispatcher.js";
 
 function jsonResponse(status, payload, requestId) {
   const headers = new Headers({
@@ -57,6 +59,7 @@ export function createFetchApp(deps = {}) {
       statement: runtimeConfig.siweStatement,
     });
   const mailBackend = deps.mailBackend || deps.mailProvider || createMailBackendAdapter(runtimeConfig);
+  const webhookDispatcher = deps.webhookDispatcher || createWebhookDispatcher();
 
   async function requireAuth(request, requestId) {
     const token = parseBearerToken(request.headers.get("authorization"));
@@ -87,6 +90,29 @@ export function createFetchApp(deps = {}) {
         response: jsonResponse(401, { error: "unauthorized", message: err.message }, requestId),
       };
     }
+  }
+
+  function requireInternalAuth(request, requestId) {
+    if (!runtimeConfig.internalApiToken) {
+      return {
+        ok: false,
+        response: jsonResponse(
+          500,
+          { error: "internal_api_unconfigured", message: "INTERNAL_API_TOKEN is not configured" },
+          requestId,
+        ),
+      };
+    }
+
+    const token =
+      parseBearerToken(request.headers.get("authorization")) || request.headers.get("x-internal-token");
+    if (!token || token !== runtimeConfig.internalApiToken) {
+      return {
+        ok: false,
+        response: jsonResponse(401, { error: "unauthorized", message: "Invalid internal token" }, requestId),
+      };
+    }
+    return { ok: true };
   }
 
   function requirePayment(request, requestId) {
@@ -450,6 +476,182 @@ export function createFetchApp(deps = {}) {
             status: invoice.status,
             statement_hash: invoice.statementHash,
             settlement_tx_hash: invoice.settlementTxHash,
+          },
+          requestId,
+        );
+      }
+
+      if (method === "POST" && path === "/internal/inbound/events") {
+        const auth = requireInternalAuth(request, requestId);
+        if (!auth.ok) return auth.response;
+
+        const body = await readJsonBody(request);
+        const mailboxAddress = String(body.address || "").trim().toLowerCase();
+        const sender = String(body.sender || "").trim().toLowerCase();
+        const senderDomain = String(body.sender_domain || "").trim().toLowerCase();
+        const subject = String(body.subject || "").trim();
+        const providerMessageId = String(body.provider_message_id || "").trim() || null;
+        const rawRef = String(body.raw_ref || "").trim() || null;
+        const receivedAt = String(body.received_at || "").trim() || new Date().toISOString();
+        const textExcerpt = String(body.text_excerpt || "").trim() || null;
+        const headers = body.headers && typeof body.headers === "object" ? body.headers : {};
+
+        if (!mailboxAddress || !senderDomain) {
+          return jsonResponse(
+            400,
+            { error: "bad_request", message: "address and sender_domain are required" },
+            requestId,
+          );
+        }
+
+        const mailbox = await store.findMailboxByAddress(mailboxAddress);
+        if (!mailbox) {
+          return jsonResponse(404, { error: "not_found", message: "Mailbox not found" }, requestId);
+        }
+
+        const ingested = await store.ingestInboundMessage({
+          tenantId: mailbox.tenantId,
+          mailboxId: mailbox.id,
+          providerMessageId,
+          sender,
+          senderDomain,
+          subject,
+          rawRef,
+          receivedAt,
+          payload: {
+            headers,
+            text_excerpt: textExcerpt,
+          },
+          requestId,
+        });
+
+        const parsed = parseInboundContent({
+          subject,
+          textExcerpt,
+        });
+        await store.applyMessageParseResult({
+          messageId: ingested.messageId,
+          otpCode: parsed.otpCode,
+          verificationLink: parsed.verificationLink,
+          payload: {
+            parser: "builtin",
+            source: "mailu-internal-event",
+          },
+          requestId,
+        });
+
+        const eventType = parsed.parsed ? "otp.extracted" : "mail.received";
+        const message = await store.getMessage(ingested.messageId);
+        const webhooks = await store.listActiveWebhooksByEvent(mailbox.tenantId, eventType);
+        for (const webhook of webhooks) {
+          const delivery = await webhookDispatcher.dispatch({
+            webhook,
+            payload: {
+              event_type: eventType,
+              tenant_id: mailbox.tenantId,
+              mailbox_id: mailbox.id,
+              message_id: ingested.messageId,
+              sender,
+              sender_domain: senderDomain,
+              subject,
+              received_at: receivedAt,
+              otp_code: parsed.otpCode,
+              verification_link: parsed.verificationLink,
+              message,
+            },
+          });
+          await store.recordWebhookDelivery(webhook.id, {
+            statusCode: delivery.statusCode,
+            requestId,
+            metadata: { event_type: eventType },
+          });
+        }
+
+        return jsonResponse(
+          202,
+          {
+            status: "accepted",
+            tenant_id: ingested.tenantId,
+            mailbox_id: ingested.mailboxId,
+            message_id: ingested.messageId,
+          },
+          requestId,
+        );
+      }
+
+      if (method === "POST" && path === "/internal/mailboxes/provision") {
+        const auth = requireInternalAuth(request, requestId);
+        if (!auth.ok) return auth.response;
+
+        const body = await readJsonBody(request);
+        const mailboxAddress = String(body.address || "").trim().toLowerCase();
+        const providerRef = String(body.provider_ref || "").trim() || null;
+        if (!mailboxAddress) {
+          return jsonResponse(400, { error: "bad_request", message: "address is required" }, requestId);
+        }
+
+        const mailbox = await store.findMailboxByAddress(mailboxAddress);
+        if (!mailbox) {
+          return jsonResponse(404, { error: "not_found", message: "Mailbox not found" }, requestId);
+        }
+
+        if (providerRef) {
+          await store.saveMailboxProviderRef(mailbox.id, providerRef);
+        }
+        await store.recordMailboxBackendEvent({
+          tenantId: mailbox.tenantId,
+          mailboxId: mailbox.id,
+          action: "mailbox.backend_provisioned",
+          requestId,
+          metadata: { provider_ref: providerRef },
+        });
+
+        return jsonResponse(
+          202,
+          {
+            status: "accepted",
+            tenant_id: mailbox.tenantId,
+            mailbox_id: mailbox.id,
+            provider_ref: providerRef,
+          },
+          requestId,
+        );
+      }
+
+      if (method === "POST" && path === "/internal/mailboxes/release") {
+        const auth = requireInternalAuth(request, requestId);
+        if (!auth.ok) return auth.response;
+
+        const body = await readJsonBody(request);
+        const mailboxAddress = String(body.address || "").trim().toLowerCase();
+        const providerRef = String(body.provider_ref || "").trim() || null;
+        if (!mailboxAddress) {
+          return jsonResponse(400, { error: "bad_request", message: "address is required" }, requestId);
+        }
+
+        const mailbox = await store.findMailboxByAddress(mailboxAddress);
+        if (!mailbox) {
+          return jsonResponse(404, { error: "not_found", message: "Mailbox not found" }, requestId);
+        }
+
+        if (providerRef) {
+          await store.saveMailboxProviderRef(mailbox.id, providerRef);
+        }
+        await store.recordMailboxBackendEvent({
+          tenantId: mailbox.tenantId,
+          mailboxId: mailbox.id,
+          action: "mailbox.backend_released",
+          requestId,
+          metadata: { provider_ref: providerRef },
+        });
+
+        return jsonResponse(
+          202,
+          {
+            status: "accepted",
+            tenant_id: mailbox.tenantId,
+            mailbox_id: mailbox.id,
+            provider_ref: providerRef,
           },
           requestId,
         );

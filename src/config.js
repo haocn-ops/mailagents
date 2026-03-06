@@ -15,6 +15,7 @@ export function createConfig(source = {}) {
   return {
     port: asNumber(source.PORT, 3000),
     jwtSecret: String(source.JWT_SECRET || "dev-jwt-secret"),
+    internalApiToken: String(source.INTERNAL_API_TOKEN || ""),
     baseChainId: asNumber(source.BASE_CHAIN_ID, 84532),
     mailboxDomain: String(source.MAILBOX_DOMAIN || "pool.mailcloud.local"),
     mailProvider: asLower(source.MAIL_PROVIDER, "noop"),

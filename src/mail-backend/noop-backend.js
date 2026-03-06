@@ -8,4 +8,13 @@ export class NoopMailBackend {
   async releaseMailbox() {
     return { status: "released" };
   }
+
+  async getMailbox(address) {
+    return {
+      found: true,
+      address,
+      enabled: true,
+      backendStatus: "noop",
+    };
+  }
 }

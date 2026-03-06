@@ -13,6 +13,7 @@
     "test": "node --test",
     "db:migrate": "node scripts/db-migrate.js",
     "db:seed": "node scripts/db-seed.js",
+    "reconcile:mailboxes": "node scripts/reconcile-mailboxes.js",
     "siwe:verify": "node scripts/siwe-verify.js",
     "smoke": "bash scripts/smoke.sh",
     "worker:dev": "wrangler dev",

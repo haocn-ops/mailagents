@@ -7,6 +7,7 @@ import { createConfig } from "../src/config.js";
 function makeApp() {
   const cfg = createConfig({
     JWT_SECRET: "test-secret",
+    INTERNAL_API_TOKEN: "internal-secret",
     BASE_CHAIN_ID: "84532",
     MAILBOX_DOMAIN: "inbox.example.com",
     SIWE_MODE: "mock",
@@ -241,4 +242,229 @@ test("fetch app provisions and releases mailboxes via mail provider", async () =
     ["provision", "abc000-1@inbox.example.com"],
     ["release", "abc000-1@inbox.example.com"],
   ]);
+});
+
+test("fetch app accepts internal inbound events and stores message", async () => {
+  const app = makeApp();
+  const verify = await issueToken(app, "0xabc0000000000000000000000000000000000def");
+
+  const allocateRes = await app(
+    new Request("http://localhost/v1/mailboxes/allocate", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${verify.access_token}`,
+        "x-payment-proof": "mock-proof",
+      },
+      body: JSON.stringify({ agent_id: verify.agent_id, purpose: "inbound", ttl_hours: 1 }),
+    }),
+  );
+  const allocation = await allocateRes.json();
+
+  const inboundRes = await app(
+    new Request("http://localhost/internal/inbound/events", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: "Bearer internal-secret",
+      },
+      body: JSON.stringify({
+        address: allocation.address,
+        provider_message_id: "mailu-msg-1",
+        sender: "notify@example.com",
+        sender_domain: "example.com",
+        subject: "Inbound from Mailu",
+        received_at: "2026-03-06T06:30:00.000Z",
+        raw_ref: "mailu://raw/1",
+        text_excerpt: "hello from mailu",
+        headers: { "message-id": "<abc@example.com>" },
+      }),
+    }),
+  );
+  assert.equal(inboundRes.status, 202);
+
+  const latestRes = await app(
+    new Request(`http://localhost/v1/messages/latest?mailbox_id=${allocation.mailbox_id}&limit=20`, {
+      method: "GET",
+      headers: {
+        authorization: `Bearer ${verify.access_token}`,
+        "x-payment-proof": "mock-proof",
+      },
+    }),
+  );
+  assert.equal(latestRes.status, 200);
+  const latest = await latestRes.json();
+  assert.ok(latest.messages.some((item) => item.subject === "Inbound from Mailu"));
+  assert.ok(latest.messages.some((item) => item.otp_code === "123456"));
+});
+
+test("fetch app rejects internal inbound events without internal token", async () => {
+  const app = makeApp();
+  const res = await app(
+    new Request("http://localhost/internal/inbound/events", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        address: "abc000-1@inbox.example.com",
+        sender_domain: "example.com",
+      }),
+    }),
+  );
+  assert.equal(res.status, 401);
+});
+
+test("fetch app accepts internal mailbox provision and release callbacks", async () => {
+  const app = makeApp();
+  const verify = await issueToken(app, "0xabc0000000000000000000000000000000000fed");
+
+  const allocateRes = await app(
+    new Request("http://localhost/v1/mailboxes/allocate", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${verify.access_token}`,
+        "x-payment-proof": "mock-proof",
+      },
+      body: JSON.stringify({ agent_id: verify.agent_id, purpose: "provisioned", ttl_hours: 1 }),
+    }),
+  );
+  const allocation = await allocateRes.json();
+
+  const provisionRes = await app(
+    new Request("http://localhost/internal/mailboxes/provision", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: "Bearer internal-secret",
+      },
+      body: JSON.stringify({
+        address: allocation.address,
+        provider_ref: '{"kind":"mailu-user","email":"abc000-1@inbox.example.com"}',
+      }),
+    }),
+  );
+  assert.equal(provisionRes.status, 202);
+
+  const mailboxesRes = await app(
+    new Request("http://localhost/v1/admin/mailboxes?page=1&page_size=20", {
+      method: "GET",
+      headers: { authorization: `Bearer ${verify.access_token}` },
+    }),
+  );
+  const mailboxes = await mailboxesRes.json();
+  assert.ok(
+    mailboxes.items.some(
+      (item) => item.mailbox_id === allocation.mailbox_id && item.address === "abc000-1@inbox.example.com",
+    ),
+  );
+
+  const releaseRes = await app(
+    new Request("http://localhost/internal/mailboxes/release", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: "Bearer internal-secret",
+      },
+      body: JSON.stringify({
+        address: allocation.address,
+        provider_ref: '{"kind":"mailu-user","email":"abc000-1@inbox.example.com"}',
+      }),
+    }),
+  );
+  assert.equal(releaseRes.status, 202);
+
+  const auditRes = await app(
+    new Request("http://localhost/v1/admin/audit/logs?page=1&page_size=50", {
+      method: "GET",
+      headers: { authorization: `Bearer ${verify.access_token}` },
+    }),
+  );
+  const audit = await auditRes.json();
+  assert.ok(audit.items.some((item) => item.action === "mailbox.backend_provisioned"));
+  assert.ok(audit.items.some((item) => item.action === "mailbox.backend_released"));
+});
+
+test("fetch app dispatches subscribed webhook after parsing inbound mail", async () => {
+  const cfg = createConfig({
+    JWT_SECRET: "test-secret",
+    INTERNAL_API_TOKEN: "internal-secret",
+    BASE_CHAIN_ID: "84532",
+    MAILBOX_DOMAIN: "inbox.example.com",
+    SIWE_MODE: "mock",
+    PAYMENT_MODE: "mock",
+  });
+  const store = new MemoryStore({
+    chainId: cfg.baseChainId,
+    challengeTtlMs: cfg.siweChallengeTtlMs,
+    mailboxDomain: cfg.mailboxDomain,
+  });
+  const deliveries = [];
+  const webhookDispatcher = {
+    async dispatch({ webhook, payload }) {
+      deliveries.push({ webhookId: webhook.id, payload });
+      return { ok: true, statusCode: 200 };
+    },
+  };
+  const app = createFetchApp({ config: cfg, store, webhookDispatcher });
+  const verify = await issueToken(app, "0xabc0000000000000000000000000000000000999");
+
+  const createWebhookRes = await app(
+    new Request("http://localhost/v1/webhooks", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${verify.access_token}`,
+        "x-payment-proof": "mock-proof",
+      },
+      body: JSON.stringify({
+        event_types: ["otp.extracted"],
+        target_url: "https://example.com/hook",
+        secret: "1234567890abcdef",
+      }),
+    }),
+  );
+  assert.equal(createWebhookRes.status, 200);
+
+  const allocateRes = await app(
+    new Request("http://localhost/v1/mailboxes/allocate", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${verify.access_token}`,
+        "x-payment-proof": "mock-proof",
+      },
+      body: JSON.stringify({ agent_id: verify.agent_id, purpose: "hook", ttl_hours: 1 }),
+    }),
+  );
+  const allocation = await allocateRes.json();
+
+  const inboundRes = await app(
+    new Request("http://localhost/internal/inbound/events", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: "Bearer internal-secret",
+      },
+      body: JSON.stringify({
+        address: allocation.address,
+        sender: "notify@example.com",
+        sender_domain: "example.com",
+        subject: "Your code is 654321",
+        text_excerpt: "Click https://example.com/verify?token=abc",
+      }),
+    }),
+  );
+  assert.equal(inboundRes.status, 202);
+  assert.equal(deliveries.length, 1);
+  assert.equal(deliveries[0].payload.event_type, "otp.extracted");
+  assert.equal(deliveries[0].payload.otp_code, "654321");
+
+  const webhooksRes = await app(
+    new Request("http://localhost/v1/admin/webhooks?page=1&page_size=20", {
+      method: "GET",
+      headers: { authorization: `Bearer ${verify.access_token}` },
+    }),
+  );
+  const webhooks = await webhooksRes.json();
+  assert.equal(webhooks.items[0].last_status_code, 200);
 });

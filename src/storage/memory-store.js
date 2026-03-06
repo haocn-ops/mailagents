@@ -292,6 +292,141 @@ export class MemoryStore {
     return mailbox;
   }
 
+  async findMailboxByAddress(address) {
+    const normalized = String(address || "").trim().toLowerCase();
+    return [...this.state.mailboxes.values()].find((mailbox) => mailbox.address.toLowerCase() === normalized) || null;
+  }
+
+  async ingestInboundMessage({
+    tenantId,
+    mailboxId,
+    providerMessageId,
+    sender,
+    senderDomain,
+    subject,
+    rawRef,
+    receivedAt,
+    payload = {},
+    requestId = null,
+  }) {
+    const mailbox = this.state.mailboxes.get(mailboxId);
+    if (!mailbox || mailbox.tenantId !== tenantId) return null;
+
+    const messageId = randomUUID();
+    this.state.messages.set(messageId, {
+      id: messageId,
+      mailboxId,
+      providerMessageId,
+      sender,
+      senderDomain,
+      subject,
+      rawRef,
+      receivedAt,
+      createdAt: new Date().toISOString(),
+    });
+    this.state.messageEvents.set(messageId, {
+      messageId,
+      eventType: "mail.received",
+      otpCode: null,
+      verificationLink: null,
+      payload,
+      createdAt: receivedAt,
+    });
+
+    this._recordAudit({
+      tenantId,
+      actorDid: "system:mailu",
+      action: "message.ingest",
+      resourceType: "message",
+      resourceId: messageId,
+      requestId,
+      metadata: { mailbox_id: mailboxId, sender_domain: senderDomain },
+    });
+
+    return { tenantId, mailboxId, messageId };
+  }
+
+  async recordMailboxBackendEvent({ tenantId, mailboxId, action, requestId = null, metadata = {} }) {
+    const mailbox = this.state.mailboxes.get(mailboxId);
+    if (!mailbox || mailbox.tenantId !== tenantId) return null;
+    this._recordAudit({
+      tenantId,
+      actorDid: "system:mailu",
+      action,
+      resourceType: "mailbox",
+      resourceId: mailboxId,
+      requestId,
+      metadata,
+    });
+    return { tenantId, mailboxId };
+  }
+
+  async getMessage(messageId) {
+    const message = this.state.messages.get(messageId);
+    if (!message) return null;
+    const mailbox = this.state.mailboxes.get(message.mailboxId);
+    return {
+      messageId: message.id,
+      tenantId: mailbox?.tenantId || null,
+      mailboxId: message.mailboxId,
+      sender: message.sender,
+      senderDomain: message.senderDomain,
+      subject: message.subject,
+      receivedAt: message.receivedAt,
+    };
+  }
+
+  async applyMessageParseResult({ messageId, otpCode, verificationLink, payload = {}, requestId = null }) {
+    const message = this.state.messages.get(messageId);
+    if (!message) return null;
+    const mailbox = this.state.mailboxes.get(message.mailboxId);
+    this.state.messageEvents.set(messageId, {
+      messageId,
+      eventType: otpCode || verificationLink ? "otp.extracted" : "mail.parsed",
+      otpCode: otpCode || null,
+      verificationLink: verificationLink || null,
+      payload,
+      createdAt: new Date().toISOString(),
+    });
+    this._recordAudit({
+      tenantId: mailbox?.tenantId || null,
+      actorDid: "system:parser",
+      action: "message.parsed",
+      resourceType: "message",
+      resourceId: messageId,
+      requestId,
+      metadata: { otp_extracted: Boolean(otpCode), verification_link: Boolean(verificationLink) },
+    });
+    return { messageId };
+  }
+
+  async listActiveWebhooksByEvent(tenantId, eventType) {
+    return [...this.state.webhooks.values()].filter(
+      (webhook) =>
+        webhook.tenantId === tenantId &&
+        webhook.status === "active" &&
+        Array.isArray(webhook.eventTypes) &&
+        webhook.eventTypes.includes(eventType),
+    );
+  }
+
+  async recordWebhookDelivery(webhookId, { statusCode, requestId = null, metadata = {} }) {
+    const webhook = this.state.webhooks.get(webhookId);
+    if (!webhook) return null;
+    webhook.lastDeliveryAt = new Date().toISOString();
+    webhook.lastStatusCode = statusCode;
+    this._recordAudit({
+      tenantId: webhook.tenantId,
+      actorDid: "system:webhook",
+      action: "webhook.deliver",
+      resourceType: "webhook",
+      resourceId: webhookId,
+      requestId,
+      metadata: { status_code: statusCode, ...metadata },
+    });
+    return webhook;
+  }
+
   async getLatestMessages({ tenantId, mailboxId, since, limit }) {
     const mailbox = this.state.mailboxes.get(mailboxId);
     if (!mailbox || mailbox.tenantId !== tenantId) return null;
@@ -511,6 +646,23 @@ export class MemoryStore {
     if (tenantId) items = items.filter((mailbox) => mailbox.tenant_id === tenantId);
     items.sort((a, b) => String(a.address).localeCompare(String(b.address)));
     return this._paginate(items, page, pageSize);
+  }
+
+  async listMailboxesForReconcile() {
+    return [...this.state.mailboxes.values()]
+      .map((mailbox) => {
+        const lease = this._currentLeaseByMailbox(mailbox.id);
+        return {
+          mailboxId: mailbox.id,
+          tenantId: mailbox.tenantId,
+          address: mailbox.address,
+          status: mailbox.status,
+          providerRef: mailbox.providerRef || null,
+          agentId: lease?.agentId || null,
+          leaseExpiresAt: lease?.expiresAt || null,
+        };
+      })
+      .sort((a, b) => String(a.address).localeCompare(String(b.address)));
   }
 
   async adminFreezeMailbox(mailboxId, { reason, actorDid, requestId }) {

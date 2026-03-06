@@ -161,4 +161,27 @@ export class MailuInternalAdapter {
     );
     return { status: "disabled" };
   }
+
+  async getMailbox(address) {
+    try {
+      const payload = await this._request("GET", `/user/${encodeURIComponent(address)}`, null, [200]);
+      return {
+        found: true,
+        address: payload?.email || address,
+        enabled: Boolean(payload?.enabled),
+        backendStatus: payload?.enabled ? "enabled" : "disabled",
+        quotaBytes: payload?.quota_bytes ?? null,
+      };
+    } catch (err) {
+      if (err.status === 404) {
+        return {
+          found: false,
+          address,
+          enabled: false,
+          backendStatus: "missing",
+        };
+      }
+      throw err;
+    }
+  }
 }

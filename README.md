@@ -124,6 +124,7 @@ npm test
 
 - `npm run db:migrate` - Apply `docs/db/schema.sql`
 - `npm run db:seed` - Seed tenant/agent/mailboxes/invoice data
+- `npm run reconcile:mailboxes` - Compare control-plane mailbox state with backend mailbox state (`-- --repair` to apply safe repairs)
 - `npm run siwe:verify` - Verify SIWE message + signature from CLI
 - `npm run smoke` - Local API smoke test
 - `npm run worker:dev` - Run Worker locally with Wrangler
@@ -144,6 +145,7 @@ Core:
 - `MAILU_RELEASE_MODE`
 - `MAILU_QUOTA_BYTES`
 - `MAILU_AUTH_SCHEME`
+- `INTERNAL_API_TOKEN`
 
 SIWE:
 - `SIWE_MODE` (`mock` default, or `strict`)
@@ -174,3 +176,5 @@ On-chain settlement, Redis queues, and full mail backend integrations are not im
 Setting `MAILBOX_DOMAIN` changes allocated mailbox addresses to your chosen domain. The current recommended pattern is `api.mailagents.net` for API traffic and `inbox.mailagents.net` for mailbox addresses. Real inbound email still requires DNS, MX, and a mail ingestion backend.
 Mailu fork architecture notes live in `docs/mailu-fork-architecture.md`.
 Current transitional adapter notes live in `docs/mailu-integration.md`.
+Internal Mailu-to-control-plane contract lives in `docs/mailu-internal-api.md`.
+Mailbox reconciliation notes live in `docs/mailbox-reconciliation.md`.

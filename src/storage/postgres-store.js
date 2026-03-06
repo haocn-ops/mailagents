@@ -361,6 +361,199 @@ export class PostgresStore {
     };
   }
 
+  async findMailboxByAddress(address) {
+    const result = await this._query(
+      `select id, tenant_id, address, provider_ref, status
+         from mailboxes
+        where lower(address) = lower($1)
+        limit 1`,
+      [address],
+    );
+    if (result.rowCount === 0) return null;
+    return {
+      id: result.rows[0].id,
+      tenantId: result.rows[0].tenant_id,
+      address: result.rows[0].address,
+      providerRef: result.rows[0].provider_ref,
+      status: result.rows[0].status,
+    };
+  }
+
+  async ingestInboundMessage({
+    tenantId,
+    mailboxId,
+    providerMessageId,
+    sender,
+    senderDomain,
+    subject,
+    rawRef,
+    receivedAt,
+    payload = {},
+    requestId = null,
+  }) {
+    return this._withTx(async (client) => {
+      const mailboxResult = await this._query(
+        `select id from mailboxes where id = $1 and tenant_id = $2 limit 1`,
+        [mailboxId, tenantId],
+        client,
+      );
+      if (mailboxResult.rowCount === 0) return null;
+
+      const messageResult = await this._query(
+        `insert into messages (mailbox_id, provider_message_id, sender, sender_domain, subject, raw_ref, received_at)
+         values ($1, $2, $3, $4, $5, $6, $7)
+         returning id`,
+        [mailboxId, providerMessageId, sender, senderDomain, subject, rawRef, receivedAt],
+        client,
+      );
+      const messageId = messageResult.rows[0].id;
+
+      await this._query(
+        `insert into message_events (message_id, event_type, payload)
+         values ($1, 'mail.received', $2::jsonb)`,
+        [messageId, JSON.stringify(payload)],
+        client,
+      );
+
+      await this._recordAudit(
+        {
+          tenantId,
+          actorDid: "system:mailu",
+          action: "message.ingest",
+          resourceType: "message",
+          resourceId: messageId,
+          requestId,
+          metadata: { mailbox_id: mailboxId, sender_domain: senderDomain },
+        },
+        client,
+      );
+
+      return { tenantId, mailboxId, messageId };
+    });
+  }
+
+  async recordMailboxBackendEvent({ tenantId, mailboxId, action, requestId = null, metadata = {} }) {
+    const mailboxResult = await this._query(
+      `select id from mailboxes where id = $1 and tenant_id = $2 limit 1`,
+      [mailboxId, tenantId],
+    );
+    if (mailboxResult.rowCount === 0) return null;
+
+    await this._recordAudit({
+      tenantId,
+      actorDid: "system:mailu",
+      action,
+      resourceType: "mailbox",
+      resourceId: mailboxId,
+      requestId,
+      metadata,
+    });
+    return { tenantId, mailboxId };
+  }
+
+  async getMessage(messageId) {
+    const result = await this._query(
+      `select m.id as message_id, m.mailbox_id, mb.tenant_id, m.sender, m.sender_domain, m.subject, m.received_at
+         from messages m
+         join mailboxes mb on mb.id = m.mailbox_id
+        where m.id = $1
+        limit 1`,
+      [messageId],
+    );
+    if (result.rowCount === 0) return null;
+    const row = result.rows[0];
+    return {
+      messageId: row.message_id,
+      tenantId: row.tenant_id,
+      mailboxId: row.mailbox_id,
+      sender: row.sender,
+      senderDomain: row.sender_domain,
+      subject: row.subject,
+      receivedAt: row.received_at.toISOString(),
+    };
+  }
+
+  async applyMessageParseResult({ messageId, otpCode, verificationLink, payload = {}, requestId = null }) {
+    return this._withTx(async (client) => {
+      const message = await this.getMessage(messageId);
+      if (!message) return null;
+      await this._query(
+        `insert into message_events (message_id, event_type, otp_code, verification_link, payload)
+         values ($1, $2, $3, $4, $5::jsonb)`,
+        [
+          messageId,
+          otpCode || verificationLink ? "otp.extracted" : "mail.parsed",
+          otpCode || null,
+          verificationLink || null,
+          JSON.stringify(payload),
+        ],
+        client,
+      );
+      await this._recordAudit(
+        {
+          tenantId: message.tenantId,
+          actorDid: "system:parser",
+          action: "message.parsed",
+          resourceType: "message",
+          resourceId: messageId,
+          requestId,
+          metadata: { otp_extracted: Boolean(otpCode), verification_link: Boolean(verificationLink) },
+        },
+        client,
+      );
+      return { messageId };
+    });
+  }
+
+  async listActiveWebhooksByEvent(tenantId, eventType) {
+    const result = await this._query(
+      `select id, tenant_id, target_url, secret_hash, event_types, status, last_delivery_at, last_status_code
+         from webhooks
+        where tenant_id = $1
+          and status = 'active'
+          and $2 = any(event_types)`,
+      [tenantId, eventType],
+    );
+    return result.rows.map((row) => ({
+      id: row.id,
+      tenantId: row.tenant_id,
+      targetUrl: row.target_url,
+      secretHash: row.secret_hash,
+      eventTypes: row.event_types,
+      status: row.status,
+      lastDeliveryAt: row.last_delivery_at ? row.last_delivery_at.toISOString() : null,
+      lastStatusCode: row.last_status_code,
+    }));
+  }
+
+  async recordWebhookDelivery(webhookId, { statusCode, requestId = null, metadata = {} }) {
+    return this._withTx(async (client) => {
+      const result = await this._query(
+        `update webhooks
+            set last_delivery_at = now(),
+                last_status_code = $2
+          where id = $1
+        returning tenant_id`,
+        [webhookId, statusCode],
+        client,
+      );
+      if (result.rowCount === 0) return null;
+      await this._recordAudit(
+        {
+          tenantId: result.rows[0].tenant_id,
+          actorDid: "system:webhook",
+          action: "webhook.deliver",
+          resourceType: "webhook",
+          resourceId: webhookId,
+          requestId,
+          metadata: { status_code: statusCode, ...metadata },
+        },
+        client,
+      );
+      return { webhookId };
+    });
+  }
+
   async getLatestMessages({ tenantId, mailboxId, since, limit }) {
     const mailboxCheck = await this._query(
       `select id from mailboxes where id = $1 and tenant_id = $2 limit 1`,
@@ -739,6 +932,30 @@ export class PostgresStore {
       page,
       pageSize,
     );
+  }
+
+  async listMailboxesForReconcile() {
+    const result = await this._query(
+      `select m.id as mailbox_id,
+              m.tenant_id,
+              m.address,
+              m.status,
+              m.provider_ref,
+              l.agent_id,
+              l.expires_at as lease_expires_at
+         from mailboxes m
+         left join mailbox_leases l on l.mailbox_id = m.id and l.status = 'active'
+        order by m.address asc`,
+    );
+    return result.rows.map((row) => ({
+      mailboxId: row.mailbox_id,
+      tenantId: row.tenant_id,
+      address: row.address,
+      status: row.status,
+      providerRef: row.provider_ref,
+      agentId: row.agent_id,
+      leaseExpiresAt: row.lease_expires_at ? row.lease_expires_at.toISOString() : null,
+    }));
   }
 
   async adminFreezeMailbox(mailboxId, { reason, actorDid, requestId }) {
