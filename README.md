@@ -34,6 +34,7 @@ Default URL: `http://localhost:3000`
 
 Health endpoint: `GET /healthz`
 Admin dashboard URL (same deployment): `/admin`
+User app URL (same deployment): `/app`
 
 ## Docker Compose (One-Command Setup)
 

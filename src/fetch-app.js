@@ -5,6 +5,7 @@ import { createPaymentVerifier } from "./payment.js";
 import { parseInboundContent } from "./parser.js";
 import { createSiweService } from "./siwe.js";
 import { renderAdminDashboardHtml } from "./admin-ui.js";
+import { renderUserAppHtml } from "./user-ui.js";
 import { getDefaultStore } from "./store.js";
 import { createNonce, createRequestId, parseBearerToken, parsePeriod } from "./utils.js";
 import { createWebhookDispatcher } from "./webhook-dispatcher.js";
@@ -163,6 +164,16 @@ export function createFetchApp(deps = {}) {
 
       if (method === "GET" && (path === "/admin" || path === "/admin/")) {
         return new Response(renderAdminDashboardHtml({ adminTokenRequired: Boolean(runtimeConfig.adminApiToken) }), {
+          status: 200,
+          headers: {
+            "content-type": "text/html; charset=utf-8",
+            "cache-control": "no-store",
+          },
+        });
+      }
+
+      if (method === "GET" && (path === "/app" || path === "/app/")) {
+        return new Response(renderUserAppHtml(), {
           status: 200,
           headers: {
             "content-type": "text/html; charset=utf-8",

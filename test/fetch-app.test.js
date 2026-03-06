@@ -64,6 +64,16 @@ test("fetch app serves admin dashboard html", async () => {
   assert.match(html, /Live API/);
 });
 
+test("fetch app serves user app html", async () => {
+  const app = makeApp();
+  const res = await app(new Request("http://localhost/app", { method: "GET" }));
+  assert.equal(res.status, 200);
+  const html = await res.text();
+  assert.match(html, /User Workspace/);
+  assert.match(html, /Allocate Mailbox/);
+  assert.match(html, /Latest Messages/);
+});
+
 test("fetch app requires dedicated admin token when configured", async () => {
   const cfg = createConfig({
     JWT_SECRET: "test-secret",
