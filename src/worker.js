@@ -1,5 +1,6 @@
 import { createConfig } from "./config.js";
 import { createFetchApp } from "./fetch-app.js";
+import { runStartupPreflight } from "./bootstrap.js";
 import { createStoreFromConfig } from "./store.js";
 
 function buildRuntimeConfig(env) {
@@ -8,6 +9,7 @@ function buildRuntimeConfig(env) {
 
 let cachedHandler = null;
 let cachedConfigKey = "";
+let cachedPreflightKey = "";
 
 function configKeyFrom(config) {
   return JSON.stringify({
@@ -30,6 +32,11 @@ export default {
   async fetch(request, env) {
     const runtimeConfig = buildRuntimeConfig(env);
     const key = configKeyFrom(runtimeConfig);
+
+    if (cachedPreflightKey !== key) {
+      runStartupPreflight(runtimeConfig, env);
+      cachedPreflightKey = key;
+    }
 
     if (!cachedHandler || cachedConfigKey !== key) {
       const store = createStoreFromConfig(runtimeConfig);

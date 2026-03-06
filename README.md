@@ -73,6 +73,16 @@ This validates:
 - inbound relay from `mailu-dev` into `/internal/inbound/events`
 - OTP/link extraction through `messages/latest`
 
+## Production Deploy
+
+```bash
+cp .env.production.example .env.production
+npm run preflight:prod
+docker compose -f docker-compose.prod.yml up --build -d
+```
+
+Production rollout details live in `docs/production-runbook.md`.
+
 ## Cloudflare Workers Deployment
 
 ### 1. Install dependencies
@@ -212,4 +222,5 @@ Mailu fork architecture notes live in `docs/mailu-fork-architecture.md`.
 Current transitional adapter notes live in `docs/mailu-integration.md`.
 Internal Mailu-to-control-plane contract lives in `docs/mailu-internal-api.md`.
 Mailbox reconciliation notes live in `docs/mailbox-reconciliation.md`.
+Production rollout notes live in `docs/production-runbook.md`.
 `mailu-dev` is a local development simulator only; it is not the final Mailu fork implementation.

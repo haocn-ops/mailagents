@@ -20,6 +20,7 @@
     "smoke": "bash scripts/smoke.sh",
     "mailu-dev": "node scripts/mailu-dev.js",
     "smoke:mailu": "bash scripts/mailu-dev-smoke.sh",
+    "start:prod": "node src/server.js",
     "worker:dev": "wrangler dev",
     "worker:deploy": "wrangler deploy"
   },

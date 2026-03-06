@@ -1,0 +1,21 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: mailagents-api-prod
+    restart: unless-stopped
+    env_file:
+      - .env.production
+    environment:
+      NODE_ENV: production
+      ENFORCE_SAFE_STARTUP: "true"
+      REQUIRE_PROD_PREFLIGHT: "true"
+      PORT: 3000
+    ports:
+      - "3000:3000"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/healthz >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
