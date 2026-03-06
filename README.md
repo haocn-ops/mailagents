@@ -152,6 +152,7 @@ npm test
 - `npm run reconcile:mailboxes` - Compare control-plane mailbox state with backend mailbox state (`-- --repair` to apply safe repairs)
 - `npm run siwe:verify` - Verify SIWE message + signature from CLI
 - `npm run preflight:prod` - Validate production readiness of current env vars
+- `npm run verify:prod` - Basic post-deploy production verification
 - `npm run smoke` - Local API smoke test
 - `npm run mailu-dev` - Run the local Mailu dev simulator
 - `npm run smoke:mailu` - Local API + `mailu-dev` integration smoke test
@@ -223,4 +224,5 @@ Current transitional adapter notes live in `docs/mailu-integration.md`.
 Internal Mailu-to-control-plane contract lives in `docs/mailu-internal-api.md`.
 Mailbox reconciliation notes live in `docs/mailbox-reconciliation.md`.
 Production rollout notes live in `docs/production-runbook.md`.
+Real Mailu cutover notes live in `docs/mailu-cutover-checklist.md`.
 `mailu-dev` is a local development simulator only; it is not the final Mailu fork implementation.
