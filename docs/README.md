@@ -10,6 +10,7 @@
 - [Infrastructure Topology](./infrastructure-topology.md)
 - [Cloudflare DNS Setup](./cloudflare-dns-setup.md)
 - [Mailu Host Preparation](./mailu-host-prep.md)
+- [Mailu Setup Download](./mailu-setup-download.md)
 - [Single-Host Deployment](./single-host-deployment.md)
 - [Admin Dashboard Design](./admin-dashboard.md)
 - [Business API Contract](./openapi.yaml)
@@ -27,8 +28,9 @@
 7. `infrastructure-topology.md` - recommended production topology and cutover order
 8. `cloudflare-dns-setup.md` - exact DNS and MX records for Cloudflare
 9. `mailu-host-prep.md` - host preparation, port ownership, and directory layout for Mailu
-10. `single-host-deployment.md` - one-place deployment path on a VPS or cloud host
-11. `openapi.yaml` - business API contract
-12. `admin-dashboard.md` - dashboard IA and operation flows
-13. `openapi-admin.yaml` - admin API contract
-14. `db/schema.sql` - schema implementation
+10. `mailu-setup-download.md` - fetch the official Mailu generated compose/env files from a setup id
+11. `single-host-deployment.md` - one-place deployment path on a VPS or cloud host
+12. `openapi.yaml` - business API contract
+13. `admin-dashboard.md` - dashboard IA and operation flows
+14. `openapi-admin.yaml` - admin API contract
+15. `db/schema.sql` - schema implementation
