@@ -223,7 +223,8 @@ export class MemoryStore {
     mailbox.updatedAt = now.toISOString();
 
     const msgId = randomUUID();
-    const msgReceived = new Date(now.getTime() + 5000).toISOString();
+    // Keep the seeded sample behind real inbound mail in "latest" queries.
+    const msgReceived = new Date(now.getTime() - 5000).toISOString();
     this.state.messages.set(msgId, {
       id: msgId,
       mailboxId: mailbox.id,

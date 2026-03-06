@@ -251,7 +251,7 @@ export class PostgresStore {
 
       const msgResult = await this._query(
         `insert into messages (mailbox_id, sender, sender_domain, subject, received_at)
-         values ($1, 'noreply@example.com', 'example.com', 'Your verification code', now())
+         values ($1, 'noreply@example.com', 'example.com', 'Your verification code', now() - interval '5 seconds')
          returning id`,
         [mailbox.id],
         client,

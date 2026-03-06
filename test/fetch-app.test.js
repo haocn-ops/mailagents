@@ -247,6 +247,7 @@ test("fetch app provisions and releases mailboxes via mail provider", async () =
 test("fetch app accepts internal inbound events and stores message", async () => {
   const app = makeApp();
   const verify = await issueToken(app, "0xabc0000000000000000000000000000000000def");
+  const inboundReceivedAt = new Date(Date.now() + 1000).toISOString();
 
   const allocateRes = await app(
     new Request("http://localhost/v1/mailboxes/allocate", {
@@ -274,7 +275,7 @@ test("fetch app accepts internal inbound events and stores message", async () =>
         sender: "notify@example.com",
         sender_domain: "example.com",
         subject: "Inbound from Mailu",
-        received_at: "2026-03-06T06:30:00.000Z",
+        received_at: inboundReceivedAt,
         raw_ref: "mailu://raw/1",
         text_excerpt: "hello from mailu",
         headers: { "message-id": "<abc@example.com>" },
@@ -282,6 +283,7 @@ test("fetch app accepts internal inbound events and stores message", async () =>
     }),
   );
   assert.equal(inboundRes.status, 202);
+  const inbound = await inboundRes.json();
 
   const latestRes = await app(
     new Request(`http://localhost/v1/messages/latest?mailbox_id=${allocation.mailbox_id}&limit=20`, {
@@ -294,6 +296,7 @@ test("fetch app accepts internal inbound events and stores message", async () =>
   );
   assert.equal(latestRes.status, 200);
   const latest = await latestRes.json();
+  assert.equal(latest.messages[0].message_id, inbound.message_id);
   assert.ok(latest.messages.some((item) => item.subject === "Inbound from Mailu"));
   assert.ok(latest.messages.some((item) => item.otp_code === "123456"));
 });
