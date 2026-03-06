@@ -363,24 +363,27 @@ export function renderUserAppHtml() {
         <article class="card panel">
           <h2 class="section-title">Latest Messages</h2>
           <div id="messages"></div>
+          <div class="json" id="messageJson" style="margin-top:12px">{}</div>
         </article>
 
         <article class="card panel">
-          <h2 class="section-title">Usage / Invoice Lookup</h2>
+          <h2 class="section-title">Usage / Invoices</h2>
           <div class="form-grid">
-            <label>Invoice ID
-              <input id="invoiceId" placeholder="paste invoice uuid if you have one" />
-            </label>
             <label>Action
               <select id="lookupMode">
                 <option value="usage">usage summary</option>
-                <option value="invoice">invoice detail</option>
+                <option value="invoices">invoice list</option>
               </select>
+            </label>
+            <label>Invoice ID
+              <input id="invoiceId" placeholder="optional manual invoice lookup" />
             </label>
           </div>
           <div class="actions">
             <button class="primary" id="lookupBtn">Run Lookup</button>
+            <button class="ghost" id="refreshInvoicesBtn">Refresh Invoices</button>
           </div>
+          <div id="invoices" class="mailbox-list" style="margin-top:14px"></div>
           <div class="json" id="lookupJson">{}</div>
         </article>
 
@@ -400,7 +403,8 @@ export function renderUserAppHtml() {
       selectedMailboxId: "",
       mailboxes: [],
       messages: [],
-      webhooks: []
+      webhooks: [],
+      invoices: []
     };
 
     var els = {
@@ -417,10 +421,12 @@ export function renderUserAppHtml() {
       lookupMode: document.getElementById("lookupMode"),
       tokenBox: document.getElementById("tokenBox"),
       lookupJson: document.getElementById("lookupJson"),
+      messageJson: document.getElementById("messageJson"),
       log: document.getElementById("log"),
       messages: document.getElementById("messages"),
       mailboxes: document.getElementById("mailboxes"),
       webhooks: document.getElementById("webhooks"),
+      invoices: document.getElementById("invoices"),
       tenantStat: document.getElementById("tenantStat"),
       agentStat: document.getElementById("agentStat"),
       usageStat: document.getElementById("usageStat"),
@@ -529,6 +535,7 @@ export function renderUserAppHtml() {
     function renderMessages() {
       if (!state.messages.length) {
         els.messages.innerHTML = '<div class="muted">No messages loaded.</div>';
+        els.messageJson.textContent = "{}";
         return;
       }
       els.messages.innerHTML = state.messages.map(function(msg) {
@@ -537,6 +544,7 @@ export function renderUserAppHtml() {
           '<div class="muted">from ' + (msg.sender || "-") + ' at ' + (msg.received_at || "-") + '</div>' +
           '<div><span class="tag">OTP ' + (msg.otp_code || "-") + '</span></div>' +
           '<div><a href="' + (msg.verification_link || "#") + '" target="_blank" rel="noreferrer">' + (msg.verification_link || "no verification link") + '</a></div>' +
+          '<div class="actions"><button class="ghost" data-message-id="' + msg.message_id + '">Open Detail</button></div>' +
         '</article>';
       }).join("");
     }
@@ -553,6 +561,23 @@ export function renderUserAppHtml() {
             '<div><span class="tag">' + item.status + '</span></div>' +
           '</div>' +
           '<div class="muted">last delivery ' + (item.last_delivery_at || "-") + ' / status ' + (item.last_status_code || "-") + '</div>' +
+        '</article>';
+      }).join("");
+    }
+
+    function renderInvoices() {
+      if (!state.invoices.length) {
+        els.invoices.innerHTML = '<div class="muted">No invoices returned for this tenant.</div>';
+        return;
+      }
+      els.invoices.innerHTML = state.invoices.map(function(item) {
+        return '<article class="mailbox">' +
+          '<div class="mailbox-top">' +
+            '<div><div><strong>' + item.period + '</strong></div><div class="muted">amount ' + item.amount_usdc + ' USDC</div></div>' +
+            '<div><span class="tag">' + item.status + '</span></div>' +
+          '</div>' +
+          '<code>' + item.invoice_id + '</code>' +
+          '<div class="actions"><button class="ghost" data-invoice-id="' + item.invoice_id + '">Open Detail</button></div>' +
         '</article>';
       }).join("");
     }
@@ -588,6 +613,7 @@ export function renderUserAppHtml() {
       loadMailboxState();
       await refreshMailboxes();
       await refreshWebhooks();
+      await refreshInvoices();
       renderSession();
       setAuthStatus(true, "signed in as " + wallet.slice(0, 10) + "...");
       addLog("signed in; tenant " + verify.tenant_id);
@@ -648,8 +674,22 @@ export function renderUserAppHtml() {
       });
       state.messages = Array.isArray(data.messages) ? data.messages : [];
       renderMessages();
+      if (state.messages[0]) {
+        await openMessageDetail(state.messages[0].message_id);
+      }
       addLog("loaded " + state.messages.length + " messages");
       return data;
+    }
+
+    async function openMessageDetail(messageId) {
+      if (!state.token) throw new Error("sign in first");
+      var detail = await fetchJson("/v1/messages/" + encodeURIComponent(messageId), {
+        method: "GET",
+        headers: authHeaders(false)
+      });
+      els.messageJson.textContent = JSON.stringify(detail, null, 2);
+      addLog("loaded message detail " + messageId);
+      return detail;
     }
 
     async function createWebhook() {
@@ -695,6 +735,19 @@ export function renderUserAppHtml() {
       return usage;
     }
 
+    async function refreshInvoices() {
+      if (!state.token) throw new Error("sign in first");
+      var period = els.usagePeriod.value.trim() || nowPeriod();
+      var data = await fetchJson("/v1/billing/invoices?period=" + encodeURIComponent(period), {
+        method: "GET",
+        headers: authHeaders(false)
+      });
+      state.invoices = Array.isArray(data.items) ? data.items : [];
+      renderInvoices();
+      addLog("loaded " + state.invoices.length + " invoices");
+      return data;
+    }
+
     async function lookupInvoice() {
       if (!state.token) throw new Error("sign in first");
       var invoiceId = els.invoiceId.value.trim();
@@ -718,6 +771,27 @@ export function renderUserAppHtml() {
       });
     }
 
+    function wireMessageSelect() {
+      els.messages.addEventListener("click", function(event) {
+        var button = event.target.closest("[data-message-id]");
+        if (!button) return;
+        openMessageDetail(button.getAttribute("data-message-id")).catch(function(err) {
+          addLog("message detail failed: " + err.message);
+        });
+      });
+    }
+
+    function wireInvoiceSelect() {
+      els.invoices.addEventListener("click", function(event) {
+        var button = event.target.closest("[data-invoice-id]");
+        if (!button) return;
+        els.invoiceId.value = button.getAttribute("data-invoice-id") || "";
+        lookupInvoice().catch(function(err) {
+          addLog("invoice detail failed: " + err.message);
+        });
+      });
+    }
+
     function bindAction(id, fn) {
       document.getElementById(id).addEventListener("click", async function() {
         try {
@@ -734,7 +808,10 @@ export function renderUserAppHtml() {
     renderMailboxes();
     renderMessages();
     renderWebhooks();
+    renderInvoices();
     wireMailboxSelect();
+    wireMessageSelect();
+    wireInvoiceSelect();
     bindAction("healthBtn", checkHealth);
     bindAction("loginBtn", signIn);
     bindAction("allocateBtn", allocateMailbox);
@@ -746,8 +823,9 @@ export function renderUserAppHtml() {
     bindAction("webhookBtn", createWebhook);
     bindAction("refreshWebhooksBtn", refreshWebhooks);
     bindAction("usageBtn", loadUsage);
+    bindAction("refreshInvoicesBtn", refreshInvoices);
     bindAction("lookupBtn", function() {
-      return els.lookupMode.value === "invoice" ? lookupInvoice() : loadUsage();
+      return els.lookupMode.value === "invoices" ? refreshInvoices() : loadUsage();
     });
     checkHealth();
   </script>

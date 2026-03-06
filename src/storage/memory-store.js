@@ -426,6 +426,32 @@ export class MemoryStore {
     };
   }
 
+  async getTenantMessageDetail(tenantId, messageId) {
+    const message = this.state.messages.get(messageId);
+    if (!message) return null;
+    const mailbox = this.state.mailboxes.get(message.mailboxId);
+    if (!mailbox || mailbox.tenantId !== tenantId) return null;
+    const event = this.state.messageEvents.get(messageId) || null;
+    return {
+      message_id: message.id,
+      mailbox_id: message.mailboxId,
+      sender: message.sender,
+      sender_domain: message.senderDomain,
+      subject: message.subject,
+      raw_ref: message.rawRef || null,
+      received_at: message.receivedAt,
+      otp_code: event?.otpCode ?? null,
+      verification_link: event?.verificationLink ?? null,
+      parsed_status: event
+        ? event.eventType === "otp.extracted"
+          ? "parsed"
+          : event.eventType === "mail.parse_failed"
+            ? "failed"
+            : "pending"
+        : "pending",
+    };
+  }
+
   async applyMessageParseResult({ messageId, otpCode, verificationLink, payload = {}, requestId = null }) {
     const message = this.state.messages.get(messageId);
     if (!message) return null;
@@ -548,6 +574,23 @@ export class MemoryStore {
     const invoice = this.state.invoices.get(invoiceId);
     if (!invoice || invoice.tenantId !== tenantId) return null;
     return invoice;
+  }
+
+  async listTenantInvoices(tenantId, period = null) {
+    let items = [...this.state.invoices.values()]
+      .filter((invoice) => invoice.tenantId === tenantId)
+      .map((invoice) => ({
+        invoice_id: invoice.id,
+        period: invoice.periodStart.slice(0, 7),
+        amount_usdc: Number(invoice.amountUsdc),
+        status: invoice.status,
+        period_start: invoice.periodStart,
+        period_end: invoice.periodEnd,
+        settlement_tx_hash: invoice.settlementTxHash,
+      }));
+    if (period) items = items.filter((invoice) => invoice.period === period);
+    items.sort((a, b) => String(b.period).localeCompare(String(a.period)));
+    return items;
   }
 
   async recordUsage({ tenantId, agentId, endpoint, quantity = 1, requestId }) {

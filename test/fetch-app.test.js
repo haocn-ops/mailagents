@@ -131,6 +131,59 @@ test("fetch app exposes tenant mailbox and webhook lists", async () => {
   assert.equal(webhooks.items[0].target_url, "https://example.com/user-app-webhook");
 });
 
+test("fetch app exposes tenant message detail and invoice list", async () => {
+  const app = makeApp();
+  const verify = await issueToken(app, "0xabc0000000000000000000000000000000000888");
+
+  const allocateRes = await app(
+    new Request("http://localhost/v1/mailboxes/allocate", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${verify.access_token}`,
+        "x-payment-proof": "mock-proof",
+      },
+      body: JSON.stringify({ agent_id: verify.agent_id, purpose: "detail-test", ttl_hours: 1 }),
+    }),
+  );
+  assert.equal(allocateRes.status, 200);
+  const allocation = await allocateRes.json();
+
+  const messagesRes = await app(
+    new Request(`http://localhost/v1/messages/latest?mailbox_id=${allocation.mailbox_id}&limit=10`, {
+      method: "GET",
+      headers: {
+        authorization: `Bearer ${verify.access_token}`,
+        "x-payment-proof": "mock-proof",
+      },
+    }),
+  );
+  assert.equal(messagesRes.status, 200);
+  const messages = await messagesRes.json();
+  assert.ok(messages.messages.length >= 1);
+
+  const detailRes = await app(
+    new Request(`http://localhost/v1/messages/${messages.messages[0].message_id}`, {
+      method: "GET",
+      headers: { authorization: `Bearer ${verify.access_token}` },
+    }),
+  );
+  assert.equal(detailRes.status, 200);
+  const detail = await detailRes.json();
+  assert.equal(detail.message_id, messages.messages[0].message_id);
+  assert.equal(detail.mailbox_id, allocation.mailbox_id);
+
+  const invoicesRes = await app(
+    new Request("http://localhost/v1/billing/invoices?period=2026-03", {
+      method: "GET",
+      headers: { authorization: `Bearer ${verify.access_token}` },
+    }),
+  );
+  assert.equal(invoicesRes.status, 200);
+  const invoices = await invoicesRes.json();
+  assert.ok(Array.isArray(invoices.items));
+});
+
 test("fetch app requires dedicated admin token when configured", async () => {
   const cfg = createConfig({
     JWT_SECRET: "test-secret",

@@ -548,6 +548,59 @@ export class PostgresStore {
     };
   }
 
+  async getTenantMessageDetail(tenantId, messageId) {
+    const result = await this._query(
+      `select m.id as message_id,
+              m.mailbox_id,
+              m.sender,
+              m.sender_domain,
+              m.subject,
+              m.raw_ref,
+              m.received_at,
+              case when exists (
+                select 1 from message_events me where me.message_id = m.id and me.event_type = 'otp.extracted'
+              ) then 'parsed'
+              when exists (
+                select 1 from message_events me where me.message_id = m.id and me.event_type = 'mail.parse_failed'
+              ) then 'failed'
+              else 'pending' end as parsed_status,
+              (
+                select me.otp_code
+                  from message_events me
+                 where me.message_id = m.id and me.event_type = 'otp.extracted'
+                 order by me.created_at desc
+                 limit 1
+              ) as otp_code,
+              (
+                select me.verification_link
+                  from message_events me
+                 where me.message_id = m.id and me.event_type = 'otp.extracted'
+                 order by me.created_at desc
+                 limit 1
+              ) as verification_link
+         from messages m
+         join mailboxes mb on mb.id = m.mailbox_id
+        where m.id = $1
+          and mb.tenant_id = $2
+        limit 1`,
+      [messageId, tenantId],
+    );
+    if (result.rowCount === 0) return null;
+    const row = result.rows[0];
+    return {
+      message_id: row.message_id,
+      mailbox_id: row.mailbox_id,
+      sender: row.sender,
+      sender_domain: row.sender_domain,
+      subject: row.subject,
+      raw_ref: row.raw_ref,
+      received_at: row.received_at.toISOString(),
+      otp_code: row.otp_code,
+      verification_link: row.verification_link,
+      parsed_status: row.parsed_status,
+    };
+  }
+
   async applyMessageParseResult({ messageId, otpCode, verificationLink, payload = {}, requestId = null }) {
     return this._withTx(async (client) => {
       const message = await this.getMessage(messageId);
@@ -750,6 +803,37 @@ export class PostgresStore {
       statementHash: row.statement_hash,
       settlementTxHash: row.settlement_tx_hash,
     };
+  }
+
+  async listTenantInvoices(tenantId, period = null) {
+    const values = [tenantId];
+    let where = `where tenant_id = $1`;
+    if (period) {
+      values.push(period);
+      where += ` and to_char(period_start, 'YYYY-MM') = $2`;
+    }
+    const result = await this._query(
+      `select id as invoice_id,
+              to_char(period_start, 'YYYY-MM') as period,
+              period_start,
+              period_end,
+              amount_usdc,
+              status,
+              settlement_tx_hash
+         from invoices
+         ${where}
+        order by period_start desc`,
+      values,
+    );
+    return result.rows.map((row) => ({
+      invoice_id: row.invoice_id,
+      period: row.period,
+      amount_usdc: Number(row.amount_usdc),
+      status: row.status,
+      period_start: row.period_start.toISOString().slice(0, 10),
+      period_end: row.period_end.toISOString().slice(0, 10),
+      settlement_tx_hash: row.settlement_tx_hash,
+    }));
   }
 
   async recordUsage({ tenantId, agentId, endpoint, quantity = 1, requestId }) {

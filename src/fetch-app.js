@@ -420,6 +420,22 @@ export function createFetchApp(deps = {}) {
         return jsonResponse(200, { messages }, requestId);
       }
 
+      if (method === "GET" && path.startsWith("/v1/messages/")) {
+        const auth = await requireAuth(request, requestId);
+        if (!auth.ok) return auth.response;
+
+        const messageId = path.replace("/v1/messages/", "").trim();
+        if (!messageId) {
+          return jsonResponse(400, { error: "bad_request", message: "message_id is required" }, requestId);
+        }
+
+        const message = await store.getTenantMessageDetail(auth.payload.tenant_id, messageId);
+        if (!message) {
+          return jsonResponse(404, { error: "not_found", message: "Message not found" }, requestId);
+        }
+        return jsonResponse(200, message, requestId);
+      }
+
       if (method === "POST" && path === "/v1/webhooks") {
         const auth = await requireAuth(request, requestId);
         if (!auth.ok) return auth.response;
@@ -530,6 +546,15 @@ export function createFetchApp(deps = {}) {
           },
           requestId,
         );
+      }
+
+      if (method === "GET" && path === "/v1/billing/invoices") {
+        const auth = await requireAuth(request, requestId);
+        if (!auth.ok) return auth.response;
+
+        const period = requestUrl.searchParams.get("period");
+        const items = await store.listTenantInvoices(auth.payload.tenant_id, period);
+        return jsonResponse(200, { items }, requestId);
       }
 
       if (method === "POST" && path === "/internal/inbound/events") {
