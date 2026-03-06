@@ -357,7 +357,7 @@ export class PostgresStore {
               mb.address,
               mb.status,
               mb.provider_ref,
-              mb.updated_at,
+              mb.created_at,
               (
                 select ml.expires_at
                   from mailbox_leases ml
@@ -367,7 +367,7 @@ export class PostgresStore {
               ) as lease_expires_at
          from mailboxes mb
         where mb.tenant_id = $1
-        order by coalesce(mb.updated_at, mb.created_at) desc, mb.address asc`,
+        order by mb.created_at desc, mb.address asc`,
       [tenantId],
     );
 
@@ -377,7 +377,7 @@ export class PostgresStore {
       status: row.status,
       lease_expires_at: row.lease_expires_at ? row.lease_expires_at.toISOString() : null,
       provider_ref: row.provider_ref,
-      updated_at: row.updated_at ? row.updated_at.toISOString() : null,
+      updated_at: row.created_at ? row.created_at.toISOString() : null,
     }));
   }
 
