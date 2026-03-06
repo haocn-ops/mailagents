@@ -664,6 +664,75 @@ export function createFetchApp(deps = {}) {
         );
       }
 
+      if (method === "GET" && path.startsWith("/internal/mailboxes/")) {
+        const auth = requireInternalAuth(request, requestId);
+        if (!auth.ok) return auth.response;
+
+        const mailboxAddress = decodeURIComponent(path.replace("/internal/mailboxes/", "")).trim().toLowerCase();
+        if (!mailboxAddress) {
+          return jsonResponse(400, { error: "bad_request", message: "address is required" }, requestId);
+        }
+
+        const mailbox = await store.findMailboxByAddress(mailboxAddress);
+        if (!mailbox) {
+          return jsonResponse(404, { error: "not_found", message: "Mailbox not found" }, requestId);
+        }
+
+        const lease = await store.getActiveLeaseByMailboxId(mailbox.id);
+        return jsonResponse(
+          200,
+          {
+            mailbox_id: mailbox.id,
+            tenant_id: mailbox.tenantId,
+            address: mailbox.address,
+            status: mailbox.status,
+            provider_ref: mailbox.providerRef || null,
+            active_lease: lease
+              ? {
+                  lease_id: lease.id,
+                  agent_id: lease.agentId,
+                  purpose: lease.purpose,
+                  status: lease.status,
+                  started_at: lease.startedAt,
+                  expires_at: lease.expiresAt,
+                }
+              : null,
+          },
+          requestId,
+        );
+      }
+
+      if (method === "GET" && path.startsWith("/internal/messages/")) {
+        const auth = requireInternalAuth(request, requestId);
+        if (!auth.ok) return auth.response;
+
+        const messageId = decodeURIComponent(path.replace("/internal/messages/", "")).trim();
+        if (!messageId) {
+          return jsonResponse(400, { error: "bad_request", message: "message_id is required" }, requestId);
+        }
+
+        const message = await store.getMessage(messageId);
+        if (!message) {
+          return jsonResponse(404, { error: "not_found", message: "Message not found" }, requestId);
+        }
+
+        return jsonResponse(
+          200,
+          {
+            message_id: message.messageId,
+            tenant_id: message.tenantId,
+            mailbox_id: message.mailboxId,
+            provider_message_id: message.providerMessageId || null,
+            sender: message.sender,
+            sender_domain: message.senderDomain,
+            subject: message.subject,
+            raw_ref: message.rawRef || null,
+            received_at: message.receivedAt,
+          },
+          requestId,
+        );
+      }
+
       if (path.startsWith("/v1/admin/")) {
         const auth = await requireAuth(request, requestId);
         if (!auth.ok) return auth.response;

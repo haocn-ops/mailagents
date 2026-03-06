@@ -387,6 +387,71 @@ test("fetch app accepts internal mailbox provision and release callbacks", async
   assert.ok(audit.items.some((item) => item.action === "mailbox.backend_released"));
 });
 
+test("fetch app exposes internal mailbox and message lookup endpoints", async () => {
+  const app = makeApp();
+  const verify = await issueToken(app, "0xabc0000000000000000000000000000000000aaa");
+
+  const allocateRes = await app(
+    new Request("http://localhost/v1/mailboxes/allocate", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${verify.access_token}`,
+        "x-payment-proof": "mock-proof",
+      },
+      body: JSON.stringify({ agent_id: verify.agent_id, purpose: "lookup", ttl_hours: 1 }),
+    }),
+  );
+  const allocation = await allocateRes.json();
+
+  const inboundRes = await app(
+    new Request("http://localhost/internal/inbound/events", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: "Bearer internal-secret",
+      },
+      body: JSON.stringify({
+        address: allocation.address,
+        provider_message_id: "mailu-msg-lookup",
+        sender: "notify@example.com",
+        sender_domain: "example.com",
+        subject: "Lookup payload",
+        received_at: new Date().toISOString(),
+        raw_ref: "mailu://raw/lookup",
+        text_excerpt: "otp 778899",
+      }),
+    }),
+  );
+  assert.equal(inboundRes.status, 202);
+  const inbound = await inboundRes.json();
+
+  const mailboxRes = await app(
+    new Request(`http://localhost/internal/mailboxes/${encodeURIComponent(allocation.address)}`, {
+      method: "GET",
+      headers: { authorization: "Bearer internal-secret" },
+    }),
+  );
+  assert.equal(mailboxRes.status, 200);
+  const mailbox = await mailboxRes.json();
+  assert.equal(mailbox.mailbox_id, allocation.mailbox_id);
+  assert.equal(mailbox.address, allocation.address);
+  assert.equal(mailbox.active_lease.agent_id, verify.agent_id);
+
+  const messageRes = await app(
+    new Request(`http://localhost/internal/messages/${inbound.message_id}`, {
+      method: "GET",
+      headers: { authorization: "Bearer internal-secret" },
+    }),
+  );
+  assert.equal(messageRes.status, 200);
+  const message = await messageRes.json();
+  assert.equal(message.message_id, inbound.message_id);
+  assert.equal(message.provider_message_id, "mailu-msg-lookup");
+  assert.equal(message.raw_ref, "mailu://raw/lookup");
+  assert.equal(message.subject, "Lookup payload");
+});
+
 test("fetch app dispatches subscribed webhook after parsing inbound mail", async () => {
   const cfg = createConfig({
     JWT_SECRET: "test-secret",

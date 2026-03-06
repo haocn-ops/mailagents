@@ -298,6 +298,21 @@ export class MemoryStore {
     return [...this.state.mailboxes.values()].find((mailbox) => mailbox.address.toLowerCase() === normalized) || null;
   }
 
+  async getActiveLeaseByMailboxId(mailboxId) {
+    const lease = this._currentLeaseByMailbox(mailboxId);
+    if (!lease) return null;
+    return {
+      id: lease.id,
+      tenantId: lease.tenantId,
+      agentId: lease.agentId,
+      purpose: lease.purpose,
+      status: lease.status,
+      startedAt: lease.startedAt,
+      expiresAt: lease.expiresAt,
+      releasedAt: lease.releasedAt,
+    };
+  }
+
   async ingestInboundMessage({
     tenantId,
     mailboxId,
@@ -370,9 +385,11 @@ export class MemoryStore {
       messageId: message.id,
       tenantId: mailbox?.tenantId || null,
       mailboxId: message.mailboxId,
+      providerMessageId: message.providerMessageId || null,
       sender: message.sender,
       senderDomain: message.senderDomain,
       subject: message.subject,
+      rawRef: message.rawRef || null,
       receivedAt: message.receivedAt,
     };
   }

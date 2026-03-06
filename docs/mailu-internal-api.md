@@ -62,10 +62,7 @@ Used by the Mailu fork to notify `mailagents` that a real inbound message has be
 - `404` mailbox address not found in control plane
 - `400` malformed request
 
-## 2. Planned next internal endpoints
-
-- `POST /internal/mailboxes/provision`
-- `POST /internal/mailboxes/release`
+## 2. Mailbox Provision and Release Callbacks
 
 ### `POST /internal/mailboxes/provision`
 
@@ -106,19 +103,60 @@ Example body:
 
 Response shape is the same as provision.
 
-### Planned next internal endpoints
+## 3. Internal Lookup Endpoints
 
-- `GET /internal/mailboxes/{address}`
-- `GET /internal/messages/{message_id}`
+### `GET /internal/mailboxes/{address}`
 
-## 3. Mapping rules
+Used by the Mailu fork to resolve the control-plane state for a mailbox address.
+
+Response:
+
+```json
+{
+  "mailbox_id": "uuid",
+  "tenant_id": "uuid",
+  "address": "abc000-1@inbox.mailagents.net",
+  "status": "leased",
+  "provider_ref": "{\"kind\":\"mailu-user\",\"email\":\"abc000-1@inbox.mailagents.net\"}",
+  "active_lease": {
+    "lease_id": "uuid",
+    "agent_id": "uuid",
+    "purpose": "signup",
+    "status": "active",
+    "started_at": "2026-03-06T09:00:00.000Z",
+    "expires_at": "2026-03-06T10:00:00.000Z"
+  }
+}
+```
+
+### `GET /internal/messages/{message_id}`
+
+Used by the Mailu fork or an internal worker to resolve synchronized message metadata.
+
+Response:
+
+```json
+{
+  "message_id": "uuid",
+  "tenant_id": "uuid",
+  "mailbox_id": "uuid",
+  "provider_message_id": "mailu-msg-123",
+  "sender": "noreply@example.com",
+  "sender_domain": "example.com",
+  "subject": "Your verification code",
+  "raw_ref": "mailu://mailstore/msg-123",
+  "received_at": "2026-03-06T06:30:00.000Z"
+}
+```
+
+## 4. Mapping rules
 
 - `address` must match an existing control-plane mailbox record
 - `raw_ref` points to the raw message in Mailu storage
 - `provider_message_id` is Mailu-side message identity
 - `headers` and `text_excerpt` are preserved in `message_events.payload`
 
-## 4. Processing rules
+## 5. Processing rules
 
 - Each accepted inbound event creates a `messages` row
 - Each accepted inbound event creates a `message_events` row with `event_type = "mail.received"`

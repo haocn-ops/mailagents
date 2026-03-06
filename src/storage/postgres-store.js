@@ -379,6 +379,29 @@ export class PostgresStore {
     };
   }
 
+  async getActiveLeaseByMailboxId(mailboxId) {
+    const result = await this._query(
+      `select id, tenant_id, agent_id, purpose, status, started_at, expires_at, released_at
+         from mailbox_leases
+        where mailbox_id = $1 and status = 'active'
+        order by started_at desc
+        limit 1`,
+      [mailboxId],
+    );
+    if (result.rowCount === 0) return null;
+    const row = result.rows[0];
+    return {
+      id: row.id,
+      tenantId: row.tenant_id,
+      agentId: row.agent_id,
+      purpose: row.purpose,
+      status: row.status,
+      startedAt: row.started_at.toISOString(),
+      expiresAt: row.expires_at.toISOString(),
+      releasedAt: row.released_at ? row.released_at.toISOString() : null,
+    };
+  }
+
   async ingestInboundMessage({
     tenantId,
     mailboxId,
@@ -453,7 +476,7 @@ export class PostgresStore {
 
   async getMessage(messageId) {
     const result = await this._query(
-      `select m.id as message_id, m.mailbox_id, mb.tenant_id, m.sender, m.sender_domain, m.subject, m.received_at
+      `select m.id as message_id, m.mailbox_id, mb.tenant_id, m.provider_message_id, m.sender, m.sender_domain, m.subject, m.raw_ref, m.received_at
          from messages m
          join mailboxes mb on mb.id = m.mailbox_id
         where m.id = $1
@@ -466,9 +489,11 @@ export class PostgresStore {
       messageId: row.message_id,
       tenantId: row.tenant_id,
       mailboxId: row.mailbox_id,
+      providerMessageId: row.provider_message_id,
       sender: row.sender,
       senderDomain: row.sender_domain,
       subject: row.subject,
+      rawRef: row.raw_ref,
       receivedAt: row.received_at.toISOString(),
     };
   }
