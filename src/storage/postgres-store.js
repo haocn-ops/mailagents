@@ -1,4 +1,4 @@
-import { randomBytes, randomUUID } from "node:crypto";
+import { randomBytes } from "node:crypto";
 import { hashSecret, normalizeAddress } from "../utils.js";
 
 export class PostgresStore {
@@ -8,8 +8,6 @@ export class PostgresStore {
     this.challengeTtlMs = challengeTtlMs;
     this.pool = null;
     this.challenges = new Map();
-    this.riskEvents = new Map();
-    this.riskPolicies = new Map();
   }
 
   async _ensurePool() {
@@ -69,19 +67,6 @@ export class PostgresStore {
       [tenantId, agentId, actorDid, action, resourceType, resourceId, requestId, JSON.stringify(metadata)],
       client,
     );
-  }
-
-  _recordRisk({ tenantId, severity, type, detail }) {
-    const event = {
-      id: randomUUID(),
-      tenantId,
-      severity,
-      type,
-      detail,
-      occurredAt: new Date().toISOString(),
-    };
-    this.riskEvents.set(event.id, event);
-    return event;
   }
 
   async saveChallenge(walletAddress, nonce, message) {
@@ -162,6 +147,13 @@ export class PostgresStore {
         `insert into wallet_identities (tenant_id, chain_id, address, did, is_primary)
          values ($1, $2, $3, $4, true)`,
         [tenantId, this.chainId, address, did],
+        client,
+      );
+
+      await this._query(
+        `insert into tenant_quotas (tenant_id, qps, mailbox_limit)
+         values ($1, 120, 100)`,
+        [tenantId],
         client,
       );
 
@@ -398,7 +390,7 @@ export class PostgresStore {
     const result = await this._query(
       `insert into webhooks (tenant_id, target_url, secret_hash, event_types, status)
        values ($1, $2, $3, $4, 'active')
-       returning id, event_types, target_url, status`,
+       returning id, event_types, target_url, status, last_delivery_at, last_status_code`,
       [tenantId, targetUrl, hashSecret(secret), eventTypes],
     );
 
@@ -415,6 +407,8 @@ export class PostgresStore {
       eventTypes: row.event_types,
       targetUrl: row.target_url,
       status: row.status,
+      lastDeliveryAt: row.last_delivery_at,
+      lastStatusCode: row.last_status_code,
     };
   }
 
@@ -556,6 +550,8 @@ export class PostgresStore {
               t.name,
               t.status,
               wi.did as primary_did,
+              tq.qps,
+              tq.mailbox_limit,
               (
                 select count(*)
                   from agents a
@@ -571,9 +567,10 @@ export class PostgresStore {
                   from usage_records u
                  where u.tenant_id = t.id
               ) as monthly_usage,
-              t.created_at as updated_at
+              t.updated_at as updated_at
          from tenants t
          left join wallet_identities wi on wi.tenant_id = t.id and wi.is_primary = true
+         left join tenant_quotas tq on tq.tenant_id = t.id
          ${where}
          order by t.created_at desc`,
       values,
@@ -596,21 +593,49 @@ export class PostgresStore {
 
   async adminGetTenant(tenantId) {
     const result = await this._query(
-      `select t.id as tenant_id, t.name, t.status, t.created_at as updated_at, wi.did as primary_did
+      `select t.id as tenant_id,
+              t.name,
+              t.status,
+              t.updated_at,
+              wi.did as primary_did,
+              tq.qps,
+              tq.mailbox_limit,
+              (
+                select count(*)
+                  from agents a
+                 where a.tenant_id = t.id and a.status = 'active'
+              )::int as active_agents,
+              (
+                select count(*)
+                  from mailboxes m
+                 where m.tenant_id = t.id and m.status = 'leased'
+              )::int as active_mailboxes,
+              (
+                select coalesce(sum(quantity), 0)
+                  from usage_records u
+                 where u.tenant_id = t.id
+              ) as monthly_usage
          from tenants t
          left join wallet_identities wi on wi.tenant_id = t.id and wi.is_primary = true
+         left join tenant_quotas tq on tq.tenant_id = t.id
         where t.id = $1
         limit 1`,
       [tenantId],
     );
     if (result.rowCount === 0) return null;
-    const summary = await this.adminListTenants({ page: 1, pageSize: 1000, status: null });
-    const base = summary.items.find((item) => item.tenant_id === tenantId);
+    const row = result.rows[0];
     return {
-      ...base,
+      tenant_id: row.tenant_id,
+      name: row.name,
+      status: row.status,
+      primary_did: row.primary_did,
+      active_agents: Number(row.active_agents),
+      active_mailboxes: Number(row.active_mailboxes),
+      monthly_usage: Number(row.monthly_usage),
+      updated_at: row.updated_at.toISOString(),
       quotas: {
-        qps: 120,
-        mailbox_limit: 100,
+        qps: Number(row.qps || 120),
+        mailbox_limit: Number(row.mailbox_limit || 100),
       },
     };
   }
@@ -619,7 +644,20 @@ export class PostgresStore {
     const result = await this._query(`select id from tenants where id = $1 limit 1`, [tenantId]);
     if (result.rowCount === 0) return null;
     if (patch.status) {
-      await this._query(`update tenants set status = $2 where id = $1`, [tenantId, patch.status]);
+      await this._query(`update tenants set status = $2, updated_at = now() where id = $1`, [tenantId, patch.status]);
+    }
+    if (patch.quotas) {
+      await this._query(
+        `insert into tenant_quotas (tenant_id, qps, mailbox_limit)
+         values ($1, $2, $3)
+         on conflict (tenant_id)
+         do update set
+           qps = coalesce(excluded.qps, tenant_quotas.qps),
+           mailbox_limit = coalesce(excluded.mailbox_limit, tenant_quotas.mailbox_limit),
+           updated_at = now()`,
+        [tenantId, patch.quotas.qps || null, patch.quotas.mailbox_limit || null],
+      );
+      await this._query(`update tenants set updated_at = now() where id = $1`, [tenantId]);
     }
     await this._recordAudit({
       tenantId,
@@ -681,7 +719,12 @@ export class PostgresStore {
       const tenantId = mailboxResult.rows[0].tenant_id;
       await this._query(`update mailbox_leases set status = 'released', released_at = now() where mailbox_id = $1 and status = 'active'`, [mailboxId], client);
       await this._query(`update mailboxes set status = 'frozen' where id = $1`, [mailboxId], client);
-      this._recordRisk({ tenantId, severity: "high", type: "mailbox.frozen", detail: reason });
+      await this._query(
+        `insert into risk_events (tenant_id, severity, type, detail)
+         values ($1, 'high', 'mailbox.frozen', $2)`,
+        [tenantId, reason],
+        client,
+      );
       await this._recordAudit({ tenantId, actorDid, action: "mailbox.freeze", resourceType: "mailbox", resourceId: mailboxId, requestId, metadata: { reason } }, client);
       return { status: "frozen" };
     });
@@ -762,6 +805,13 @@ export class PostgresStore {
       [messageId],
     );
     if (result.rowCount === 0) return null;
+    await this._query(
+      `update webhooks
+          set last_delivery_at = now(),
+              last_status_code = 200
+        where tenant_id = $1`,
+      [result.rows[0].tenant_id],
+    );
     await this._recordAudit({
       tenantId: result.rows[0].tenant_id,
       actorDid,
@@ -776,6 +826,7 @@ export class PostgresStore {
   async adminListWebhooks({ page, pageSize }) {
     const result = await this._query(
       `select id as webhook_id, tenant_id, target_url, event_types, status, created_at
+              , last_delivery_at, last_status_code
          from webhooks
         order by created_at desc`,
     );
@@ -786,8 +837,8 @@ export class PostgresStore {
         target_url: row.target_url,
         event_types: row.event_types,
         status: row.status,
-        last_delivery_at: row.created_at.toISOString(),
-        last_status_code: 200,
+        last_delivery_at: row.last_delivery_at ? row.last_delivery_at.toISOString() : null,
+        last_status_code: row.last_status_code,
       })),
       page,
       pageSize,
@@ -797,6 +848,13 @@ export class PostgresStore {
   async adminReplayWebhook(webhookId, { from, to, actorDid, requestId }) {
     const result = await this._query(`select id, tenant_id from webhooks where id = $1 limit 1`, [webhookId]);
     if (result.rowCount === 0) return null;
+    await this._query(
+      `update webhooks
+          set last_delivery_at = now(),
+              last_status_code = 200
+        where id = $1`,
+      [webhookId],
+    );
     await this._recordAudit({
       tenantId: result.rows[0].tenant_id,
       actorDid,
@@ -869,31 +927,37 @@ export class PostgresStore {
   }
 
   async adminListRiskEvents({ page, pageSize }) {
-    const items = [...this.riskEvents.values()]
-      .map((event) => ({
-        event_id: event.id,
-        tenant_id: event.tenantId,
-        severity: event.severity,
-        type: event.type,
-        detail: event.detail,
-        occurred_at: event.occurredAt,
-      }))
-      .sort((a, b) => new Date(b.occurred_at) - new Date(a.occurred_at));
-    return this._paginate(items, page, pageSize);
+    const result = await this._query(
+      `select id as event_id, tenant_id, severity, type, detail, occurred_at
+         from risk_events
+        order by occurred_at desc`,
+    );
+    return this._paginate(
+      result.rows.map((row) => ({
+        event_id: row.event_id,
+        tenant_id: row.tenant_id,
+        severity: row.severity,
+        type: row.type,
+        detail: row.detail,
+        occurred_at: row.occurred_at.toISOString(),
+      })),
+      page,
+      pageSize,
+    );
   }
 
   async adminUpsertRiskPolicy({ policyType, value, action, actorDid, requestId }) {
     const key = `${policyType}:${value}`;
     if (action === "remove") {
-      this.riskPolicies.delete(key);
+      await this._query(`delete from risk_policies where policy_type = $1 and value = $2`, [policyType, value]);
     } else {
-      this.riskPolicies.set(key, {
-        id: key,
-        policyType,
-        value,
-        action,
-        updatedAt: new Date().toISOString(),
-      });
+      await this._query(
+        `insert into risk_policies (policy_type, value, action, created_by_did)
+         values ($1, $2, $3, $4)
+         on conflict (policy_type, value)
+         do update set action = excluded.action, created_by_did = excluded.created_by_did, updated_at = now()`,
+        [policyType, value, action, actorDid],
+      );
     }
     await this._recordAudit({
       actorDid,

@@ -198,6 +198,8 @@ npm run worker:deploy
 Notes:
 - Use Hyperdrive connection string for `DATABASE_URL` when using Postgres from Workers.
 - Run DB migration/seed outside Worker startup.
+- The latest schema also persists admin data used by `/admin`: tenant quotas, webhook delivery status, risk policies, and risk events.
+- If you already have an older database, apply the matching schema changes before switching `STORAGE_BACKEND=postgres`.
 
 ## 6. Common Commands
 

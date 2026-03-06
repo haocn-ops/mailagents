@@ -4,7 +4,15 @@ create table tenants (
   id uuid primary key default gen_random_uuid(),
   name text not null,
   status text not null default 'active',
-  created_at timestamptz not null default now()
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table tenant_quotas (
+  tenant_id uuid primary key references tenants(id) on delete cascade,
+  qps int not null default 120,
+  mailbox_limit int not null default 100,
+  updated_at timestamptz not null default now()
 );
 
 create table wallet_identities (
@@ -78,7 +86,9 @@ create table webhooks (
   secret_hash text not null,
   event_types text[] not null,
   status text not null default 'active',
-  created_at timestamptz not null default now()
+  created_at timestamptz not null default now(),
+  last_delivery_at timestamptz,
+  last_status_code int
 );
 
 create table usage_records (
@@ -132,8 +142,28 @@ create table audit_logs (
   created_at timestamptz not null default now()
 );
 
+create table risk_policies (
+  id uuid primary key default gen_random_uuid(),
+  policy_type text not null,
+  value text not null,
+  action text not null,
+  created_by_did text,
+  updated_at timestamptz not null default now(),
+  unique(policy_type, value)
+);
+
+create table risk_events (
+  id uuid primary key default gen_random_uuid(),
+  tenant_id uuid references tenants(id),
+  severity text not null,
+  type text not null,
+  detail text not null,
+  occurred_at timestamptz not null default now()
+);
+
 create index idx_mailbox_leases_active on mailbox_leases(mailbox_id, status, expires_at);
 create index idx_messages_mailbox_received on messages(mailbox_id, received_at desc);
 create index idx_message_events_message on message_events(message_id, event_type);
 create index idx_usage_tenant_time on usage_records(tenant_id, occurred_at);
 create index idx_audit_tenant_time on audit_logs(tenant_id, created_at desc);
+create index idx_risk_events_tenant_time on risk_events(tenant_id, occurred_at desc);

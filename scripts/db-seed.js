@@ -53,6 +53,13 @@ async function main() {
          values ($1, $2, $3, $4, true)`,
         [tenantId, chainId, walletAddress, did],
       );
+
+      await client.query(
+        `insert into tenant_quotas (tenant_id, qps, mailbox_limit)
+         values ($1, 120, 100)
+         on conflict (tenant_id) do nothing`,
+        [tenantId],
+      );
     }
 
     const agentResult = await client.query(
@@ -98,6 +105,14 @@ async function main() {
         [tenantId, periodStart, periodEnd],
       );
     }
+
+    await client.query(
+      `insert into risk_policies (policy_type, value, action, created_by_did)
+       values ('tenant_watch', $1, 'add', $2)
+       on conflict (policy_type, value)
+       do update set action = excluded.action, created_by_did = excluded.created_by_did, updated_at = now()`,
+      [tenantId, did],
+    );
 
     await client.query("COMMIT");
 

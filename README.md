@@ -17,6 +17,8 @@ Current capabilities:
 - x402-style protection (`mock` and `hmac`)
 - Switchable storage backend: `memory` (default) / `postgres`
 - Dual runtime support: Node server + Cloudflare Worker entry
+- Live Admin Dashboard backed by `/v1/admin/*`
+- Postgres-backed admin persistence for tenant quotas, webhook delivery state, risk policies, and risk events
 
 ## Local Quick Start (Node)
 
@@ -52,6 +54,7 @@ Compose automatically:
 - runs migrations
 - runs seed data
 - starts API with `postgres` backend
+- provisions the admin persistence schema used by the dashboard
 
 ## Cloudflare Workers Deployment
 
@@ -92,6 +95,7 @@ npm run worker:deploy
 Note:
 - If using Postgres in Worker runtime, configure `DATABASE_URL` via Hyperdrive connection string.
 - For first migration/seed, run them from CI or trusted backend job, not from Worker cold start.
+- `docs/db/schema.sql` is a bootstrap schema; upgrading an existing database requires applying equivalent ALTER/CREATE statements before switching Worker runtime to `postgres`.
 
 ## Makefile
 
