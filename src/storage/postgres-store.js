@@ -362,7 +362,7 @@ export class PostgresStore {
                 select ml.expires_at
                   from mailbox_leases ml
                  where ml.mailbox_id = mb.id and ml.status = 'active'
-                 order by ml.created_at desc
+                 order by ml.started_at desc
                  limit 1
               ) as lease_expires_at
          from mailboxes mb
