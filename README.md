@@ -237,3 +237,4 @@ An example host Nginx reverse proxy for Mailu web UI lives in `deploy/nginx/mail
 Mailu setup download notes live in `docs/mailu-setup-download.md`.
 Mailu colocated rewrite notes live in `docs/mailu-colocated-rewrite.md`.
 Mailu certificate renewal notes live in `docs/mailu-cert-renewal.md`.
+`docker-compose.prod.yml` now includes a `mailu-sync` sidecar for Maildir-to-control-plane ingestion.

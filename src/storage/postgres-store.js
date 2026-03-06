@@ -66,6 +66,11 @@ export class PostgresStore {
     return `${prefix}-${index}@${this.mailboxDomain}`;
   }
 
+  _mailboxPrefixForAddress(walletAddress) {
+    const compact = normalizeAddress(walletAddress).replace(/^0x/, "");
+    return `${compact.slice(0, 6) || "agent"}${compact.slice(-4) || "0000"}`;
+  }
+
   async _recordAudit({ tenantId = null, agentId = null, actorDid = null, action, resourceType, resourceId, requestId = null, metadata = {} }, client = null) {
     await this._query(
       `insert into audit_logs (tenant_id, agent_id, actor_did, action, resource_type, resource_id, request_id, metadata)
@@ -136,7 +141,7 @@ export class PostgresStore {
 
       const createdTenant = await this._query(
         `insert into tenants (name) values ($1) returning id`,
-        [`tenant-${address.slice(2, 8) || "anon"}`],
+        [`tenant-${this._mailboxPrefixForAddress(address)}`],
         client,
       );
       const tenantId = createdTenant.rows[0].id;
@@ -163,7 +168,7 @@ export class PostgresStore {
         client,
       );
 
-      const mailboxPrefix = address.slice(2, 8) || "agent";
+      const mailboxPrefix = this._mailboxPrefixForAddress(address);
       for (let i = 0; i < 5; i += 1) {
         await this._query(
           `insert into mailboxes (tenant_id, address, status)

@@ -275,8 +275,8 @@ test("fetch app provisions and releases mailboxes via mail provider", async () =
   );
   assert.equal(releaseRes.status, 200);
   assert.deepEqual(calls, [
-    ["provision", "abc000-1@inbox.example.com"],
-    ["release", "abc000-1@inbox.example.com"],
+    ["provision", "abc0000abc-1@inbox.example.com"],
+    ["release", "abc0000abc-1@inbox.example.com"],
   ]);
 });
 
@@ -444,7 +444,7 @@ test("fetch app accepts internal mailbox provision and release callbacks", async
       },
       body: JSON.stringify({
         address: allocation.address,
-        provider_ref: '{"kind":"mailu-user","email":"abc000-1@inbox.example.com"}',
+        provider_ref: '{"kind":"mailu-user","email":"abc0000fed-1@inbox.example.com"}',
       }),
     }),
   );
@@ -459,7 +459,7 @@ test("fetch app accepts internal mailbox provision and release callbacks", async
   const mailboxes = await mailboxesRes.json();
   assert.ok(
     mailboxes.items.some(
-      (item) => item.mailbox_id === allocation.mailbox_id && item.address === "abc000-1@inbox.example.com",
+      (item) => item.mailbox_id === allocation.mailbox_id && item.address === "abc0000fed-1@inbox.example.com",
     ),
   );
 
@@ -472,7 +472,7 @@ test("fetch app accepts internal mailbox provision and release callbacks", async
       },
       body: JSON.stringify({
         address: allocation.address,
-        provider_ref: '{"kind":"mailu-user","email":"abc000-1@inbox.example.com"}',
+        provider_ref: '{"kind":"mailu-user","email":"abc0000fed-1@inbox.example.com"}',
       }),
     }),
   );

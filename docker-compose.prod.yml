@@ -43,5 +43,26 @@ services:
     command: >-
       sh -lc "npm run db:bootstrap && npm run db:upgrade && npm run start:prod"
 
+  mailu-sync:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: mailagents-mailu-sync-prod
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_started
+    env_file:
+      - .env.production
+    environment:
+      AGENTS_BASE_URL: http://api:3000
+      MAILU_MAIL_ROOT: /mailu/mail
+      MAILU_SYNC_STATE_FILE: /mailu/config/mailagents-sync-state.json
+      MAILU_SYNC_INTERVAL_SEC: 15
+    volumes:
+      - /mailu:/mailu
+    command: >-
+      sh -lc "while true; do node scripts/mailu-maildir-sync.js || true; sleep ${MAILU_SYNC_INTERVAL_SEC:-15}; done"
+
 volumes:
   pgdata_prod:

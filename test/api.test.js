@@ -219,6 +219,70 @@ test("usage summary and invoice detail are available", async () => {
   assert.equal(invoiceDetail.body.invoice_id, invoice.id);
 });
 
+test("wallets with the same leading hex still get distinct mailbox addresses", async () => {
+  const app = createApp();
+  const firstWallet = "0xabc0000000000000000000000000000000000123";
+  const secondWallet = "0xabc0000000000000000000000000000000000456";
+
+  const firstChallenge = await invoke(app, {
+    method: "POST",
+    path: "/v1/auth/siwe/challenge",
+    headers: { "content-type": "application/json" },
+    body: { wallet_address: firstWallet },
+  });
+  const firstVerify = await invoke(app, {
+    method: "POST",
+    path: "/v1/auth/siwe/verify",
+    headers: { "content-type": "application/json" },
+    body: { message: firstChallenge.body.message, signature: "0xsignature" },
+  });
+  const firstAllocate = await invoke(app, {
+    method: "POST",
+    path: "/v1/mailboxes/allocate",
+    headers: {
+      authorization: `Bearer ${firstVerify.body.access_token}`,
+      "content-type": "application/json",
+      "x-payment-proof": "mock-proof",
+    },
+    body: {
+      agent_id: firstVerify.body.agent_id,
+      purpose: "collision-test-1",
+      ttl_hours: 1,
+    },
+  });
+
+  const secondChallenge = await invoke(app, {
+    method: "POST",
+    path: "/v1/auth/siwe/challenge",
+    headers: { "content-type": "application/json" },
+    body: { wallet_address: secondWallet },
+  });
+  const secondVerify = await invoke(app, {
+    method: "POST",
+    path: "/v1/auth/siwe/verify",
+    headers: { "content-type": "application/json" },
+    body: { message: secondChallenge.body.message, signature: "0xsignature" },
+  });
+  const secondAllocate = await invoke(app, {
+    method: "POST",
+    path: "/v1/mailboxes/allocate",
+    headers: {
+      authorization: `Bearer ${secondVerify.body.access_token}`,
+      "content-type": "application/json",
+      "x-payment-proof": "mock-proof",
+    },
+    body: {
+      agent_id: secondVerify.body.agent_id,
+      purpose: "collision-test-2",
+      ttl_hours: 1,
+    },
+  });
+
+  assert.equal(firstAllocate.status, 200);
+  assert.equal(secondAllocate.status, 200);
+  assert.notEqual(firstAllocate.body.address, secondAllocate.body.address);
+});
+
 test("memory store uses configured mailbox domain", async () => {
   const store = new MemoryStore({
     chainId: 84532,

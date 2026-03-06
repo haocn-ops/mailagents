@@ -88,6 +88,11 @@ export class MemoryStore {
     return `${prefix}-${index}@${this.mailboxDomain}`;
   }
 
+  _mailboxPrefixForAddress(walletAddress) {
+    const compact = normalizeAddress(walletAddress).replace(/^0x/, "");
+    return `${compact.slice(0, 6) || "agent"}${compact.slice(-4) || "0000"}`;
+  }
+
   _newTenantForWallet(walletAddress) {
     const address = normalizeAddress(walletAddress);
     const tenantId = randomUUID();
@@ -96,7 +101,7 @@ export class MemoryStore {
 
     const tenant = {
       id: tenantId,
-      name: `tenant-${address.slice(2, 8) || "anon"}`,
+      name: `tenant-${this._mailboxPrefixForAddress(address)}`,
       walletAddress: address,
       did,
       status: "active",
@@ -122,7 +127,7 @@ export class MemoryStore {
 
     for (let i = 0; i < 5; i += 1) {
       const mailboxId = randomUUID();
-      const addressName = this._buildMailboxAddress(address.slice(2, 8) || "agent", i + 1);
+      const addressName = this._buildMailboxAddress(this._mailboxPrefixForAddress(address), i + 1);
       this.state.mailboxes.set(mailboxId, {
         id: mailboxId,
         tenantId,

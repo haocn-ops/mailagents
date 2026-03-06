@@ -19,9 +19,9 @@ function extractHtmlLink(html) {
 
 function extractOtp(source) {
   const patterns = [
-    /\bcode[:\s-]*([A-Z0-9]{4,8})\b/i,
-    /\botp[:\s-]*([A-Z0-9]{4,8})\b/i,
-    /\bverification(?:\s+code)?[:\s-]*([A-Z0-9]{4,8})\b/i,
+    /\bverification\s+code(?:\s+is|[:\s-])+([A-Z0-9]{4,8})\b/i,
+    /\botp(?:\s+is|[:\s-])+([A-Z0-9]{4,8})\b/i,
+    /\bcode(?:\s+is|[:\s-])+([A-Z0-9]{4,8})\b/i,
     /\b([0-9]{4,8})\b/,
   ];
   for (const pattern of patterns) {
