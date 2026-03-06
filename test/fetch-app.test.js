@@ -72,6 +72,7 @@ test("fetch app serves user app html", async () => {
   assert.match(html, /User Workspace/);
   assert.match(html, /Allocate Mailbox/);
   assert.match(html, /Latest Messages/);
+  assert.match(html, /Open Webmail/);
 });
 
 test("fetch app exposes tenant mailbox and webhook lists", async () => {

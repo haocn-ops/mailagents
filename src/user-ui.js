@@ -179,6 +179,20 @@ export function renderUserAppHtml() {
     button.primary { background: var(--brand); color: #fff; }
     button.secondary { background: var(--brand-2); color: #fff; }
     button.ghost { background: #ead8c6; color: #2f2823; }
+    .actions a {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 12px;
+      padding: 11px 14px;
+      font: inherit;
+      font-weight: 700;
+      text-decoration: none;
+      transition: transform 140ms ease, opacity 140ms ease;
+    }
+    .actions a:hover { transform: translateY(-1px); }
+    .actions a.secondary { background: var(--brand-2); color: #fff; }
+    .actions a.ghost { background: #ead8c6; color: #2f2823; }
     .token-box, .log, .json {
       font-family: 'IBM Plex Mono', monospace;
       font-size: 12px;
@@ -276,6 +290,11 @@ export function renderUserAppHtml() {
         <div class="status-pill"><span id="api-dot" class="dot"></span><span id="api-status">checking api...</span></div>
         <div class="status-pill"><span id="auth-dot" class="dot"></span><span id="auth-status">not signed in</span></div>
         <div class="status-pill"><span id="mailbox-dot" class="dot"></span><span id="mailbox-status">no active mailbox selected</span></div>
+        <p class="hint" style="margin: 0">Use this panel for mailbox allocation and OTP extraction. Open Webmail when you need a full inbox UI for reading and sending mail.</p>
+        <div class="actions" style="margin-top: 0">
+          <a class="secondary" href="https://inbox.mailagents.net/webmail/" target="_blank" rel="noreferrer">Open Webmail</a>
+          <a class="ghost" href="https://inbox.mailagents.net/" target="_blank" rel="noreferrer">Mail Login</a>
+        </div>
       </article>
     </section>
 
