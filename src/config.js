@@ -15,6 +15,7 @@ export function createConfig(source = {}) {
   return {
     port: asNumber(source.PORT, 3000),
     jwtSecret: String(source.JWT_SECRET || "dev-jwt-secret"),
+    adminApiToken: String(source.ADMIN_API_TOKEN || ""),
     internalApiToken: String(source.INTERNAL_API_TOKEN || ""),
     baseChainId: asNumber(source.BASE_CHAIN_ID, 84532),
     mailboxDomain: String(source.MAILBOX_DOMAIN || "pool.mailcloud.local"),
@@ -34,6 +35,9 @@ export function createConfig(source = {}) {
     paymentMode: asLower(source.PAYMENT_MODE, "mock"),
     paymentHmacSecret: String(source.X402_HMAC_SECRET || ""),
     paymentHmacSkewSec: asNumber(source.X402_HMAC_SKEW_SEC, 300),
+    webhookSecretEncryptionKey: String(source.WEBHOOK_SECRET_ENCRYPTION_KEY || source.JWT_SECRET || "dev-jwt-secret"),
+    webhookTimeoutMs: asNumber(source.WEBHOOK_TIMEOUT_MS, 5000),
+    webhookRetryAttempts: asNumber(source.WEBHOOK_RETRY_ATTEMPTS, 3),
   };
 }
 

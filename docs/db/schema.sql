@@ -84,6 +84,7 @@ create table webhooks (
   tenant_id uuid not null references tenants(id),
   target_url text not null,
   secret_hash text not null,
+  secret_enc text not null,
   event_types text[] not null,
   status text not null default 'active',
   created_at timestamptz not null default now(),
@@ -164,6 +165,7 @@ create table risk_events (
 create index idx_mailbox_leases_active on mailbox_leases(mailbox_id, status, expires_at);
 create index idx_messages_mailbox_received on messages(mailbox_id, received_at desc);
 create index idx_message_events_message on message_events(message_id, event_type);
+create unique index idx_messages_mailbox_provider_message on messages(mailbox_id, provider_message_id) where provider_message_id is not null;
 create index idx_usage_tenant_time on usage_records(tenant_id, occurred_at);
 create index idx_audit_tenant_time on audit_logs(tenant_id, created_at desc);
 create index idx_risk_events_tenant_time on risk_events(tenant_id, occurred_at desc);

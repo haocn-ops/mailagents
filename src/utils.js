@@ -1,4 +1,4 @@
-import { createHash, randomBytes, randomUUID } from "node:crypto";
+import { createCipheriv, createDecipheriv, createHash, createHmac, randomBytes, randomUUID } from "node:crypto";
 
 export function json(res, statusCode, payload, requestId) {
   res.writeHead(statusCode, {
@@ -43,6 +43,35 @@ export function createNonce() {
 
 export function hashSecret(value) {
   return createHash("sha256").update(value).digest("hex");
+}
+
+function deriveKey(secret) {
+  return createHash("sha256").update(String(secret || "")).digest();
+}
+
+export function encryptSecret(value, keyMaterial) {
+  const iv = randomBytes(12);
+  const key = deriveKey(keyMaterial);
+  const cipher = createCipheriv("aes-256-gcm", key, iv);
+  const ciphertext = Buffer.concat([cipher.update(String(value), "utf8"), cipher.final()]);
+  const tag = cipher.getAuthTag();
+  return `${iv.toString("base64")}.${tag.toString("base64")}.${ciphertext.toString("base64")}`;
+}
+
+export function decryptSecret(payload, keyMaterial) {
+  const [ivB64, tagB64, dataB64] = String(payload || "").split(".");
+  if (!ivB64 || !tagB64 || !dataB64) {
+    throw new Error("Invalid encrypted secret payload");
+  }
+  const key = deriveKey(keyMaterial);
+  const decipher = createDecipheriv("aes-256-gcm", key, Buffer.from(ivB64, "base64"));
+  decipher.setAuthTag(Buffer.from(tagB64, "base64"));
+  const plaintext = Buffer.concat([decipher.update(Buffer.from(dataB64, "base64")), decipher.final()]);
+  return plaintext.toString("utf8");
+}
+
+export function signHmacSha256(secret, payload) {
+  return createHmac("sha256", String(secret || "")).update(String(payload || "")).digest("hex");
 }
 
 export function utcIsoNow() {

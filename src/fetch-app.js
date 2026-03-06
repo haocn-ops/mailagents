@@ -59,7 +59,13 @@ export function createFetchApp(deps = {}) {
       statement: runtimeConfig.siweStatement,
     });
   const mailBackend = deps.mailBackend || deps.mailProvider || createMailBackendAdapter(runtimeConfig);
-  const webhookDispatcher = deps.webhookDispatcher || createWebhookDispatcher();
+  const webhookDispatcher =
+    deps.webhookDispatcher ||
+    createWebhookDispatcher({
+      secretEncryptionKey: runtimeConfig.webhookSecretEncryptionKey,
+      timeoutMs: runtimeConfig.webhookTimeoutMs,
+      retryAttempts: runtimeConfig.webhookRetryAttempts,
+    });
 
   async function requireAuth(request, requestId) {
     const token = parseBearerToken(request.headers.get("authorization"));
@@ -115,6 +121,24 @@ export function createFetchApp(deps = {}) {
     return { ok: true };
   }
 
+  async function requireAdminAuth(request, requestId) {
+    if (runtimeConfig.adminApiToken) {
+      const token =
+        parseBearerToken(request.headers.get("authorization")) || request.headers.get("x-admin-token");
+      if (!token || token !== runtimeConfig.adminApiToken) {
+        return {
+          ok: false,
+          response: jsonResponse(401, { error: "unauthorized", message: "Invalid admin token" }, requestId),
+        };
+      }
+      return { ok: true, actorDid: "system:admin-token" };
+    }
+
+    const auth = await requireAuth(request, requestId);
+    if (!auth.ok) return auth;
+    return { ok: true, actorDid: auth.payload.did, payload: auth.payload };
+  }
+
   function requirePayment(request, requestId) {
     const result = paymentVerifier.verify(request);
     if (!result.ok) {
@@ -138,7 +162,7 @@ export function createFetchApp(deps = {}) {
       }
 
       if (method === "GET" && (path === "/admin" || path === "/admin/")) {
-        return new Response(renderAdminDashboardHtml(), {
+        return new Response(renderAdminDashboardHtml({ adminTokenRequired: Boolean(runtimeConfig.adminApiToken) }), {
           status: 200,
           headers: {
             "content-type": "text/html; charset=utf-8",
@@ -570,7 +594,12 @@ export function createFetchApp(deps = {}) {
           await store.recordWebhookDelivery(webhook.id, {
             statusCode: delivery.statusCode,
             requestId,
-            metadata: { event_type: eventType },
+            metadata: {
+              event_type: eventType,
+              delivery_id: delivery.deliveryId,
+              attempts: delivery.attempts,
+              ok: delivery.ok,
+            },
           });
         }
 
@@ -734,10 +763,10 @@ export function createFetchApp(deps = {}) {
       }
 
       if (path.startsWith("/v1/admin/")) {
-        const auth = await requireAuth(request, requestId);
+        const auth = await requireAdminAuth(request, requestId);
         if (!auth.ok) return auth.response;
         const paging = parsePaging(requestUrl);
-        const actorDid = auth.payload.did;
+        const actorDid = auth.actorDid;
 
         if (method === "GET" && path === "/v1/admin/overview/metrics") {
           const metrics = await store.adminOverviewMetrics();

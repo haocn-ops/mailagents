@@ -30,6 +30,22 @@ npm run smoke:mailu
 
 This uses the bundled `mailu-dev` simulator to validate mailbox provisioning and inbound mail parsing locally.
 
+### 1.2 Production Preflight
+
+Before a production deploy, run:
+
+```bash
+npm run preflight:prod
+```
+
+For existing PostgreSQL databases, also run:
+
+```bash
+npm run db:upgrade
+```
+
+If `db:upgrade` adds `webhooks.secret_enc` for an older database, rotate existing webhook secrets after deployment so signed deliveries are enabled.
+
 Health check:
 
 ```bash

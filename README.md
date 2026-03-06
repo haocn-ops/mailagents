@@ -137,9 +137,11 @@ npm test
 ## npm Scripts
 
 - `npm run db:migrate` - Apply `docs/db/schema.sql`
+- `npm run db:upgrade` - Apply additive schema upgrades for existing databases
 - `npm run db:seed` - Seed tenant/agent/mailboxes/invoice data
 - `npm run reconcile:mailboxes` - Compare control-plane mailbox state with backend mailbox state (`-- --repair` to apply safe repairs)
 - `npm run siwe:verify` - Verify SIWE message + signature from CLI
+- `npm run preflight:prod` - Validate production readiness of current env vars
 - `npm run smoke` - Local API smoke test
 - `npm run mailu-dev` - Run the local Mailu dev simulator
 - `npm run smoke:mailu` - Local API + `mailu-dev` integration smoke test
@@ -151,6 +153,7 @@ npm test
 Core:
 - `PORT` (default: `3000`)
 - `JWT_SECRET`
+- `ADMIN_API_TOKEN`
 - `BASE_CHAIN_ID` (default: `84532`)
 - `MAILBOX_DOMAIN` (default: `inbox.mailagents.net` in current deployment)
 - `MAIL_PROVIDER` (`noop` or `mailu`)
@@ -162,6 +165,9 @@ Core:
 - `MAILU_QUOTA_BYTES`
 - `MAILU_AUTH_SCHEME`
 - `INTERNAL_API_TOKEN`
+- `WEBHOOK_SECRET_ENCRYPTION_KEY`
+- `WEBHOOK_TIMEOUT_MS`
+- `WEBHOOK_RETRY_ATTEMPTS`
 
 SIWE:
 - `SIWE_MODE` (`mock` default, or `strict`)
@@ -185,6 +191,18 @@ SIWE verify CLI:
 - `SIWE_MESSAGE` or stdin
 - `SIWE_SIGNATURE`
 - optional: `SIWE_ADDRESS`, `SIWE_NONCE`
+
+## Production Notes
+
+- Set `ADMIN_API_TOKEN` to protect `/v1/admin/*` with a dedicated admin credential.
+- Run `npm run preflight:prod` before production deployment.
+- For existing databases, run `npm run db:upgrade` before switching application code.
+- After `db:upgrade`, rotate existing webhook secrets so `secret_enc` is populated and outbound webhook signing is enabled.
+- In production, use:
+  - `SIWE_MODE=strict`
+  - `PAYMENT_MODE=hmac`
+  - `MAIL_PROVIDER=mailu`
+  - `STORAGE_BACKEND=postgres`
 
 ## Notes
 

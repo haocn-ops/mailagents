@@ -64,6 +64,42 @@ test("fetch app serves admin dashboard html", async () => {
   assert.match(html, /Live API/);
 });
 
+test("fetch app requires dedicated admin token when configured", async () => {
+  const cfg = createConfig({
+    JWT_SECRET: "test-secret",
+    ADMIN_API_TOKEN: "admin-secret",
+    INTERNAL_API_TOKEN: "internal-secret",
+    BASE_CHAIN_ID: "84532",
+    MAILBOX_DOMAIN: "inbox.example.com",
+    SIWE_MODE: "mock",
+    PAYMENT_MODE: "mock",
+  });
+  const store = new MemoryStore({
+    chainId: cfg.baseChainId,
+    challengeTtlMs: cfg.siweChallengeTtlMs,
+    mailboxDomain: cfg.mailboxDomain,
+    webhookSecretEncryptionKey: cfg.webhookSecretEncryptionKey,
+  });
+  const app = createFetchApp({ config: cfg, store });
+  const verify = await issueToken(app);
+
+  const deniedRes = await app(
+    new Request("http://localhost/v1/admin/overview/metrics", {
+      method: "GET",
+      headers: { authorization: `Bearer ${verify.access_token}` },
+    }),
+  );
+  assert.equal(deniedRes.status, 401);
+
+  const allowedRes = await app(
+    new Request("http://localhost/v1/admin/overview/metrics", {
+      method: "GET",
+      headers: { authorization: "Bearer admin-secret" },
+    }),
+  );
+  assert.equal(allowedRes.status, 200);
+});
+
 test("fetch app admin API exposes live overview and lists", async () => {
   const app = makeApp();
   const verify = await issueToken(app);
@@ -299,6 +335,72 @@ test("fetch app accepts internal inbound events and stores message", async () =>
   assert.equal(latest.messages[0].message_id, inbound.message_id);
   assert.ok(latest.messages.some((item) => item.subject === "Inbound from Mailu"));
   assert.ok(latest.messages.some((item) => item.otp_code === "123456"));
+});
+
+test("fetch app deduplicates internal inbound events by provider message id", async () => {
+  const app = makeApp();
+  const verify = await issueToken(app, "0xabc0000000000000000000000000000000000dde");
+
+  const allocateRes = await app(
+    new Request("http://localhost/v1/mailboxes/allocate", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${verify.access_token}`,
+        "x-payment-proof": "mock-proof",
+      },
+      body: JSON.stringify({ agent_id: verify.agent_id, purpose: "dedupe", ttl_hours: 1 }),
+    }),
+  );
+  const allocation = await allocateRes.json();
+
+  const payload = {
+    address: allocation.address,
+    provider_message_id: "mailu-msg-dedupe",
+    sender: "notify@example.com",
+    sender_domain: "example.com",
+    subject: "Duplicate check",
+    received_at: new Date().toISOString(),
+    raw_ref: "mailu://raw/dedupe",
+    text_excerpt: "code 445566",
+  };
+
+  const firstRes = await app(
+    new Request("http://localhost/internal/inbound/events", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: "Bearer internal-secret",
+      },
+      body: JSON.stringify(payload),
+    }),
+  );
+  const secondRes = await app(
+    new Request("http://localhost/internal/inbound/events", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: "Bearer internal-secret",
+      },
+      body: JSON.stringify(payload),
+    }),
+  );
+
+  const first = await firstRes.json();
+  const second = await secondRes.json();
+  assert.equal(first.message_id, second.message_id);
+
+  const latestRes = await app(
+    new Request(`http://localhost/v1/messages/latest?mailbox_id=${allocation.mailbox_id}&limit=20`, {
+      method: "GET",
+      headers: {
+        authorization: `Bearer ${verify.access_token}`,
+        "x-payment-proof": "mock-proof",
+      },
+    }),
+  );
+  const latest = await latestRes.json();
+  assert.equal(latest.messages.filter((item) => item.subject === "Duplicate check").length, 1);
 });
 
 test("fetch app rejects internal inbound events without internal token", async () => {

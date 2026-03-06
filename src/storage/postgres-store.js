@@ -1,12 +1,13 @@
 import { randomBytes } from "node:crypto";
-import { hashSecret, normalizeAddress } from "../utils.js";
+import { encryptSecret, hashSecret, normalizeAddress } from "../utils.js";
 
 export class PostgresStore {
-  constructor({ databaseUrl, chainId, challengeTtlMs, mailboxDomain = "pool.mailcloud.local" }) {
+  constructor({ databaseUrl, chainId, challengeTtlMs, mailboxDomain = "pool.mailcloud.local", webhookSecretEncryptionKey }) {
     this.databaseUrl = databaseUrl;
     this.chainId = chainId;
     this.challengeTtlMs = challengeTtlMs;
     this.mailboxDomain = mailboxDomain;
+    this.webhookSecretEncryptionKey = webhookSecretEncryptionKey;
     this.pool = null;
     this.challenges = new Map();
   }
@@ -422,6 +423,20 @@ export class PostgresStore {
       );
       if (mailboxResult.rowCount === 0) return null;
 
+      if (providerMessageId) {
+        const existing = await this._query(
+          `select id
+             from messages
+            where mailbox_id = $1 and provider_message_id = $2
+            limit 1`,
+          [mailboxId, providerMessageId],
+          client,
+        );
+        if (existing.rowCount > 0) {
+          return { tenantId, mailboxId, messageId: existing.rows[0].id, deduped: true };
+        }
+      }
+
       const messageResult = await this._query(
         `insert into messages (mailbox_id, provider_message_id, sender, sender_domain, subject, raw_ref, received_at)
          values ($1, $2, $3, $4, $5, $6, $7)
@@ -532,7 +547,7 @@ export class PostgresStore {
 
   async listActiveWebhooksByEvent(tenantId, eventType) {
     const result = await this._query(
-      `select id, tenant_id, target_url, secret_hash, event_types, status, last_delivery_at, last_status_code
+      `select id, tenant_id, target_url, secret_hash, secret_enc, event_types, status, last_delivery_at, last_status_code
          from webhooks
         where tenant_id = $1
           and status = 'active'
@@ -544,6 +559,7 @@ export class PostgresStore {
       tenantId: row.tenant_id,
       targetUrl: row.target_url,
       secretHash: row.secret_hash,
+      secretEnc: row.secret_enc,
       eventTypes: row.event_types,
       status: row.status,
       lastDeliveryAt: row.last_delivery_at ? row.last_delivery_at.toISOString() : null,
@@ -635,10 +651,10 @@ export class PostgresStore {
 
   async createWebhook({ tenantId, eventTypes, targetUrl, secret }) {
     const result = await this._query(
-      `insert into webhooks (tenant_id, target_url, secret_hash, event_types, status)
-       values ($1, $2, $3, $4, 'active')
+      `insert into webhooks (tenant_id, target_url, secret_hash, secret_enc, event_types, status)
+       values ($1, $2, $3, $4, $5, 'active')
        returning id, event_types, target_url, status, last_delivery_at, last_status_code`,
-      [tenantId, targetUrl, hashSecret(secret), eventTypes],
+      [tenantId, targetUrl, hashSecret(secret), encryptSecret(secret, this.webhookSecretEncryptionKey), eventTypes],
     );
 
     const row = result.rows[0];
@@ -1146,7 +1162,11 @@ export class PostgresStore {
     const result = await this._query(`select id, tenant_id from webhooks where id = $1 limit 1`, [webhookId]);
     if (result.rowCount === 0) return null;
     const secret = randomBytes(18).toString("hex");
-    await this._query(`update webhooks set secret_hash = $2 where id = $1`, [webhookId, hashSecret(secret)]);
+    await this._query(`update webhooks set secret_hash = $2, secret_enc = $3 where id = $1`, [
+      webhookId,
+      hashSecret(secret),
+      encryptSecret(secret, this.webhookSecretEncryptionKey),
+    ]);
     await this._recordAudit({
       tenantId: result.rows[0].tenant_id,
       actorDid,

@@ -9,6 +9,7 @@ export function createStoreFromConfig(runtimeConfig) {
       chainId: runtimeConfig.baseChainId,
       challengeTtlMs: runtimeConfig.siweChallengeTtlMs,
       mailboxDomain: runtimeConfig.mailboxDomain,
+      webhookSecretEncryptionKey: runtimeConfig.webhookSecretEncryptionKey,
     });
   }
 
@@ -16,6 +17,7 @@ export function createStoreFromConfig(runtimeConfig) {
     chainId: runtimeConfig.baseChainId,
     challengeTtlMs: runtimeConfig.siweChallengeTtlMs,
     mailboxDomain: runtimeConfig.mailboxDomain,
+    webhookSecretEncryptionKey: runtimeConfig.webhookSecretEncryptionKey,
   });
 }
 

@@ -1,11 +1,12 @@
 import { randomBytes, randomUUID } from "node:crypto";
-import { hashSecret, normalizeAddress } from "../utils.js";
+import { encryptSecret, hashSecret, normalizeAddress } from "../utils.js";
 
 export class MemoryStore {
-  constructor({ chainId, challengeTtlMs, mailboxDomain = "pool.mailcloud.local" }) {
+  constructor({ chainId, challengeTtlMs, mailboxDomain = "pool.mailcloud.local", webhookSecretEncryptionKey }) {
     this.chainId = chainId;
     this.challengeTtlMs = challengeTtlMs;
     this.mailboxDomain = mailboxDomain;
+    this.webhookSecretEncryptionKey = webhookSecretEncryptionKey;
     this.state = {
       challenges: new Map(),
       tenantsByWallet: new Map(),
@@ -328,6 +329,15 @@ export class MemoryStore {
     const mailbox = this.state.mailboxes.get(mailboxId);
     if (!mailbox || mailbox.tenantId !== tenantId) return null;
 
+    if (providerMessageId) {
+      const existing = [...this.state.messages.values()].find(
+        (message) => message.mailboxId === mailboxId && message.providerMessageId === providerMessageId,
+      );
+      if (existing) {
+        return { tenantId, mailboxId, messageId: existing.id, deduped: true };
+      }
+    }
+
     const messageId = randomUUID();
     this.state.messages.set(messageId, {
       id: messageId,
@@ -425,7 +435,7 @@ export class MemoryStore {
         webhook.status === "active" &&
         Array.isArray(webhook.eventTypes) &&
         webhook.eventTypes.includes(eventType),
-    );
+    ).map((webhook) => ({ ...webhook }));
   }
 
   async recordWebhookDelivery(webhookId, { statusCode, requestId = null, metadata = {} }) {
@@ -479,6 +489,7 @@ export class MemoryStore {
       tenantId,
       targetUrl,
       secretHash: hashSecret(secret),
+      secretEnc: encryptSecret(secret, this.webhookSecretEncryptionKey),
       eventTypes,
       status: "active",
       createdAt: new Date().toISOString(),
@@ -837,6 +848,7 @@ export class MemoryStore {
     if (!webhook) return null;
     const nextSecret = randomBytes(18).toString("hex");
     webhook.secretHash = hashSecret(nextSecret);
+    webhook.secretEnc = encryptSecret(nextSecret, this.webhookSecretEncryptionKey);
     this._recordAudit({
       tenantId: webhook.tenantId,
       actorDid,

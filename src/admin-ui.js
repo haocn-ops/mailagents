@@ -1,4 +1,4 @@
-export function renderAdminDashboardHtml() {
+export function renderAdminDashboardHtml({ adminTokenRequired = false } = {}) {
   const defaultApiBase = "https://mailagents-api.izhenghaocn.workers.dev";
 
   return `<!doctype html>
@@ -88,8 +88,8 @@ export function renderAdminDashboardHtml() {
       </section>
       <section class="toolbar">
         <input id="apiBase" value="${defaultApiBase}" />
-        <input id="token" placeholder="Bearer token (auto-login works in mock SIWE mode)" />
-        <button class="cta ghost" id="login">Admin Login</button>
+        <input id="token" placeholder="${adminTokenRequired ? "Admin API token" : "Bearer token (auto-login works in mock SIWE mode)"}" />
+        <button class="cta ghost" id="login">${adminTokenRequired ? "Use Admin Token" : "Admin Login"}</button>
         <button class="cta" id="refresh">Refresh</button>
         <button class="cta alt" id="run-flow">Run Auth + Allocate</button>
       </section>
@@ -148,6 +148,7 @@ export function renderAdminDashboardHtml() {
     var tokenEl = document.getElementById("token");
     var apiDot = document.getElementById("api-dot");
     var apiStatus = document.getElementById("api-status");
+    var adminTokenRequired = ${adminTokenRequired ? "true" : "false"};
 
     function addLog(line) {
       logEl.textContent = "[" + new Date().toISOString() + "] " + line + "\\n" + logEl.textContent;
@@ -249,6 +250,11 @@ export function renderAdminDashboardHtml() {
     }
 
     async function adminLogin() {
+      if (adminTokenRequired) {
+        if (!tokenEl.value.trim()) throw new Error("admin token required");
+        addLog("admin token configured");
+        return { mode: "admin-token" };
+      }
       var wallet = "0xabc0000000000000000000000000000000000666";
       var challenge = await fetchJson("/v1/auth/siwe/challenge", {
         method: "POST",
@@ -267,6 +273,7 @@ export function renderAdminDashboardHtml() {
 
     async function ensureToken() {
       if (tokenEl.value.trim()) return;
+      if (adminTokenRequired) throw new Error("admin token required");
       await adminLogin();
     }
 
@@ -513,7 +520,7 @@ export function renderAdminDashboardHtml() {
     document.getElementById("save-policy").addEventListener("click", savePolicy);
 
     addLog("dashboard ready");
-    refreshDashboard();
+    if (!adminTokenRequired) refreshDashboard();
   </script>
 </body>
 </html>`;
