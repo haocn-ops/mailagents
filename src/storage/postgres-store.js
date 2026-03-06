@@ -351,6 +351,36 @@ export class PostgresStore {
     });
   }
 
+  async listTenantMailboxes(tenantId) {
+    const result = await this._query(
+      `select mb.id as mailbox_id,
+              mb.address,
+              mb.status,
+              mb.provider_ref,
+              mb.updated_at,
+              (
+                select ml.expires_at
+                  from mailbox_leases ml
+                 where ml.mailbox_id = mb.id and ml.status = 'active'
+                 order by ml.created_at desc
+                 limit 1
+              ) as lease_expires_at
+         from mailboxes mb
+        where mb.tenant_id = $1
+        order by coalesce(mb.updated_at, mb.created_at) desc, mb.address asc`,
+      [tenantId],
+    );
+
+    return result.rows.map((row) => ({
+      mailbox_id: row.mailbox_id,
+      address: row.address,
+      status: row.status,
+      lease_expires_at: row.lease_expires_at ? row.lease_expires_at.toISOString() : null,
+      provider_ref: row.provider_ref,
+      updated_at: row.updated_at ? row.updated_at.toISOString() : null,
+    }));
+  }
+
   async saveMailboxProviderRef(mailboxId, providerRef) {
     const result = await this._query(
       `update mailboxes
@@ -678,6 +708,25 @@ export class PostgresStore {
       lastDeliveryAt: row.last_delivery_at,
       lastStatusCode: row.last_status_code,
     };
+  }
+
+  async listTenantWebhooks(tenantId) {
+    const result = await this._query(
+      `select id as webhook_id, event_types, target_url, status, last_delivery_at, last_status_code
+         from webhooks
+        where tenant_id = $1
+        order by created_at desc`,
+      [tenantId],
+    );
+
+    return result.rows.map((row) => ({
+      webhook_id: row.webhook_id,
+      event_types: row.event_types,
+      target_url: row.target_url,
+      status: row.status,
+      last_delivery_at: row.last_delivery_at ? row.last_delivery_at.toISOString() : null,
+      last_status_code: row.last_status_code,
+    }));
   }
 
   async getInvoice(invoiceId, tenantId) {

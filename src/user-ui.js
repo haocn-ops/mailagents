@@ -307,7 +307,7 @@ export function renderUserAppHtml() {
 
         <article class="card panel">
           <h2 class="section-title">Mailboxes</h2>
-          <p class="hint">Mailbox history is stored in local browser state because the public API does not currently expose a mailbox listing endpoint.</p>
+          <p class="hint">Mailbox state is loaded from the live tenant API. The page only keeps the currently selected mailbox id in local browser state.</p>
           <div class="form-grid">
             <label>Purpose
               <input id="purpose" value="signup" />
@@ -343,7 +343,9 @@ export function renderUserAppHtml() {
           </div>
           <div class="actions">
             <button class="primary" id="webhookBtn">Create Webhook</button>
+            <button class="ghost" id="refreshWebhooksBtn">Refresh Webhooks</button>
           </div>
+          <div id="webhooks" class="mailbox-list" style="margin-top:14px"></div>
         </article>
       </div>
 
@@ -397,7 +399,8 @@ export function renderUserAppHtml() {
       did: "",
       selectedMailboxId: "",
       mailboxes: [],
-      messages: []
+      messages: [],
+      webhooks: []
     };
 
     var els = {
@@ -417,6 +420,7 @@ export function renderUserAppHtml() {
       log: document.getElementById("log"),
       messages: document.getElementById("messages"),
       mailboxes: document.getElementById("mailboxes"),
+      webhooks: document.getElementById("webhooks"),
       tenantStat: document.getElementById("tenantStat"),
       agentStat: document.getElementById("agentStat"),
       usageStat: document.getElementById("usageStat"),
@@ -444,8 +448,7 @@ export function renderUserAppHtml() {
     function saveMailboxState() {
       try {
         localStorage.setItem(storageKey(), JSON.stringify({
-          selectedMailboxId: state.selectedMailboxId,
-          mailboxes: state.mailboxes
+          selectedMailboxId: state.selectedMailboxId
         }));
       } catch (_) {}
     }
@@ -456,7 +459,6 @@ export function renderUserAppHtml() {
         if (!raw) return;
         var parsed = JSON.parse(raw);
         state.selectedMailboxId = parsed.selectedMailboxId || "";
-        state.mailboxes = Array.isArray(parsed.mailboxes) ? parsed.mailboxes : [];
       } catch (_) {}
     }
 
@@ -539,6 +541,22 @@ export function renderUserAppHtml() {
       }).join("");
     }
 
+    function renderWebhooks() {
+      if (!state.webhooks.length) {
+        els.webhooks.innerHTML = '<div class="muted">No webhooks configured.</div>';
+        return;
+      }
+      els.webhooks.innerHTML = state.webhooks.map(function(item) {
+        return '<article class="mailbox">' +
+          '<div class="mailbox-top">' +
+            '<div><div><strong>' + item.target_url + '</strong></div><div class="muted">' + item.event_types.join(", ") + '</div></div>' +
+            '<div><span class="tag">' + item.status + '</span></div>' +
+          '</div>' +
+          '<div class="muted">last delivery ' + (item.last_delivery_at || "-") + ' / status ' + (item.last_status_code || "-") + '</div>' +
+        '</article>';
+      }).join("");
+    }
+
     async function checkHealth() {
       try {
         var data = await fetchJson("/healthz");
@@ -568,11 +586,28 @@ export function renderUserAppHtml() {
       state.agentId = verify.agent_id;
       state.did = verify.did;
       loadMailboxState();
+      await refreshMailboxes();
+      await refreshWebhooks();
       renderSession();
-      renderMailboxes();
       setAuthStatus(true, "signed in as " + wallet.slice(0, 10) + "...");
       addLog("signed in; tenant " + verify.tenant_id);
       return verify;
+    }
+
+    async function refreshMailboxes() {
+      if (!state.token) throw new Error("sign in first");
+      var data = await fetchJson("/v1/mailboxes", {
+        method: "GET",
+        headers: authHeaders(false)
+      });
+      state.mailboxes = Array.isArray(data.items) ? data.items : [];
+      if (!state.mailboxes.some(function(item) { return item.mailbox_id === state.selectedMailboxId; })) {
+        state.selectedMailboxId = state.mailboxes[0] ? state.mailboxes[0].mailbox_id : "";
+      }
+      saveMailboxState();
+      renderMailboxes();
+      addLog("loaded " + state.mailboxes.length + " mailboxes");
+      return data;
     }
 
     async function allocateMailbox() {
@@ -586,10 +621,8 @@ export function renderUserAppHtml() {
           ttl_hours: Number(els.ttlHours.value || "1")
         })
       });
-      state.mailboxes.unshift(result);
       state.selectedMailboxId = result.mailbox_id;
-      saveMailboxState();
-      renderMailboxes();
+      await refreshMailboxes();
       addLog("allocated mailbox " + result.address);
       return result;
     }
@@ -601,10 +634,7 @@ export function renderUserAppHtml() {
         headers: authHeaders(true),
         body: JSON.stringify({ mailbox_id: state.selectedMailboxId })
       });
-      state.mailboxes = state.mailboxes.filter(function(item) { return item.mailbox_id !== state.selectedMailboxId; });
-      state.selectedMailboxId = state.mailboxes[0] ? state.mailboxes[0].mailbox_id : "";
-      saveMailboxState();
-      renderMailboxes();
+      await refreshMailboxes();
       state.messages = [];
       renderMessages();
       addLog("released selected mailbox");
@@ -634,8 +664,21 @@ export function renderUserAppHtml() {
         headers: Object.assign(authHeaders(true), { "x-payment-proof": els.paymentProof.value.trim() }),
         body: JSON.stringify(payload)
       });
+      await refreshWebhooks();
       els.lookupJson.textContent = JSON.stringify(created, null, 2);
       addLog("created webhook " + created.webhook_id);
+    }
+
+    async function refreshWebhooks() {
+      if (!state.token) throw new Error("sign in first");
+      var data = await fetchJson("/v1/webhooks", {
+        method: "GET",
+        headers: authHeaders(false)
+      });
+      state.webhooks = Array.isArray(data.items) ? data.items : [];
+      renderWebhooks();
+      addLog("loaded " + state.webhooks.length + " webhooks");
+      return data;
     }
 
     async function loadUsage() {
@@ -690,13 +733,18 @@ export function renderUserAppHtml() {
     renderSession();
     renderMailboxes();
     renderMessages();
+    renderWebhooks();
     wireMailboxSelect();
     bindAction("healthBtn", checkHealth);
     bindAction("loginBtn", signIn);
     bindAction("allocateBtn", allocateMailbox);
     bindAction("releaseBtn", releaseMailbox);
-    bindAction("refreshMessagesBtn", refreshMessages);
+    bindAction("refreshMessagesBtn", async function() {
+      await refreshMailboxes();
+      await refreshMessages();
+    });
     bindAction("webhookBtn", createWebhook);
+    bindAction("refreshWebhooksBtn", refreshWebhooks);
     bindAction("usageBtn", loadUsage);
     bindAction("lookupBtn", function() {
       return els.lookupMode.value === "invoice" ? lookupInvoice() : loadUsage();

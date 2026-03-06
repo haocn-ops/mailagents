@@ -291,6 +291,23 @@ export class MemoryStore {
     return { mailbox, lease: activeLease };
   }
 
+  async listTenantMailboxes(tenantId) {
+    return [...this.state.mailboxes.values()]
+      .filter((mailbox) => mailbox.tenantId === tenantId)
+      .map((mailbox) => {
+        const lease = this._currentLeaseByMailbox(mailbox.id);
+        return {
+          mailbox_id: mailbox.id,
+          address: mailbox.address,
+          status: mailbox.status,
+          lease_expires_at: lease?.expiresAt || null,
+          provider_ref: mailbox.providerRef || null,
+          updated_at: mailbox.updatedAt || mailbox.createdAt || null,
+        };
+      })
+      .sort((a, b) => String(b.updated_at || "").localeCompare(String(a.updated_at || "")));
+  }
+
   async saveMailboxProviderRef(mailboxId, providerRef) {
     const mailbox = this.state.mailboxes.get(mailboxId);
     if (!mailbox) return null;
@@ -511,6 +528,20 @@ export class MemoryStore {
       metadata: { target_url: targetUrl, event_types: eventTypes },
     });
     return webhook;
+  }
+
+  async listTenantWebhooks(tenantId) {
+    return [...this.state.webhooks.values()]
+      .filter((webhook) => webhook.tenantId === tenantId)
+      .map((webhook) => ({
+        webhook_id: webhook.id,
+        event_types: webhook.eventTypes,
+        target_url: webhook.targetUrl,
+        status: webhook.status,
+        last_delivery_at: webhook.lastDeliveryAt,
+        last_status_code: webhook.lastStatusCode,
+      }))
+      .sort((a, b) => String(a.target_url).localeCompare(String(b.target_url)));
   }
 
   async getInvoice(invoiceId, tenantId) {

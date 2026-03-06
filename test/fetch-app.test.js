@@ -74,6 +74,63 @@ test("fetch app serves user app html", async () => {
   assert.match(html, /Latest Messages/);
 });
 
+test("fetch app exposes tenant mailbox and webhook lists", async () => {
+  const app = makeApp();
+  const verify = await issueToken(app, "0xabc0000000000000000000000000000000000999");
+
+  const allocateRes = await app(
+    new Request("http://localhost/v1/mailboxes/allocate", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${verify.access_token}`,
+        "x-payment-proof": "mock-proof",
+      },
+      body: JSON.stringify({ agent_id: verify.agent_id, purpose: "user-app", ttl_hours: 1 }),
+    }),
+  );
+  assert.equal(allocateRes.status, 200);
+
+  const webhookRes = await app(
+    new Request("http://localhost/v1/webhooks", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${verify.access_token}`,
+        "x-payment-proof": "mock-proof",
+      },
+      body: JSON.stringify({
+        event_types: ["otp.extracted"],
+        target_url: "https://example.com/user-app-webhook",
+        secret: "1234567890abcdef",
+      }),
+    }),
+  );
+  assert.equal(webhookRes.status, 200);
+
+  const mailboxesRes = await app(
+    new Request("http://localhost/v1/mailboxes", {
+      method: "GET",
+      headers: { authorization: `Bearer ${verify.access_token}` },
+    }),
+  );
+  assert.equal(mailboxesRes.status, 200);
+  const mailboxes = await mailboxesRes.json();
+  assert.ok(mailboxes.items.length >= 1);
+  assert.ok(mailboxes.items.some((item) => item.status === "leased"));
+
+  const webhooksRes = await app(
+    new Request("http://localhost/v1/webhooks", {
+      method: "GET",
+      headers: { authorization: `Bearer ${verify.access_token}` },
+    }),
+  );
+  assert.equal(webhooksRes.status, 200);
+  const webhooks = await webhooksRes.json();
+  assert.equal(webhooks.items.length, 1);
+  assert.equal(webhooks.items[0].target_url, "https://example.com/user-app-webhook");
+});
+
 test("fetch app requires dedicated admin token when configured", async () => {
   const cfg = createConfig({
     JWT_SECRET: "test-secret",

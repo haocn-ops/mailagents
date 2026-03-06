@@ -373,6 +373,14 @@ export function createFetchApp(deps = {}) {
         return jsonResponse(200, { status: "released" }, requestId);
       }
 
+      if (method === "GET" && path === "/v1/mailboxes") {
+        const auth = await requireAuth(request, requestId);
+        if (!auth.ok) return auth.response;
+
+        const items = await store.listTenantMailboxes(auth.payload.tenant_id);
+        return jsonResponse(200, { items }, requestId);
+      }
+
       if (method === "GET" && path === "/v1/messages/latest") {
         const auth = await requireAuth(request, requestId);
         if (!auth.ok) return auth.response;
@@ -460,6 +468,14 @@ export function createFetchApp(deps = {}) {
           },
           requestId,
         );
+      }
+
+      if (method === "GET" && path === "/v1/webhooks") {
+        const auth = await requireAuth(request, requestId);
+        if (!auth.ok) return auth.response;
+
+        const items = await store.listTenantWebhooks(auth.payload.tenant_id);
+        return jsonResponse(200, { items }, requestId);
       }
 
       if (method === "GET" && path === "/v1/usage/summary") {
