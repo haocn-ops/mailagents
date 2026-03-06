@@ -35,6 +35,7 @@ Default URL: `http://localhost:3000`
 Health endpoint: `GET /healthz`
 Admin dashboard URL (same deployment): `/admin`
 User app URL (same deployment): `/app`
+If a browser wallet is available, `/app` now prefers real wallet signing for SIWE and falls back to mock signature only when needed.
 
 ## Docker Compose (One-Command Setup)
 
@@ -239,3 +240,4 @@ Mailu setup download notes live in `docs/mailu-setup-download.md`.
 Mailu colocated rewrite notes live in `docs/mailu-colocated-rewrite.md`.
 Mailu certificate renewal notes live in `docs/mailu-cert-renewal.md`.
 `docker-compose.prod.yml` now includes a `mailu-sync` sidecar for Maildir-to-control-plane ingestion.
+Use `npm run reparse:messages -- --apply` to re-run the current parser against historical inbound messages stored in PostgreSQL.

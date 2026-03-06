@@ -300,6 +300,7 @@ export function renderUserAppHtml() {
           </div>
           <div class="actions">
             <button class="primary" id="loginBtn">Sign In</button>
+            <button class="ghost" id="walletBtn">Use Browser Wallet</button>
             <button class="ghost" id="healthBtn">Check API</button>
             <button class="secondary" id="usageBtn">Load Usage</button>
           </div>
@@ -404,7 +405,8 @@ export function renderUserAppHtml() {
       mailboxes: [],
       messages: [],
       webhooks: [],
-      invoices: []
+      invoices: [],
+      walletConnected: false
     };
 
     var els = {
@@ -503,6 +505,21 @@ export function renderUserAppHtml() {
       return data;
     }
 
+    function hasBrowserWallet() {
+      return typeof window !== "undefined" && !!window.ethereum && typeof window.ethereum.request === "function";
+    }
+
+    async function connectBrowserWallet() {
+      if (!hasBrowserWallet()) throw new Error("browser wallet not available");
+      var accounts = await window.ethereum.request({ method: "eth_requestAccounts" });
+      var wallet = Array.isArray(accounts) && accounts[0] ? String(accounts[0]).toLowerCase() : "";
+      if (!wallet) throw new Error("wallet account not returned");
+      state.walletConnected = true;
+      els.wallet.value = wallet;
+      addLog("browser wallet connected " + wallet);
+      return wallet;
+    }
+
     function renderSession() {
       els.tokenBox.textContent = state.token || "no token yet";
       els.tenantStat.textContent = state.tenantId ? state.tenantId.slice(0, 8) : "-";
@@ -595,16 +612,35 @@ export function renderUserAppHtml() {
 
     async function signIn() {
       var wallet = els.wallet.value.trim().toLowerCase();
+      var signature = "0xsignature";
       if (!wallet) throw new Error("wallet address is required");
+      if (hasBrowserWallet()) {
+        try {
+          wallet = await connectBrowserWallet();
+        } catch (err) {
+          addLog("browser wallet connect skipped: " + err.message);
+        }
+      }
       var challenge = await fetchJson("/v1/auth/siwe/challenge", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ wallet_address: wallet })
       });
+      if (hasBrowserWallet()) {
+        try {
+          signature = await window.ethereum.request({
+            method: "personal_sign",
+            params: [challenge.message, wallet]
+          });
+          addLog("signed SIWE challenge with browser wallet");
+        } catch (err) {
+          addLog("browser wallet signing failed, using fallback signature: " + err.message);
+        }
+      }
       var verify = await fetchJson("/v1/auth/siwe/verify", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ message: challenge.message, signature: "0xsignature" })
+        body: JSON.stringify({ message: challenge.message, signature: signature })
       });
       state.token = verify.access_token;
       state.tenantId = verify.tenant_id;
@@ -814,6 +850,7 @@ export function renderUserAppHtml() {
     wireInvoiceSelect();
     bindAction("healthBtn", checkHealth);
     bindAction("loginBtn", signIn);
+    bindAction("walletBtn", connectBrowserWallet);
     bindAction("allocateBtn", allocateMailbox);
     bindAction("releaseBtn", releaseMailbox);
     bindAction("refreshMessagesBtn", async function() {

@@ -16,6 +16,7 @@
     "db:upgrade": "node scripts/db-upgrade.js",
     "db:seed": "node scripts/db-seed.js",
     "reconcile:mailboxes": "node scripts/reconcile-mailboxes.js",
+    "reparse:messages": "node scripts/reparse-messages.js",
     "siwe:verify": "node scripts/siwe-verify.js",
     "preflight:prod": "node scripts/preflight-prod.js",
     "smoke": "bash scripts/smoke.sh",

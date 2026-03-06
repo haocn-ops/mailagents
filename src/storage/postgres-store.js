@@ -1344,6 +1344,70 @@ export class PostgresStore {
     );
   }
 
+  async listMessagesForReparse({ tenantId = null, messageId = null, limit = 100 } = {}) {
+    const values = [];
+    const filters = [];
+    if (tenantId) {
+      values.push(tenantId);
+      filters.push(`mb.tenant_id = $${values.length}`);
+    }
+    if (messageId) {
+      values.push(messageId);
+      filters.push(`m.id = $${values.length}`);
+    }
+    const where = filters.length ? `where ${filters.join(" and ")}` : "";
+    values.push(limit);
+
+    const result = await this._query(
+      `select m.id as message_id,
+              mb.tenant_id,
+              m.subject,
+              m.received_at,
+              received.payload as received_payload,
+              parsed.event_type as parsed_event_type,
+              parsed.otp_code as current_otp_code,
+              parsed.verification_link as current_verification_link
+         from messages m
+         join mailboxes mb on mb.id = m.mailbox_id
+         left join lateral (
+           select me.payload
+             from message_events me
+            where me.message_id = m.id
+              and me.event_type = 'mail.received'
+            order by me.created_at desc
+            limit 1
+         ) received on true
+         left join lateral (
+           select me.event_type, me.otp_code, me.verification_link
+             from message_events me
+            where me.message_id = m.id
+              and me.event_type in ('otp.extracted', 'mail.parse_failed')
+            order by me.created_at desc
+            limit 1
+         ) parsed on true
+         ${where}
+        order by m.received_at desc
+        limit $${values.length}`,
+      values,
+    );
+
+    return result.rows.map((row) => {
+      const payload = row.received_payload || {};
+      return {
+        messageId: row.message_id,
+        tenantId: row.tenant_id,
+        subject: row.subject,
+        receivedAt: row.received_at.toISOString(),
+        textExcerpt: payload.text_excerpt || "",
+        htmlExcerpt: payload.html_excerpt || "",
+        htmlBody: payload.html_body || "",
+        currentEventType: row.parsed_event_type || null,
+        currentOtpCode: row.current_otp_code || null,
+        currentVerificationLink: row.current_verification_link || null,
+      };
+    });
+  }
+
   async adminIssueInvoice(invoiceId, { actorDid, requestId }) {
     const result = await this._query(`select tenant_id from invoices where id = $1 limit 1`, [invoiceId]);
     if (result.rowCount === 0) return null;

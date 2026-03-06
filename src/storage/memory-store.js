@@ -953,6 +953,10 @@ export class MemoryStore {
     return this._paginate(items, page, pageSize);
   }
 
+  async listMessagesForReparse() {
+    return [];
+  }
+
   async adminIssueInvoice(invoiceId, { actorDid, requestId }) {
     const invoice = this.state.invoices.get(invoiceId);
     if (!invoice) return null;
