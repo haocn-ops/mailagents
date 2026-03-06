@@ -41,7 +41,7 @@ services:
       timeout: 5s
       retries: 12
     command: >-
-      sh -lc "npm run db:migrate && npm run db:upgrade && npm start:prod"
+      sh -lc "npm run db:bootstrap && npm run db:upgrade && npm run start:prod"
 
 volumes:
   pgdata_prod:

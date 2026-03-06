@@ -148,6 +148,7 @@ npm test
 ## npm Scripts
 
 - `npm run db:migrate` - Apply `docs/db/schema.sql`
+- `npm run db:bootstrap` - Apply schema only when the database is empty
 - `npm run db:upgrade` - Apply additive schema upgrades for existing databases
 - `npm run db:seed` - Seed tenant/agent/mailboxes/invoice data
 - `npm run reconcile:mailboxes` - Compare control-plane mailbox state with backend mailbox state (`-- --repair` to apply safe repairs)

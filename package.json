@@ -11,6 +11,7 @@
   "scripts": {
     "start": "node src/server.js",
     "test": "node --test",
+    "db:bootstrap": "node scripts/db-bootstrap.js",
     "db:migrate": "node scripts/db-migrate.js",
     "db:upgrade": "node scripts/db-upgrade.js",
     "db:seed": "node scripts/db-seed.js",
