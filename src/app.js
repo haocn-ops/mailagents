@@ -58,7 +58,7 @@ function writeResponse(res, response) {
 }
 
 export function createApp(deps = {}) {
-  const fetchHandler = createFetchApp(deps);
+  const fetchHandler = deps.fetchApp || createFetchApp(deps);
 
   return async function app(req, res) {
     try {

@@ -16,6 +16,29 @@ services:
       timeout: 5s
       retries: 20
 
+  mailu-dev:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: mailagents-mailu-dev
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      MAILU_DEV_PORT: 3001
+      AGENTS_BASE_URL: http://api:3000
+    ports:
+      - "3001:3001"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3001/healthz >/dev/null"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    command: >-
+      sh -lc "npm run mailu-dev"
+
   api:
     build:
       context: .
@@ -23,6 +46,8 @@ services:
     container_name: mailagents-api
     depends_on:
       db:
+        condition: service_healthy
+      mailu-dev:
         condition: service_healthy
     env_file:
       - .env

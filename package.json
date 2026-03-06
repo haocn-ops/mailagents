@@ -16,6 +16,8 @@
     "reconcile:mailboxes": "node scripts/reconcile-mailboxes.js",
     "siwe:verify": "node scripts/siwe-verify.js",
     "smoke": "bash scripts/smoke.sh",
+    "mailu-dev": "node scripts/mailu-dev.js",
+    "smoke:mailu": "bash scripts/mailu-dev-smoke.sh",
     "worker:dev": "wrangler dev",
     "worker:deploy": "wrangler deploy"
   },

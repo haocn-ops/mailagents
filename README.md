@@ -22,6 +22,7 @@ Current capabilities:
 - Postgres-backed admin persistence for tenant quotas, webhook delivery state, risk policies, and risk events
 - Configurable mailbox domain via `MAILBOX_DOMAIN`
 - Mail backend adapter layer with `noop` and `mailu` backends
+- Local `mailu-dev` simulator for Mailu fork integration development
 
 ## Local Quick Start (Node)
 
@@ -54,10 +55,23 @@ docker compose up --build
 
 Compose automatically:
 - starts PostgreSQL
+- starts `mailu-dev` simulator
 - runs migrations
 - runs seed data
-- starts API with `postgres` backend
+- starts API with `postgres` backend and `MAIL_PROVIDER=mailu`
 - provisions the admin persistence schema used by the dashboard
+
+After `docker compose up --build`, run:
+
+```bash
+npm run smoke:mailu
+```
+
+This validates:
+- mailbox allocation through the mail backend adapter
+- mailbox provisioning in `mailu-dev`
+- inbound relay from `mailu-dev` into `/internal/inbound/events`
+- OTP/link extraction through `messages/latest`
 
 ## Cloudflare Workers Deployment
 
@@ -127,6 +141,8 @@ npm test
 - `npm run reconcile:mailboxes` - Compare control-plane mailbox state with backend mailbox state (`-- --repair` to apply safe repairs)
 - `npm run siwe:verify` - Verify SIWE message + signature from CLI
 - `npm run smoke` - Local API smoke test
+- `npm run mailu-dev` - Run the local Mailu dev simulator
+- `npm run smoke:mailu` - Local API + `mailu-dev` integration smoke test
 - `npm run worker:dev` - Run Worker locally with Wrangler
 - `npm run worker:deploy` - Deploy Worker
 
@@ -178,3 +194,4 @@ Mailu fork architecture notes live in `docs/mailu-fork-architecture.md`.
 Current transitional adapter notes live in `docs/mailu-integration.md`.
 Internal Mailu-to-control-plane contract lives in `docs/mailu-internal-api.md`.
 Mailbox reconciliation notes live in `docs/mailbox-reconciliation.md`.
+`mailu-dev` is a local development simulator only; it is not the final Mailu fork implementation.

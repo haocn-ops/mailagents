@@ -22,6 +22,14 @@ Check service status:
 docker compose ps
 ```
 
+Run the Mailu integration smoke:
+
+```bash
+npm run smoke:mailu
+```
+
+This uses the bundled `mailu-dev` simulator to validate mailbox provisioning and inbound mail parsing locally.
+
 Health check:
 
 ```bash

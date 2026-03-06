@@ -1,4 +1,4 @@
-.PHONY: help install test up down logs ps migrate seed restart smoke
+.PHONY: help install test up down logs ps migrate seed restart smoke smoke-mailu
 
 help:
 	@echo "Available targets:"
@@ -12,6 +12,7 @@ help:
 	@echo "  seed     - run DB seed in api container"
 	@echo "  restart  - restart api container"
 	@echo "  smoke    - run local API smoke script"
+	@echo "  smoke-mailu - run local API + mailu-dev smoke script"
 
 install:
 	npm install
@@ -42,3 +43,6 @@ restart:
 
 smoke:
 	bash scripts/smoke.sh
+
+smoke-mailu:
+	bash scripts/mailu-dev-smoke.sh
