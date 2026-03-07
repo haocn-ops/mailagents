@@ -10,6 +10,9 @@ export function createMailBackendAdapter(runtimeConfig) {
       releaseMode: runtimeConfig.mailuReleaseMode,
       quotaBytes: runtimeConfig.mailuQuotaBytes,
       authScheme: runtimeConfig.mailuAuthScheme,
+      smtpHost: runtimeConfig.mailSmtpHost,
+      smtpPort: runtimeConfig.mailSmtpPort,
+      smtpSecure: runtimeConfig.mailSmtpSecure,
     });
   }
 

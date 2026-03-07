@@ -18,6 +18,9 @@ export class MailuInternalAdapter {
     releaseMode = "disable",
     quotaBytes = 1024 * 1024 * 1024,
     authScheme = "BEARER",
+    smtpHost,
+    smtpPort = 587,
+    smtpSecure = false,
   }) {
     this.mailboxDomain = mailboxDomain;
     this.baseUrl = String(baseUrl || "").replace(/\/$/, "");
@@ -25,6 +28,9 @@ export class MailuInternalAdapter {
     this.releaseMode = releaseMode;
     this.quotaBytes = quotaBytes;
     this.authScheme = authScheme;
+    this.smtpHost = smtpHost || mailboxDomain;
+    this.smtpPort = smtpPort;
+    this.smtpSecure = smtpSecure;
   }
 
   _assertConfigured() {
@@ -228,5 +234,41 @@ export class MailuInternalAdapter {
       }
       throw err;
     }
+  }
+
+  async sendMailboxMessage({ address, password, to, subject, text, html }) {
+    let nodemailer;
+    try {
+      nodemailer = await import("nodemailer");
+    } catch {
+      throw new Error("SMTP send requires package 'nodemailer'. Run: npm install nodemailer");
+    }
+
+    const recipients = Array.isArray(to) ? to : [to];
+    const transporter = nodemailer.default.createTransport({
+      host: this.smtpHost,
+      port: this.smtpPort,
+      secure: this.smtpSecure,
+      auth: {
+        user: address,
+        pass: password,
+      },
+    });
+
+    const info = await transporter.sendMail({
+      from: address,
+      to: recipients.join(", "),
+      subject,
+      text: text || undefined,
+      html: html || undefined,
+    });
+
+    return {
+      accepted: info.accepted || [],
+      rejected: info.rejected || [],
+      messageId: info.messageId || null,
+      envelope: info.envelope || null,
+      response: info.response || null,
+    };
   }
 }

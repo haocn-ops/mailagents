@@ -183,6 +183,18 @@ test("fetch app issues a tenant payment proof for protected hmac endpoints", asy
     }),
   );
   assert.equal(allocateRes.status, 200);
+
+  const sendProofRes = await app(
+    new Request("http://localhost/v1/payments/proof", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${verify.access_token}`,
+      },
+      body: JSON.stringify({ method: "POST", path: "/v1/messages/send" }),
+    }),
+  );
+  assert.equal(sendProofRes.status, 200);
 });
 
 test("fetch app exposes tenant mailbox and webhook lists", async () => {
@@ -330,6 +342,48 @@ test("fetch app exposes tenant message detail and invoice list", async () => {
   assert.equal(invoicesRes.status, 200);
   const invoices = await invoicesRes.json();
   assert.ok(Array.isArray(invoices.items));
+});
+
+test("fetch app sends mail through the backend adapter", async () => {
+  const app = makeApp();
+  const verify = await issueToken(app, "0xabc0000000000000000000000000000000000555");
+
+  const allocateRes = await app(
+    new Request("http://localhost/v1/mailboxes/allocate", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${verify.access_token}`,
+        "x-payment-proof": "mock-proof",
+      },
+      body: JSON.stringify({ agent_id: verify.agent_id, purpose: "send-mail", ttl_hours: 1 }),
+    }),
+  );
+  assert.equal(allocateRes.status, 200);
+  const allocation = await allocateRes.json();
+
+  const sendRes = await app(
+    new Request("http://localhost/v1/messages/send", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${verify.access_token}`,
+        "x-payment-proof": "mock-proof",
+      },
+      body: JSON.stringify({
+        mailbox_id: allocation.mailbox_id,
+        to: "receiver@example.com",
+        subject: "hello",
+        text: "mail body",
+        mailbox_password: allocation.webmail_password,
+      }),
+    }),
+  );
+  assert.equal(sendRes.status, 200);
+  const sent = await sendRes.json();
+  assert.equal(sent.from, allocation.address);
+  assert.deepEqual(sent.accepted, ["receiver@example.com"]);
+  assert.match(sent.message_id, /^noop:/);
 });
 
 test("fetch app requires dedicated admin token when configured", async () => {

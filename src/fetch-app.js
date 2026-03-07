@@ -192,6 +192,7 @@ export function createFetchApp(deps = {}) {
         const proofPath = String(body.path || "").trim();
         const protectedTargets = new Set([
           "POST /v1/mailboxes/allocate",
+          "POST /v1/messages/send",
           "GET /v1/messages/latest",
           "POST /v1/webhooks",
         ]);
@@ -314,7 +315,7 @@ export function createFetchApp(deps = {}) {
             tenant_id: identity.tenantId,
             agent_id: identity.agentId,
             did: identity.did,
-            scopes: ["mail:allocate", "mail:read", "webhook:write", "billing:read"],
+            scopes: ["mail:allocate", "mail:read", "mail:send", "webhook:write", "billing:read"],
           },
           runtimeConfig.jwtSecret,
           3600,
@@ -539,6 +540,81 @@ export function createFetchApp(deps = {}) {
         });
 
         return jsonResponse(200, { messages }, requestId);
+      }
+
+      if (method === "POST" && path === "/v1/messages/send") {
+        const auth = await requireAuth(request, requestId);
+        if (!auth.ok) return auth.response;
+        const pay = requirePayment(request, requestId);
+        if (!pay.ok) return pay.response;
+
+        const body = await readJsonBody(request);
+        const mailboxId = String(body.mailbox_id || "").trim();
+        const recipients = Array.isArray(body.to)
+          ? body.to.map((item) => String(item || "").trim()).filter(Boolean)
+          : String(body.to || "").trim()
+            ? [String(body.to || "").trim()]
+            : [];
+        const subject = String(body.subject || "").trim();
+        const text = String(body.text || "");
+        const html = String(body.html || "");
+        const mailboxPassword = String(body.mailbox_password || "").trim();
+
+        if (!mailboxId || !recipients.length || !subject || !mailboxPassword || (!text && !html)) {
+          return jsonResponse(
+            400,
+            { error: "bad_request", message: "mailbox_id, to, subject, mailbox_password, and text or html are required" },
+            requestId,
+          );
+        }
+
+        const mailbox = await store.getTenantMailbox(auth.payload.tenant_id, mailboxId);
+        if (!mailbox) {
+          return jsonResponse(404, { error: "not_found", message: "Mailbox not found" }, requestId);
+        }
+
+        let delivery;
+        try {
+          delivery = await mailBackend.sendMailboxMessage({
+            tenantId: auth.payload.tenant_id,
+            agentId: auth.payload.agent_id,
+            mailboxId,
+            address: mailbox.address,
+            password: mailboxPassword,
+            to: recipients,
+            subject,
+            text,
+            html,
+          });
+        } catch (err) {
+          return jsonResponse(
+            502,
+            { error: "mail_backend_error", message: err.message || "Mail backend send failed" },
+            requestId,
+          );
+        }
+
+        await store.recordUsage({
+          tenantId: auth.payload.tenant_id,
+          agentId: auth.payload.agent_id,
+          endpoint: "POST /v1/messages/send",
+          quantity: 1,
+          requestId,
+        });
+
+        return jsonResponse(
+          200,
+          {
+            mailbox_id: mailbox.id,
+            from: mailbox.address,
+            accepted: delivery?.accepted || [],
+            rejected: delivery?.rejected || [],
+            message_id: delivery?.messageId || null,
+            envelope: delivery?.envelope || null,
+            response: delivery?.response || null,
+          },
+          requestId,
+        );
       }
 
       if (method === "GET" && path.startsWith("/v1/messages/")) {
