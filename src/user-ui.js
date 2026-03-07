@@ -543,30 +543,38 @@ export function renderUserAppHtml() {
     }
 
     function runtimeMeta() {
-      return state.runtimeMeta || { siwe_mode: "mock", payment_mode: "mock", auth: { browser_wallet_required: false }, mailbox_domain: "", webmail_url: "", base_chain_id: 84532 };
+      return state.runtimeMeta || {
+        siwe_mode: "mock",
+        payment_mode: "mock",
+        auth: { browser_wallet_required: false },
+        mailbox_domain: "",
+        webmail_url: "",
+        base_chain_id: 84532,
+        chain_name: "Base Sepolia",
+        chain_hex: "0x14a34",
+        chain_rpc_urls: ["https://sepolia.base.org"],
+        chain_explorer_urls: ["https://sepolia.basescan.org"],
+      };
     }
 
     function expectedChainHex() {
-      var chainId = Number(runtimeMeta().base_chain_id || 84532);
-      return "0x" + chainId.toString(16);
+      return String(runtimeMeta().chain_hex || ("0x" + Number(runtimeMeta().base_chain_id || 84532).toString(16)));
     }
 
     function chainLabel() {
-      return Number(runtimeMeta().base_chain_id || 84532) === 84532 ? "Base Sepolia" : ("chain " + String(runtimeMeta().base_chain_id || ""));
+      return String(runtimeMeta().chain_name || ("chain " + String(runtimeMeta().base_chain_id || "")));
     }
 
     function addChainParams() {
-      var chainId = Number(runtimeMeta().base_chain_id || 84532);
-      if (chainId === 84532) {
-        return {
-          chainId: expectedChainHex(),
-          chainName: "Base Sepolia",
-          nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
-          rpcUrls: ["https://sepolia.base.org"],
-          blockExplorerUrls: ["https://sepolia.basescan.org"],
-        };
-      }
-      return null;
+      var rpcUrls = Array.isArray(runtimeMeta().chain_rpc_urls) ? runtimeMeta().chain_rpc_urls.filter(Boolean) : [];
+      if (!rpcUrls.length) return null;
+      return {
+        chainId: expectedChainHex(),
+        chainName: chainLabel(),
+        nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
+        rpcUrls: rpcUrls,
+        blockExplorerUrls: Array.isArray(runtimeMeta().chain_explorer_urls) ? runtimeMeta().chain_explorer_urls.filter(Boolean) : [],
+      };
     }
 
     async function fetchJson(path, init) {

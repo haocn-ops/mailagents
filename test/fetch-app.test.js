@@ -87,6 +87,10 @@ test("fetch app exposes runtime meta for the user app", async () => {
   assert.equal(body.payment_mode, "mock");
   assert.equal(body.mailbox_domain, "inbox.example.com");
   assert.equal(body.base_chain_id, 84532);
+  assert.equal(body.chain_name, "Base Sepolia");
+  assert.equal(body.chain_hex, "0x14a34");
+  assert.deepEqual(body.chain_rpc_urls, ["https://sepolia.base.org"]);
+  assert.deepEqual(body.chain_explorer_urls, ["https://sepolia.basescan.org"]);
 });
 
 test("fetch app issues a tenant payment proof for protected hmac endpoints", async () => {

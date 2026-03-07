@@ -169,6 +169,10 @@ export function createFetchApp(deps = {}) {
             siwe_mode: runtimeConfig.siweMode,
             payment_mode: runtimeConfig.paymentMode,
             base_chain_id: runtimeConfig.baseChainId,
+            chain_name: runtimeConfig.chainName,
+            chain_hex: `0x${Number(runtimeConfig.baseChainId || 0).toString(16)}`,
+            chain_rpc_urls: runtimeConfig.chainRpcUrls,
+            chain_explorer_urls: runtimeConfig.chainExplorerUrls,
             mailbox_domain: runtimeConfig.mailboxDomain,
             webmail_url: runtimeConfig.mailuBaseUrl ? `${runtimeConfig.mailuBaseUrl.replace(/\/$/, "")}/webmail/` : null,
             auth: {

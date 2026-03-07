@@ -12,12 +12,26 @@ function asUpper(value, fallback) {
 }
 
 export function createConfig(source = {}) {
+  const baseChainId = asNumber(source.BASE_CHAIN_ID, 84532);
+  const defaultChainName = baseChainId === 84532 ? "Base Sepolia" : `chain ${baseChainId}`;
+  const defaultRpcUrls = baseChainId === 84532 ? ["https://sepolia.base.org"] : [];
+  const defaultExplorerUrls = baseChainId === 84532 ? ["https://sepolia.basescan.org"] : [];
+
   return {
     port: asNumber(source.PORT, 3000),
     jwtSecret: String(source.JWT_SECRET || "dev-jwt-secret"),
     adminApiToken: String(source.ADMIN_API_TOKEN || ""),
     internalApiToken: String(source.INTERNAL_API_TOKEN || ""),
-    baseChainId: asNumber(source.BASE_CHAIN_ID, 84532),
+    baseChainId,
+    chainName: String(source.CHAIN_NAME || defaultChainName),
+    chainRpcUrls: String(source.CHAIN_RPC_URLS || defaultRpcUrls.join(","))
+      .split(",")
+      .map((item) => item.trim())
+      .filter(Boolean),
+    chainExplorerUrls: String(source.CHAIN_EXPLORER_URLS || defaultExplorerUrls.join(","))
+      .split(",")
+      .map((item) => item.trim())
+      .filter(Boolean),
     mailboxDomain: String(source.MAILBOX_DOMAIN || "pool.mailcloud.local"),
     mailProvider: asLower(source.MAIL_PROVIDER, "noop"),
     storageBackend: asLower(source.STORAGE_BACKEND, "memory"),
