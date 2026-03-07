@@ -16,6 +16,7 @@
 - [Mail Auth Setup](./mail-auth-setup.md)
 - [Project Retrospective](./project-retrospective.md)
 - [Current Production State](./current-production-state.md)
+- [Agent API Example](./agent-api-example.md)
 - [Single-Host Deployment](./single-host-deployment.md)
 - [Admin Dashboard Design](./admin-dashboard.md)
 - [Business API Contract](./openapi.yaml)
@@ -39,7 +40,8 @@
 13. `single-host-deployment.md` - one-place deployment path on a VPS or cloud host
 14. `project-retrospective.md` - implementation review, key corrections, and final product shape
 15. `current-production-state.md` - live capabilities, runtime mode, and current deployment caveats
-16. `openapi.yaml` - business API contract
-17. `admin-dashboard.md` - dashboard IA and operation flows
-18. `openapi-admin.yaml` - admin API contract
-19. `db/schema.sql` - schema implementation
+16. `agent-api-example.md` - minimal agent workflow for sign-in, allocate, read, send, and release
+17. `openapi.yaml` - business API contract
+18. `admin-dashboard.md` - dashboard IA and operation flows
+19. `openapi-admin.yaml` - admin API contract
+20. `db/schema.sql` - schema implementation

@@ -406,6 +406,26 @@ export function renderUserAppHtml() {
         </article>
 
         <article class="card panel">
+          <h2 class="section-title">Send Mail</h2>
+          <p class="hint">Sends mail through the live HTTP API using the currently selected mailbox and its issued password.</p>
+          <div class="form-grid single">
+            <label>To
+              <input id="sendTo" placeholder="receiver@example.com" />
+            </label>
+            <label>Subject
+              <input id="sendSubject" value="mailagents app send test" />
+            </label>
+            <label>Text
+              <input id="sendText" value="This message was sent from the Agent Mail Cloud user app." />
+            </label>
+          </div>
+          <div class="actions">
+            <button class="primary" id="sendMailBtn">Send Mail</button>
+          </div>
+          <div class="json" id="sendJson">{}</div>
+        </article>
+
+        <article class="card panel">
           <h2 class="section-title">Usage / Invoices</h2>
           <div class="form-grid">
             <label>Action
@@ -466,6 +486,10 @@ export function renderUserAppHtml() {
       webhookUrl: document.getElementById("webhookUrl"),
       webhookSecret: document.getElementById("webhookSecret"),
       webhookEvent: document.getElementById("webhookEvent"),
+      sendTo: document.getElementById("sendTo"),
+      sendSubject: document.getElementById("sendSubject"),
+      sendText: document.getElementById("sendText"),
+      sendJson: document.getElementById("sendJson"),
       invoiceId: document.getElementById("invoiceId"),
       lookupMode: document.getElementById("lookupMode"),
       tokenBox: document.getElementById("tokenBox"),
@@ -1001,6 +1025,34 @@ export function renderUserAppHtml() {
       return data;
     }
 
+    async function sendMail() {
+      if (!state.selectedMailboxId) throw new Error("select a mailbox first");
+      var creds = state.mailboxCredentials[state.selectedMailboxId];
+      if (!creds || !creds.password) throw new Error("issue webmail password first");
+      var to = els.sendTo.value.trim();
+      var subject = els.sendSubject.value.trim();
+      var text = els.sendText.value;
+      if (!to || !subject || !text) {
+        throw new Error("to, subject, and text are required");
+      }
+
+      var payHeaders = await paymentHeaders("POST", "/v1/messages/send", true);
+      var sent = await fetchJson("/v1/messages/send", {
+        method: "POST",
+        headers: Object.assign(authHeaders(false), payHeaders),
+        body: JSON.stringify({
+          mailbox_id: state.selectedMailboxId,
+          to: to,
+          subject: subject,
+          text: text,
+          mailbox_password: creds.password
+        })
+      });
+      els.sendJson.textContent = JSON.stringify(sent, null, 2);
+      addLog("sent mail from " + sent.from + " to " + sent.accepted.join(", "));
+      return sent;
+    }
+
     async function openMessageDetail(messageId) {
       if (!state.token) throw new Error("sign in first");
       var detail = await fetchJson("/v1/messages/" + encodeURIComponent(messageId), {
@@ -1212,6 +1264,7 @@ export function renderUserAppHtml() {
     });
     bindAction("webhookBtn", createWebhook);
     bindAction("refreshWebhooksBtn", refreshWebhooks);
+    bindAction("sendMailBtn", sendMail);
     bindAction("usageBtn", loadUsage);
     bindAction("refreshInvoicesBtn", refreshInvoices);
     bindAction("lookupBtn", function() {

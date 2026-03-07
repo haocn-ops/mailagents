@@ -174,6 +174,27 @@ paths:
                     items:
                       $ref: '#/components/schemas/MessageView'
 
+  /v1/messages/send:
+    post:
+      tags: [Messages]
+      summary: Send email through the leased mailbox (x402 protected)
+      description: This endpoint requires x402 payment and the current mailbox password.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SendMessageRequest'
+      responses:
+        '200':
+          description: Mail accepted by the backend
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SendMessageResponse'
+        '402':
+          description: Payment required
+
   /v1/webhooks:
     post:
       tags: [Webhooks]
@@ -299,6 +320,53 @@ components:
           type: string
           nullable: true
         verification_link:
+          type: string
+          nullable: true
+
+    SendMessageRequest:
+      type: object
+      required: [mailbox_id, to, subject, mailbox_password]
+      properties:
+        mailbox_id:
+          type: string
+          format: uuid
+        to:
+          oneOf:
+            - type: string
+              format: email
+            - type: array
+              items:
+                type: string
+                format: email
+        subject:
+          type: string
+        text:
+          type: string
+        html:
+          type: string
+        mailbox_password:
+          type: string
+
+    SendMessageResponse:
+      type: object
+      properties:
+        mailbox_id:
+          type: string
+          format: uuid
+        from:
+          type: string
+          format: email
+        accepted:
+          type: array
+          items:
+            type: string
+            format: email
+        rejected:
+          type: array
+          items:
+            type: string
+            format: email
+        message_id:
           type: string
           nullable: true
 

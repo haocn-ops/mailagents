@@ -90,7 +90,7 @@ For your current environment:
 
 `https://mailagents-api.izhenghaocn.workers.dev/admin`
 
-## 2. Minimal End-to-End API Flow (5 Steps)
+## 2. Minimal End-to-End API Flow (6 Steps)
 
 The examples below use `mock` payment mode.
 
@@ -135,7 +135,28 @@ curl -s "http://localhost:3000/v1/messages/latest?mailbox_id=<mailbox_id>&limit=
   -H 'x-payment-proof: mock-proof'
 ```
 
-### Step 5: Release mailbox
+### Step 5: Send mail through the HTTP API
+
+First issue or reset the mailbox password:
+
+```bash
+curl -s http://localhost:3000/v1/mailboxes/credentials/reset \
+  -H 'content-type: application/json' \
+  -H 'authorization: Bearer <access_token>' \
+  -d '{"mailbox_id":"<mailbox_id>"}'
+```
+
+Then send mail:
+
+```bash
+curl -s http://localhost:3000/v1/messages/send \
+  -H 'content-type: application/json' \
+  -H 'authorization: Bearer <access_token>' \
+  -H 'x-payment-proof: mock-proof' \
+  -d '{"mailbox_id":"<mailbox_id>","to":"receiver@example.com","subject":"hello","text":"mail body","mailbox_password":"<webmail_password>"}'
+```
+
+### Step 6: Release mailbox
 
 ```bash
 curl -s http://localhost:3000/v1/mailboxes/release \
@@ -180,6 +201,12 @@ Example:
 ```text
 POST\n/v1/mailboxes/allocate\n1710000000
 ```
+
+The same proof flow applies to:
+
+- `POST /v1/messages/send`
+- `GET /v1/messages/latest`
+- `POST /v1/webhooks`
 
 ## 4. SIWE Modes
 
