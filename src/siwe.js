@@ -1,3 +1,5 @@
+import { checksumAddress } from "./utils.js";
+
 function invalid(reason) {
   const err = new Error(reason);
   err.code = "INVALID_SIWE_MESSAGE";
@@ -53,9 +55,15 @@ export function createSiweService({ mode, chainId, domain, uri, statement }) {
 
       const siwe = await loadSiwe();
       const SiweMessage = siwe.SiweMessage || siwe;
+      let checksummedAddress;
+      try {
+        checksummedAddress = checksumAddress(rawAddress);
+      } catch {
+        invalid("invalid wallet_address");
+      }
       const message = new SiweMessage({
         domain,
-        address: rawAddress,
+        address: checksummedAddress,
         statement,
         uri,
         version: "1",

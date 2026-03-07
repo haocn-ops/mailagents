@@ -1,4 +1,5 @@
 import { createCipheriv, createDecipheriv, createHash, createHmac, randomBytes, randomUUID } from "node:crypto";
+import { getAddress } from "ethers";
 
 export function json(res, statusCode, payload, requestId) {
   res.writeHead(statusCode, {
@@ -103,4 +104,8 @@ export function inTimeRange(dateLike, start, end) {
 
 export function normalizeAddress(address) {
   return String(address || "").toLowerCase();
+}
+
+export function checksumAddress(address) {
+  return getAddress(String(address || "").trim().toLowerCase());
 }

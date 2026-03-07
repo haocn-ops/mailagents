@@ -32,5 +32,8 @@
   },
   "devDependencies": {
     "wrangler": "^4.43.0"
+  },
+  "dependencies": {
+    "ethers": "^6.16.0"
   }
 }

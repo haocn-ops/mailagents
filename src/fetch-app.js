@@ -255,7 +255,15 @@ export function createFetchApp(deps = {}) {
         }
 
         const nonce = createNonce();
-        const message = await siweService.createChallengeMessage(walletAddress, nonce);
+        let message;
+        try {
+          message = await siweService.createChallengeMessage(walletAddress, nonce);
+        } catch (err) {
+          if (err.code === "INVALID_SIWE_MESSAGE") {
+            return jsonResponse(400, { error: "bad_request", message: err.message }, requestId);
+          }
+          throw err;
+        }
         await store.saveChallenge(walletAddress, nonce, message);
 
         return jsonResponse(200, { nonce, message }, requestId);
