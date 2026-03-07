@@ -408,7 +408,7 @@ export function renderUserAppHtml() {
 
         <article class="card panel">
           <h2 class="section-title">Send Mail</h2>
-          <p class="hint">Sends mail through the live HTTP API using the currently selected mailbox and its issued password.</p>
+          <p class="hint">Sends mail through the live HTTP API using the currently selected mailbox and its current password. Reset is only needed when the user wants to rotate or recover credentials.</p>
           <div class="form-grid single">
             <label>To
               <input id="sendTo" placeholder="receiver@example.com" />
@@ -782,7 +782,7 @@ export function renderUserAppHtml() {
           '<div class="actions">' +
             '<button class="ghost" data-select-mailbox="' + item.mailbox_id + '">Select</button>' +
             '<button class="ghost" data-copy-address="' + item.address + '">Copy Address</button>' +
-            '<button class="secondary" data-reset-webmail="' + item.mailbox_id + '">Issue Webmail Password</button>' +
+            '<button class="secondary" data-reset-webmail="' + item.mailbox_id + '">Rotate Webmail Password</button>' +
             (creds ? '<button class="ghost" data-copy-login="' + item.mailbox_id + '">Copy Login</button>' : '') +
             (creds ? '<button class="ghost" data-copy-password="' + item.mailbox_id + '">Copy Password</button>' : '') +
             ((creds && creds.webmail_url) ? '<a class="ghost" href="' + creds.webmail_url + '" target="_blank" rel="noreferrer">Open Webmail</a>' : '') +
@@ -1006,7 +1006,7 @@ export function renderUserAppHtml() {
       };
       saveMailboxState();
       renderMailboxes();
-      addLog("issued webmail password for " + result.address);
+      addLog("rotated webmail password for " + result.address);
       return result;
     }
 
@@ -1029,7 +1029,7 @@ export function renderUserAppHtml() {
     async function sendMail() {
       if (!state.selectedMailboxId) throw new Error("select a mailbox first");
       var creds = state.mailboxCredentials[state.selectedMailboxId];
-      if (!creds || !creds.password) throw new Error("issue webmail password first");
+      if (!creds || !creds.password) throw new Error("mailbox password not cached; use the allocation password or rotate it explicitly");
       var to = els.sendTo.value.trim();
       var subject = els.sendSubject.value.trim();
       var text = els.sendText.value;

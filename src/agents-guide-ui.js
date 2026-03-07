@@ -313,7 +313,8 @@ export function renderAgentsGuideHtml() {
   -H 'authorization: Bearer &lt;access_token&gt;' \\
   -H 'x-payment-proof: &lt;latest_messages_proof&gt;'</pre>
 
-        <h3>Reset mailbox credentials before outbound send</h3>
+        <h3>Rotate credentials only if the user wants a new password</h3>
+        <p>If the allocate response already returned <code>webmail_password</code>, agents can send mail with that password directly. Use reset only for explicit rotation or password recovery.</p>
         <pre class="code">curl -s "$API_BASE/v1/mailboxes/credentials/reset" \\
   -H 'content-type: application/json' \\
   -H 'authorization: Bearer &lt;access_token&gt;' \\
