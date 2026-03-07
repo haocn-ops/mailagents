@@ -13,6 +13,7 @@
 - [Mailu Setup Download](./mailu-setup-download.md)
 - [Mailu Colocated Rewrite](./mailu-colocated-rewrite.md)
 - [Mailu Certificate Renewal](./mailu-cert-renewal.md)
+- [Mail Auth Setup](./mail-auth-setup.md)
 - [Single-Host Deployment](./single-host-deployment.md)
 - [Admin Dashboard Design](./admin-dashboard.md)
 - [Business API Contract](./openapi.yaml)

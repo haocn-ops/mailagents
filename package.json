@@ -24,6 +24,7 @@
     "smoke:mailu": "bash scripts/mailu-dev-smoke.sh",
     "sync:mailu": "node scripts/mailu-maildir-sync.js",
     "verify:prod": "bash scripts/prod-verify.sh",
+    "verify:mail-auth": "bash scripts/check-mail-auth.sh",
     "verify:dns": "bash scripts/check-mail-dns.sh",
     "start:prod": "node src/server.js",
     "worker:dev": "wrangler dev",

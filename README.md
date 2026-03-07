@@ -87,6 +87,7 @@ Production rollout details live in `docs/production-runbook.md`.
 If you want everything in one place, use `docs/single-host-deployment.md`.
 Cloudflare DNS and MX details live in `docs/cloudflare-dns-setup.md`.
 Mailu host preparation details live in `docs/mailu-host-prep.md`.
+Outbound mail auth details for Gmail-class receivers live in `docs/mail-auth-setup.md`.
 
 ## Cloudflare Workers Deployment
 
@@ -159,6 +160,7 @@ npm test
 - `npm run siwe:verify` - Verify SIWE message + signature from CLI
 - `npm run preflight:prod` - Validate production readiness of current env vars
 - `npm run verify:prod` - Basic post-deploy production verification
+- `npm run verify:mail-auth` - Validate PTR, SPF, DKIM, and DMARC visibility for the live mail domain
 - `npm run verify:dns -- mailagents.net 149.28.123.3` - Validate API and mailbox DNS records
 - `npm run smoke` - Local API smoke test
 - `npm run mailu-dev` - Run the local Mailu dev simulator
@@ -239,5 +241,6 @@ An example host Nginx reverse proxy for Mailu web UI lives in `deploy/nginx/mail
 Mailu setup download notes live in `docs/mailu-setup-download.md`.
 Mailu colocated rewrite notes live in `docs/mailu-colocated-rewrite.md`.
 Mailu certificate renewal notes live in `docs/mailu-cert-renewal.md`.
+Mail authentication rollout notes live in `docs/mail-auth-setup.md`.
 `docker-compose.prod.yml` now includes a `mailu-sync` sidecar for Maildir-to-control-plane ingestion.
 Use `npm run reparse:messages -- --apply` to re-run the current parser against historical inbound messages stored in PostgreSQL.
