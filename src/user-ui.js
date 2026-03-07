@@ -308,6 +308,7 @@ export function renderUserAppHtml() {
         <div class="actions" style="margin-top: 0">
           <a class="secondary" href="https://inbox.mailagents.net/webmail/" target="_blank" rel="noreferrer">Open Webmail</a>
           <a class="ghost" href="https://inbox.mailagents.net/" target="_blank" rel="noreferrer">Mail Login</a>
+          <a class="ghost" href="/agents-guide">Agents Guide</a>
         </div>
       </article>
     </section>

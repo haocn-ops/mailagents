@@ -122,6 +122,18 @@ test("fetch app serves user app html", async () => {
   assert.match(html, /Send Test Guide/);
   assert.match(html, /Connect MetaMask/);
   assert.match(html, /MetaMask status not checked yet/);
+  assert.match(html, /Agents Guide/);
+});
+
+test("fetch app serves agents guide html", async () => {
+  const app = makeApp();
+  const res = await app(new Request("http://localhost/agents-guide", { method: "GET" }));
+  assert.equal(res.status, 200);
+  const html = await res.text();
+  assert.match(html, /Agents Guide/);
+  assert.match(html, /Quick Start/);
+  assert.match(html, /Allocate a mailbox/);
+  assert.match(html, /Open User App/);
 });
 
 test("fetch app exposes runtime meta for the user app", async () => {

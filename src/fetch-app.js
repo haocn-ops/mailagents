@@ -5,6 +5,7 @@ import { buildHmacPaymentProof, createPaymentVerifier } from "./payment.js";
 import { parseInboundContent } from "./parser.js";
 import { createSiweService } from "./siwe.js";
 import { renderAdminDashboardHtml } from "./admin-ui.js";
+import { renderAgentsGuideHtml } from "./agents-guide-ui.js";
 import { renderUserAppHtml } from "./user-ui.js";
 import { getDefaultStore } from "./store.js";
 import { createNonce, createRequestId, parseBearerToken, parsePeriod } from "./utils.js";
@@ -240,6 +241,16 @@ export function createFetchApp(deps = {}) {
 
       if (method === "GET" && (path === "/app" || path === "/app/")) {
         return new Response(renderUserAppHtml(), {
+          status: 200,
+          headers: {
+            "content-type": "text/html; charset=utf-8",
+            "cache-control": "no-store",
+          },
+        });
+      }
+
+      if (method === "GET" && (path === "/agents-guide" || path === "/agents-guide/")) {
+        return new Response(renderAgentsGuideHtml(), {
           status: 200,
           headers: {
             "content-type": "text/html; charset=utf-8",
