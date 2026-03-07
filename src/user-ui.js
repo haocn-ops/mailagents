@@ -678,7 +678,7 @@ export function renderUserAppHtml() {
     }
 
     function handleAccountsChanged(accounts) {
-      var wallet = Array.isArray(accounts) && accounts[0] ? String(accounts[0]).toLowerCase() : "";
+      var wallet = Array.isArray(accounts) && accounts[0] ? String(accounts[0]).trim() : "";
       if (!wallet) {
         state.walletConnected = false;
         state.walletProvider = "";
@@ -705,7 +705,7 @@ export function renderUserAppHtml() {
       setWalletNote("Connecting MetaMask...");
       await ensureMetaMaskNetwork(provider);
       var accounts = await provider.request({ method: "eth_requestAccounts" });
-      var wallet = Array.isArray(accounts) && accounts[0] ? String(accounts[0]).toLowerCase() : "";
+      var wallet = Array.isArray(accounts) && accounts[0] ? String(accounts[0]).trim() : "";
       if (!wallet) throw new Error("wallet account not returned");
       state.walletConnected = true;
       state.walletProvider = "metamask";
@@ -836,7 +836,7 @@ export function renderUserAppHtml() {
     }
 
     async function signIn() {
-      var wallet = els.wallet.value.trim().toLowerCase();
+      var wallet = els.wallet.value.trim();
       var signature = "0xsignature";
       if (hasBrowserWallet()) {
         try {

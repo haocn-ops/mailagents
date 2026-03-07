@@ -55,6 +55,52 @@ test("fetch app auth challenge + verify", async () => {
   assert.ok(verify.access_token);
 });
 
+test("fetch app strict challenge preserves wallet address casing for SIWE message creation", async () => {
+  const cfg = createConfig({
+    JWT_SECRET: "test-secret",
+    INTERNAL_API_TOKEN: "internal-secret",
+    BASE_CHAIN_ID: "84532",
+    MAILBOX_DOMAIN: "inbox.example.com",
+    SIWE_MODE: "strict",
+    PAYMENT_MODE: "mock",
+  });
+  const store = new MemoryStore({
+    chainId: cfg.baseChainId,
+    challengeTtlMs: cfg.siweChallengeTtlMs,
+    mailboxDomain: cfg.mailboxDomain,
+  });
+  const calls = [];
+  const app = createFetchApp({
+    config: cfg,
+    store,
+    siweService: {
+      async createChallengeMessage(walletAddress, nonce) {
+        calls.push({ walletAddress, nonce });
+        return `message-for:${walletAddress}:${nonce}`;
+      },
+      async parseMessage() {
+        return { address: "", nonce: "" };
+      },
+      async verifySignature() {
+        return { ok: false, message: "unused" };
+      },
+    },
+  });
+
+  const wallet = "0x274223FfDE6dd6855824b7A4B7Ce132B065837B8";
+  const res = await app(
+    new Request("http://localhost/v1/auth/siwe/challenge", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ wallet_address: wallet }),
+    }),
+  );
+
+  assert.equal(res.status, 200);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].walletAddress, wallet);
+});
+
 test("fetch app serves admin dashboard html", async () => {
   const app = makeApp();
   const res = await app(new Request("http://localhost/admin", { method: "GET" }));

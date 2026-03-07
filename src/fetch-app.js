@@ -249,7 +249,7 @@ export function createFetchApp(deps = {}) {
 
       if (method === "POST" && path === "/v1/auth/siwe/challenge") {
         const body = await readJsonBody(request);
-        const walletAddress = String(body.wallet_address || "").trim().toLowerCase();
+        const walletAddress = String(body.wallet_address || "").trim();
         if (!walletAddress) {
           return jsonResponse(400, { error: "bad_request", message: "wallet_address is required" }, requestId);
         }
