@@ -838,14 +838,17 @@ export function renderUserAppHtml() {
     async function signIn() {
       var wallet = els.wallet.value.trim().toLowerCase();
       var signature = "0xsignature";
-      if (!wallet) throw new Error("wallet address is required");
       if (hasBrowserWallet()) {
         try {
           wallet = await connectBrowserWallet();
         } catch (err) {
+          if (runtimeMeta().siwe_mode === "strict") {
+            throw new Error("MetaMask connection failed in strict SIWE mode: " + err.message);
+          }
           addLog("metamask connect skipped: " + err.message);
         }
       }
+      if (!wallet) throw new Error("wallet address is required");
       var challenge = await fetchJson("/v1/auth/siwe/challenge", {
         method: "POST",
         headers: { "content-type": "application/json" },
