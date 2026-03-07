@@ -14,6 +14,8 @@
 - [Mailu Colocated Rewrite](./mailu-colocated-rewrite.md)
 - [Mailu Certificate Renewal](./mailu-cert-renewal.md)
 - [Mail Auth Setup](./mail-auth-setup.md)
+- [Project Retrospective](./project-retrospective.md)
+- [Current Production State](./current-production-state.md)
 - [Single-Host Deployment](./single-host-deployment.md)
 - [Admin Dashboard Design](./admin-dashboard.md)
 - [Business API Contract](./openapi.yaml)
@@ -35,7 +37,9 @@
 11. `mailu-colocated-rewrite.md` - adapt the generated Mailu baseline to a host already running Nginx
 12. `mailu-cert-renewal.md` - keep Mailu mail TLS in sync with host Let's Encrypt renewal
 13. `single-host-deployment.md` - one-place deployment path on a VPS or cloud host
-14. `openapi.yaml` - business API contract
-15. `admin-dashboard.md` - dashboard IA and operation flows
-16. `openapi-admin.yaml` - admin API contract
-17. `db/schema.sql` - schema implementation
+14. `project-retrospective.md` - implementation review, key corrections, and final product shape
+15. `current-production-state.md` - live capabilities, runtime mode, and current deployment caveats
+16. `openapi.yaml` - business API contract
+17. `admin-dashboard.md` - dashboard IA and operation flows
+18. `openapi-admin.yaml` - admin API contract
+19. `db/schema.sql` - schema implementation

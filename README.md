@@ -7,6 +7,9 @@ This repository implements a V1 API scaffold based on:
 - `docs/db/schema.sql`
 
 Start with the customer-facing guide: `docs/user-guide.md`.
+Operational handoff documents:
+- `docs/project-retrospective.md`
+- `docs/current-production-state.md`
 
 Current capabilities:
 - SIWE challenge/verify (`mock` and `strict` modes)
