@@ -1,7 +1,7 @@
 import { createJwt, verifyJwt } from "./auth.js";
 import { createConfig } from "./config.js";
 import { createMailBackendAdapter } from "./mail-backend/index.js";
-import { createPaymentVerifier } from "./payment.js";
+import { buildHmacPaymentProof, createPaymentVerifier } from "./payment.js";
 import { parseInboundContent } from "./parser.js";
 import { createSiweService } from "./siwe.js";
 import { renderAdminDashboardHtml } from "./admin-ui.js";
@@ -173,6 +173,50 @@ export function createFetchApp(deps = {}) {
             auth: {
               browser_wallet_required: runtimeConfig.siweMode === "strict",
             },
+          },
+          requestId,
+        );
+      }
+
+      if (method === "POST" && path === "/v1/payments/proof") {
+        const auth = await requireAuth(request, requestId);
+        if (!auth.ok) return auth.response;
+
+        const body = await readJsonBody(request);
+        const proofMethod = String(body.method || "").trim().toUpperCase();
+        const proofPath = String(body.path || "").trim();
+        const protectedTargets = new Set([
+          "POST /v1/mailboxes/allocate",
+          "GET /v1/messages/latest",
+          "POST /v1/webhooks",
+        ]);
+
+        if (!proofMethod || !proofPath) {
+          return jsonResponse(400, { error: "bad_request", message: "method and path are required" }, requestId);
+        }
+
+        if (!protectedTargets.has(`${proofMethod} ${proofPath}`)) {
+          return jsonResponse(400, { error: "bad_request", message: "unsupported payment proof target" }, requestId);
+        }
+
+        const nowSec = Math.floor(Date.now() / 1000);
+        const proof =
+          runtimeConfig.paymentMode === "hmac"
+            ? buildHmacPaymentProof({
+                secret: runtimeConfig.paymentHmacSecret,
+                method: proofMethod,
+                path: proofPath,
+                timestampSec: nowSec,
+              })
+            : "mock-proof";
+
+        return jsonResponse(
+          200,
+          {
+            x_payment_proof: proof,
+            method: proofMethod,
+            path: proofPath,
+            expires_at: new Date((nowSec + runtimeConfig.paymentHmacSkewSec) * 1000).toISOString(),
           },
           requestId,
         );

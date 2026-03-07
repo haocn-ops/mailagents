@@ -86,6 +86,52 @@ test("fetch app exposes runtime meta for the user app", async () => {
   assert.equal(body.mailbox_domain, "inbox.example.com");
 });
 
+test("fetch app issues a tenant payment proof for protected hmac endpoints", async () => {
+  const cfg = createConfig({
+    JWT_SECRET: "test-secret",
+    INTERNAL_API_TOKEN: "internal-secret",
+    BASE_CHAIN_ID: "84532",
+    MAILBOX_DOMAIN: "inbox.example.com",
+    SIWE_MODE: "mock",
+    PAYMENT_MODE: "hmac",
+    X402_HMAC_SECRET: "proof-secret",
+  });
+  const store = new MemoryStore({
+    chainId: cfg.baseChainId,
+    challengeTtlMs: cfg.siweChallengeTtlMs,
+    mailboxDomain: cfg.mailboxDomain,
+  });
+  const app = createFetchApp({ config: cfg, store });
+  const verify = await issueToken(app, "0xabc0000000000000000000000000000000000666");
+
+  const proofRes = await app(
+    new Request("http://localhost/v1/payments/proof", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${verify.access_token}`,
+      },
+      body: JSON.stringify({ method: "POST", path: "/v1/mailboxes/allocate" }),
+    }),
+  );
+  assert.equal(proofRes.status, 200);
+  const proofBody = await proofRes.json();
+  assert.match(proofBody.x_payment_proof, /^t=\d+,v1=[0-9a-f]+$/);
+
+  const allocateRes = await app(
+    new Request("http://localhost/v1/mailboxes/allocate", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${verify.access_token}`,
+        "x-payment-proof": proofBody.x_payment_proof,
+      },
+      body: JSON.stringify({ agent_id: verify.agent_id, purpose: "hmac-proof", ttl_hours: 1 }),
+    }),
+  );
+  assert.equal(allocateRes.status, 200);
+});
+
 test("fetch app exposes tenant mailbox and webhook lists", async () => {
   const app = makeApp();
   const verify = await issueToken(app, "0xabc0000000000000000000000000000000000999");

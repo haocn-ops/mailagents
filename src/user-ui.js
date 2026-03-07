@@ -546,6 +546,26 @@ export function renderUserAppHtml() {
       return data;
     }
 
+    async function paymentHeaders(method, path, withJson) {
+      if (runtimeMeta().payment_mode !== "hmac") {
+        var mockHeaders = {};
+        if (withJson) mockHeaders["content-type"] = "application/json";
+        mockHeaders["x-payment-proof"] = els.paymentProof.value.trim() || "mock-proof";
+        return mockHeaders;
+      }
+
+      var proof = await fetchJson("/v1/payments/proof", {
+        method: "POST",
+        headers: authHeaders(true),
+        body: JSON.stringify({ method: method, path: path })
+      });
+
+      var headers = {};
+      if (withJson) headers["content-type"] = "application/json";
+      headers["x-payment-proof"] = proof.x_payment_proof;
+      return headers;
+    }
+
     function hasBrowserWallet() {
       return typeof window !== "undefined" && !!window.ethereum && typeof window.ethereum.request === "function";
     }
@@ -748,9 +768,10 @@ export function renderUserAppHtml() {
 
     async function allocateMailbox() {
       if (!state.agentId) throw new Error("sign in first");
+      var payHeaders = await paymentHeaders("POST", "/v1/mailboxes/allocate", true);
       var result = await fetchJson("/v1/mailboxes/allocate", {
         method: "POST",
-        headers: Object.assign(authHeaders(true), { "x-payment-proof": els.paymentProof.value.trim() }),
+        headers: Object.assign(authHeaders(false), payHeaders),
         body: JSON.stringify({
           agent_id: state.agentId,
           purpose: els.purpose.value.trim() || "signup",
@@ -807,9 +828,10 @@ export function renderUserAppHtml() {
 
     async function refreshMessages() {
       if (!state.selectedMailboxId) throw new Error("select a mailbox first");
+      var payHeaders = await paymentHeaders("GET", "/v1/messages/latest", false);
       var data = await fetchJson("/v1/messages/latest?mailbox_id=" + encodeURIComponent(state.selectedMailboxId) + "&limit=10", {
         method: "GET",
-        headers: Object.assign(authHeaders(false), { "x-payment-proof": els.paymentProof.value.trim() })
+        headers: Object.assign(authHeaders(false), payHeaders)
       });
       state.messages = Array.isArray(data.messages) ? data.messages : [];
       renderMessages();
@@ -833,6 +855,7 @@ export function renderUserAppHtml() {
 
     async function createWebhook() {
       if (!state.token) throw new Error("sign in first");
+      var payHeaders = await paymentHeaders("POST", "/v1/webhooks", true);
       var payload = {
         event_types: [els.webhookEvent.value],
         target_url: els.webhookUrl.value.trim(),
@@ -840,7 +863,7 @@ export function renderUserAppHtml() {
       };
       var created = await fetchJson("/v1/webhooks", {
         method: "POST",
-        headers: Object.assign(authHeaders(true), { "x-payment-proof": els.paymentProof.value.trim() }),
+        headers: Object.assign(authHeaders(false), payHeaders),
         body: JSON.stringify(payload)
       });
       await refreshWebhooks();
