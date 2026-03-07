@@ -33,9 +33,9 @@ services:
       PORT: 3000
       STORAGE_BACKEND: postgres
       DATABASE_URL: postgres://postgres:postgres@db:5432/mailcloud
-      MAIL_SMTP_HOST: 149.28.123.3
-      MAIL_SMTP_PORT: 587
-      MAIL_SMTP_SECURE: "false"
+      MAIL_SMTP_HOST: inbox.mailagents.net
+      MAIL_SMTP_PORT: 465
+      MAIL_SMTP_SECURE: "true"
     ports:
       - "3000:3000"
     healthcheck:
