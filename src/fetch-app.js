@@ -162,6 +162,22 @@ export function createFetchApp(deps = {}) {
         return jsonResponse(200, { status: "ok", service: "agent-mail-cloud" }, requestId);
       }
 
+      if (method === "GET" && path === "/v1/meta/runtime") {
+        return jsonResponse(
+          200,
+          {
+            siwe_mode: runtimeConfig.siweMode,
+            payment_mode: runtimeConfig.paymentMode,
+            mailbox_domain: runtimeConfig.mailboxDomain,
+            webmail_url: runtimeConfig.mailuBaseUrl ? `${runtimeConfig.mailuBaseUrl.replace(/\/$/, "")}/webmail/` : null,
+            auth: {
+              browser_wallet_required: runtimeConfig.siweMode === "strict",
+            },
+          },
+          requestId,
+        );
+      }
+
       if (method === "GET" && (path === "/admin" || path === "/admin/")) {
         return new Response(renderAdminDashboardHtml({ adminTokenRequired: Boolean(runtimeConfig.adminApiToken) }), {
           status: 200,

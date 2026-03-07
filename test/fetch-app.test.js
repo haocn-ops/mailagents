@@ -73,6 +73,17 @@ test("fetch app serves user app html", async () => {
   assert.match(html, /Allocate Mailbox/);
   assert.match(html, /Latest Messages/);
   assert.match(html, /Open Webmail/);
+  assert.match(html, /Send Test Guide/);
+});
+
+test("fetch app exposes runtime meta for the user app", async () => {
+  const app = makeApp();
+  const res = await app(new Request("http://localhost/v1/meta/runtime", { method: "GET" }));
+  assert.equal(res.status, 200);
+  const body = await res.json();
+  assert.equal(body.siwe_mode, "mock");
+  assert.equal(body.payment_mode, "mock");
+  assert.equal(body.mailbox_domain, "inbox.example.com");
 });
 
 test("fetch app exposes tenant mailbox and webhook lists", async () => {

@@ -207,6 +207,15 @@ export function renderUserAppHtml() {
     .token-box { min-height: 96px; }
     .log { min-height: 180px; }
     .json { min-height: 240px; }
+    .guide {
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 13px;
+      background: rgba(255,255,255,0.66);
+      line-height: 1.55;
+      color: var(--muted);
+      font-size: 14px;
+    }
     .stats {
       display: grid;
       grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -302,7 +311,7 @@ export function renderUserAppHtml() {
       <div class="stack">
         <article class="card panel">
           <h2 class="section-title">Connect</h2>
-          <p class="hint">Mock SIWE is enough for the current live environment. When strict SIWE is enabled, this screen still works if you paste a real signed SIWE payload manually or the page is upgraded to wallet SDK integration.</p>
+          <p class="hint" id="connectHint">Loading runtime authentication mode...</p>
           <div class="form-grid">
             <label>API Base
               <input id="apiBase" />
@@ -411,6 +420,11 @@ export function renderUserAppHtml() {
           <h2 class="section-title">Activity Log</h2>
           <div class="log" id="log"></div>
         </article>
+
+        <article class="card panel">
+          <h2 class="section-title">Send Test Guide</h2>
+          <div class="guide" id="sendGuide">Loading runtime mailbox and auth details...</div>
+        </article>
       </div>
     </section>
   </div>
@@ -426,7 +440,8 @@ export function renderUserAppHtml() {
       messages: [],
       webhooks: [],
       invoices: [],
-      walletConnected: false
+      walletConnected: false,
+      runtimeMeta: null
     };
 
     var els = {
@@ -516,6 +531,10 @@ export function renderUserAppHtml() {
       if (withJson) headers["content-type"] = "application/json";
       if (state.token) headers.authorization = "Bearer " + state.token;
       return headers;
+    }
+
+    function runtimeMeta() {
+      return state.runtimeMeta || { siwe_mode: "mock", payment_mode: "mock", auth: { browser_wallet_required: false }, mailbox_domain: "", webmail_url: "" };
     }
 
     async function fetchJson(path, init) {
@@ -636,6 +655,30 @@ export function renderUserAppHtml() {
       }
     }
 
+    async function loadRuntimeMeta() {
+      try {
+        state.runtimeMeta = await fetchJson("/v1/meta/runtime", { method: "GET" });
+        var connectHint = document.getElementById("connectHint");
+        var sendGuide = document.getElementById("sendGuide");
+        if (connectHint) {
+          connectHint.textContent =
+            runtimeMeta().siwe_mode === "strict"
+              ? "Strict SIWE is enabled. A browser wallet must connect and sign the challenge. Mock fallback is disabled."
+              : "Mock SIWE is enabled on this environment. Browser wallet signing is attempted first, then the page may fall back to the mock signature path.";
+        }
+        if (sendGuide) {
+          sendGuide.textContent =
+            "Mailbox domain: " + (runtimeMeta().mailbox_domain || "-") +
+            " | Auth: " + runtimeMeta().siwe_mode +
+            " | Payment: " + runtimeMeta().payment_mode +
+            ". Allocate a mailbox, issue a webmail password, open Webmail, then send a message to or from Gmail for an end-to-end test.";
+        }
+        addLog("loaded runtime meta: siwe=" + runtimeMeta().siwe_mode + ", payment=" + runtimeMeta().payment_mode);
+      } catch (err) {
+        addLog("runtime meta failed: " + err.message);
+      }
+    }
+
     async function signIn() {
       var wallet = els.wallet.value.trim().toLowerCase();
       var signature = "0xsignature";
@@ -660,8 +703,13 @@ export function renderUserAppHtml() {
           });
           addLog("signed SIWE challenge with browser wallet");
         } catch (err) {
+          if (runtimeMeta().siwe_mode === "strict") {
+            throw new Error("browser wallet signing failed in strict SIWE mode: " + err.message);
+          }
           addLog("browser wallet signing failed, using fallback signature: " + err.message);
         }
+      } else if (runtimeMeta().siwe_mode === "strict") {
+        throw new Error("browser wallet is required in strict SIWE mode");
       }
       var verify = await fetchJson("/v1/auth/siwe/verify", {
         method: "POST",
@@ -926,6 +974,7 @@ export function renderUserAppHtml() {
     bindAction("lookupBtn", function() {
       return els.lookupMode.value === "invoices" ? refreshInvoices() : loadUsage();
     });
+    loadRuntimeMeta();
     checkHealth();
   </script>
 </body>
