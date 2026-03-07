@@ -168,6 +168,7 @@ export function createFetchApp(deps = {}) {
           {
             siwe_mode: runtimeConfig.siweMode,
             payment_mode: runtimeConfig.paymentMode,
+            base_chain_id: runtimeConfig.baseChainId,
             mailbox_domain: runtimeConfig.mailboxDomain,
             webmail_url: runtimeConfig.mailuBaseUrl ? `${runtimeConfig.mailuBaseUrl.replace(/\/$/, "")}/webmail/` : null,
             auth: {

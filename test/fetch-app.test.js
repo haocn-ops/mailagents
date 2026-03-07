@@ -74,6 +74,8 @@ test("fetch app serves user app html", async () => {
   assert.match(html, /Latest Messages/);
   assert.match(html, /Open Webmail/);
   assert.match(html, /Send Test Guide/);
+  assert.match(html, /Connect MetaMask/);
+  assert.match(html, /MetaMask status not checked yet/);
 });
 
 test("fetch app exposes runtime meta for the user app", async () => {
@@ -84,6 +86,7 @@ test("fetch app exposes runtime meta for the user app", async () => {
   assert.equal(body.siwe_mode, "mock");
   assert.equal(body.payment_mode, "mock");
   assert.equal(body.mailbox_domain, "inbox.example.com");
+  assert.equal(body.base_chain_id, 84532);
 });
 
 test("fetch app issues a tenant payment proof for protected hmac endpoints", async () => {

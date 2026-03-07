@@ -280,6 +280,11 @@ export function renderUserAppHtml() {
       gap: 8px;
     }
     .muted { color: var(--muted); }
+    .wallet-note {
+      font-size: 12px;
+      color: var(--muted);
+      margin-top: 8px;
+    }
     @media (max-width: 980px) {
       .hero, .grid { grid-template-columns: 1fr; }
       .form-grid { grid-template-columns: 1fr; }
@@ -328,10 +333,11 @@ export function renderUserAppHtml() {
           </div>
           <div class="actions">
             <button class="primary" id="loginBtn">Sign In</button>
-            <button class="ghost" id="walletBtn">Use Browser Wallet</button>
+            <button class="ghost" id="walletBtn">Connect MetaMask</button>
             <button class="ghost" id="healthBtn">Check API</button>
             <button class="secondary" id="usageBtn">Load Usage</button>
           </div>
+          <div class="wallet-note" id="walletNote">MetaMask status not checked yet.</div>
         </article>
 
         <article class="card panel">
@@ -441,7 +447,9 @@ export function renderUserAppHtml() {
       webhooks: [],
       invoices: [],
       walletConnected: false,
-      runtimeMeta: null
+      runtimeMeta: null,
+      chainHex: "",
+      walletProvider: ""
     };
 
     var els = {
@@ -472,7 +480,8 @@ export function renderUserAppHtml() {
       authDot: document.getElementById("auth-dot"),
       authStatus: document.getElementById("auth-status"),
       mailboxDot: document.getElementById("mailbox-dot"),
-      mailboxStatus: document.getElementById("mailbox-status")
+      mailboxStatus: document.getElementById("mailbox-status"),
+      walletNote: document.getElementById("walletNote")
     };
 
     function nowPeriod() {
@@ -534,7 +543,16 @@ export function renderUserAppHtml() {
     }
 
     function runtimeMeta() {
-      return state.runtimeMeta || { siwe_mode: "mock", payment_mode: "mock", auth: { browser_wallet_required: false }, mailbox_domain: "", webmail_url: "" };
+      return state.runtimeMeta || { siwe_mode: "mock", payment_mode: "mock", auth: { browser_wallet_required: false }, mailbox_domain: "", webmail_url: "", base_chain_id: 84532 };
+    }
+
+    function expectedChainHex() {
+      var chainId = Number(runtimeMeta().base_chain_id || 84532);
+      return "0x" + chainId.toString(16);
+    }
+
+    function chainLabel() {
+      return Number(runtimeMeta().base_chain_id || 84532) === 84532 ? "Base Sepolia" : ("chain " + String(runtimeMeta().base_chain_id || ""));
     }
 
     async function fetchJson(path, init) {
@@ -566,18 +584,98 @@ export function renderUserAppHtml() {
       return headers;
     }
 
+    function metamaskProvider() {
+      if (typeof window === "undefined") return null;
+      if (!window.ethereum || typeof window.ethereum.request !== "function") return null;
+      if (window.ethereum.isMetaMask) return window.ethereum;
+      if (Array.isArray(window.ethereum.providers)) {
+        var provider = window.ethereum.providers.find(function(item) { return item && item.isMetaMask; });
+        if (provider) return provider;
+      }
+      return null;
+    }
+
     function hasBrowserWallet() {
-      return typeof window !== "undefined" && !!window.ethereum && typeof window.ethereum.request === "function";
+      return !!metamaskProvider();
+    }
+
+    function setWalletNote(text) {
+      if (els.walletNote) els.walletNote.textContent = text;
+    }
+
+    async function detectWalletChain(provider) {
+      state.chainHex = await provider.request({ method: "eth_chainId" });
+      return state.chainHex;
+    }
+
+    async function ensureMetaMaskNetwork(provider) {
+      var target = expectedChainHex();
+      var current = await detectWalletChain(provider);
+      if (current === target) {
+        setWalletNote("MetaMask connected on " + chainLabel() + " (" + current + ").");
+        return current;
+      }
+      try {
+        await provider.request({
+          method: "wallet_switchEthereumChain",
+          params: [{ chainId: target }],
+        });
+        state.chainHex = target;
+        setWalletNote("MetaMask switched to " + chainLabel() + " (" + target + ").");
+        addLog("metamask switched to " + target);
+        return target;
+      } catch (err) {
+        if (err && err.code === 4902) {
+          throw new Error("MetaMask does not know " + chainLabel() + ". Add the network in MetaMask, then retry.");
+        }
+        throw new Error("MetaMask network switch failed: " + (err && err.message ? err.message : String(err)));
+      }
+    }
+
+    function wireMetaMaskEvents(provider) {
+      if (!provider || typeof provider.on !== "function") return;
+      provider.removeListener && provider.removeListener("accountsChanged", handleAccountsChanged);
+      provider.removeListener && provider.removeListener("chainChanged", handleChainChanged);
+      provider.on("accountsChanged", handleAccountsChanged);
+      provider.on("chainChanged", handleChainChanged);
+    }
+
+    function handleAccountsChanged(accounts) {
+      var wallet = Array.isArray(accounts) && accounts[0] ? String(accounts[0]).toLowerCase() : "";
+      if (!wallet) {
+        state.walletConnected = false;
+        state.walletProvider = "";
+        setWalletNote("MetaMask disconnected.");
+        setAuthStatus(false, "wallet disconnected");
+        return;
+      }
+      state.walletConnected = true;
+      state.walletProvider = "metamask";
+      els.wallet.value = wallet;
+      setWalletNote("MetaMask account changed to " + wallet.slice(0, 10) + "... on " + (state.chainHex || "unknown chain") + ".");
+      addLog("metamask account changed " + wallet);
+    }
+
+    function handleChainChanged(chainId) {
+      state.chainHex = String(chainId || "");
+      setWalletNote("MetaMask chain changed to " + state.chainHex + ". Expected " + expectedChainHex() + ".");
+      addLog("metamask chain changed " + state.chainHex);
     }
 
     async function connectBrowserWallet() {
-      if (!hasBrowserWallet()) throw new Error("browser wallet not available");
-      var accounts = await window.ethereum.request({ method: "eth_requestAccounts" });
+      var provider = metamaskProvider();
+      if (!provider) throw new Error("MetaMask not available");
+      setWalletNote("Connecting MetaMask...");
+      await ensureMetaMaskNetwork(provider);
+      var accounts = await provider.request({ method: "eth_requestAccounts" });
       var wallet = Array.isArray(accounts) && accounts[0] ? String(accounts[0]).toLowerCase() : "";
       if (!wallet) throw new Error("wallet account not returned");
       state.walletConnected = true;
+      state.walletProvider = "metamask";
       els.wallet.value = wallet;
-      addLog("browser wallet connected " + wallet);
+      wireMetaMaskEvents(provider);
+      setWalletNote("MetaMask connected: " + wallet.slice(0, 10) + "... on " + (state.chainHex || expectedChainHex()) + ".");
+      addLog("metamask connected " + wallet);
       return wallet;
     }
 
@@ -683,8 +781,8 @@ export function renderUserAppHtml() {
         if (connectHint) {
           connectHint.textContent =
             runtimeMeta().siwe_mode === "strict"
-              ? "Strict SIWE is enabled. A browser wallet must connect and sign the challenge. Mock fallback is disabled."
-              : "Mock SIWE is enabled on this environment. Browser wallet signing is attempted first, then the page may fall back to the mock signature path.";
+              ? "Strict SIWE is enabled. MetaMask must connect, switch to " + chainLabel() + ", and sign the challenge. Mock fallback is disabled."
+              : "Mock SIWE is enabled on this environment. MetaMask signing is attempted first, then the page may fall back to the mock signature path.";
         }
         if (sendGuide) {
           sendGuide.textContent =
@@ -693,6 +791,7 @@ export function renderUserAppHtml() {
             " | Payment: " + runtimeMeta().payment_mode +
             ". Allocate a mailbox, issue a webmail password, open Webmail, then send a message to or from Gmail for an end-to-end test.";
         }
+        setWalletNote("Expected wallet network: " + chainLabel() + " (" + expectedChainHex() + ").");
         addLog("loaded runtime meta: siwe=" + runtimeMeta().siwe_mode + ", payment=" + runtimeMeta().payment_mode);
       } catch (err) {
         addLog("runtime meta failed: " + err.message);
@@ -707,7 +806,7 @@ export function renderUserAppHtml() {
         try {
           wallet = await connectBrowserWallet();
         } catch (err) {
-          addLog("browser wallet connect skipped: " + err.message);
+          addLog("metamask connect skipped: " + err.message);
         }
       }
       var challenge = await fetchJson("/v1/auth/siwe/challenge", {
@@ -717,19 +816,19 @@ export function renderUserAppHtml() {
       });
       if (hasBrowserWallet()) {
         try {
-          signature = await window.ethereum.request({
+          signature = await metamaskProvider().request({
             method: "personal_sign",
             params: [challenge.message, wallet]
           });
-          addLog("signed SIWE challenge with browser wallet");
+          addLog("signed SIWE challenge with MetaMask");
         } catch (err) {
           if (runtimeMeta().siwe_mode === "strict") {
-            throw new Error("browser wallet signing failed in strict SIWE mode: " + err.message);
+            throw new Error("MetaMask signing failed in strict SIWE mode: " + err.message);
           }
-          addLog("browser wallet signing failed, using fallback signature: " + err.message);
+          addLog("MetaMask signing failed, using fallback signature: " + err.message);
         }
       } else if (runtimeMeta().siwe_mode === "strict") {
-        throw new Error("browser wallet is required in strict SIWE mode");
+        throw new Error("MetaMask is required in strict SIWE mode");
       }
       var verify = await fetchJson("/v1/auth/siwe/verify", {
         method: "POST",
@@ -971,6 +1070,29 @@ export function renderUserAppHtml() {
       });
     }
 
+    async function bootstrapMetaMask() {
+      var provider = metamaskProvider();
+      if (!provider) {
+        setWalletNote("MetaMask not detected in this browser.");
+        return;
+      }
+      state.walletProvider = "metamask";
+      wireMetaMaskEvents(provider);
+      try {
+        state.chainHex = await detectWalletChain(provider);
+        var accounts = await provider.request({ method: "eth_accounts" });
+        if (Array.isArray(accounts) && accounts[0]) {
+          state.walletConnected = true;
+          els.wallet.value = String(accounts[0]).toLowerCase();
+          setWalletNote("MetaMask detected. Account " + els.wallet.value.slice(0, 10) + "... on " + state.chainHex + ".");
+        } else {
+          setWalletNote("MetaMask detected. Connect it and switch to " + chainLabel() + " (" + expectedChainHex() + ").");
+        }
+      } catch (err) {
+        setWalletNote("MetaMask detected but unavailable: " + err.message);
+      }
+    }
+
     els.apiBase.value = window.location.origin;
     els.usagePeriod.value = nowPeriod();
     renderSession();
@@ -998,6 +1120,7 @@ export function renderUserAppHtml() {
       return els.lookupMode.value === "invoices" ? refreshInvoices() : loadUsage();
     });
     loadRuntimeMeta();
+    bootstrapMetaMask();
     checkHealth();
   </script>
 </body>
