@@ -555,6 +555,20 @@ export function renderUserAppHtml() {
       return Number(runtimeMeta().base_chain_id || 84532) === 84532 ? "Base Sepolia" : ("chain " + String(runtimeMeta().base_chain_id || ""));
     }
 
+    function addChainParams() {
+      var chainId = Number(runtimeMeta().base_chain_id || 84532);
+      if (chainId === 84532) {
+        return {
+          chainId: expectedChainHex(),
+          chainName: "Base Sepolia",
+          nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
+          rpcUrls: ["https://sepolia.base.org"],
+          blockExplorerUrls: ["https://sepolia.basescan.org"],
+        };
+      }
+      return null;
+    }
+
     async function fetchJson(path, init) {
       var res = await fetch(apiBase() + path, init || {});
       var data = await res.json().catch(function() { return {}; });
@@ -626,7 +640,22 @@ export function renderUserAppHtml() {
         return target;
       } catch (err) {
         if (err && err.code === 4902) {
-          throw new Error("MetaMask does not know " + chainLabel() + ". Add the network in MetaMask, then retry.");
+          var params = addChainParams();
+          if (!params) {
+            throw new Error("MetaMask does not know " + chainLabel() + ". Add the network in MetaMask, then retry.");
+          }
+          try {
+            await provider.request({
+              method: "wallet_addEthereumChain",
+              params: [params],
+            });
+            state.chainHex = target;
+            setWalletNote("MetaMask added and switched to " + chainLabel() + " (" + target + ").");
+            addLog("metamask added network " + target);
+            return target;
+          } catch (addErr) {
+            throw new Error("MetaMask could not add " + chainLabel() + ": " + (addErr && addErr.message ? addErr.message : String(addErr)));
+          }
         }
         throw new Error("MetaMask network switch failed: " + (err && err.message ? err.message : String(err)));
       }
