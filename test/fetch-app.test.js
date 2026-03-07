@@ -131,9 +131,11 @@ test("fetch app serves agents guide html", async () => {
   assert.equal(res.status, 200);
   const html = await res.text();
   assert.match(html, /Agents Guide/);
-  assert.match(html, /Quick Start/);
+  assert.match(html, /Production Guide/);
+  assert.match(html, /Direct Production Flow/);
   assert.match(html, /Allocate a mailbox/);
   assert.match(html, /Open User App/);
+  assert.match(html, /api\.mailagents\.net/);
 });
 
 test("fetch app exposes runtime meta for the user app", async () => {
