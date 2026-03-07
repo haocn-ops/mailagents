@@ -33,14 +33,11 @@ services:
       PORT: 3000
       STORAGE_BACKEND: postgres
       DATABASE_URL: postgres://postgres:postgres@db:5432/mailcloud
-      MAIL_SMTP_HOST: front
+      MAIL_SMTP_HOST: 149.28.123.3
       MAIL_SMTP_PORT: 587
       MAIL_SMTP_SECURE: "false"
     ports:
       - "3000:3000"
-    networks:
-      - default
-      - mailu_external
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:3000/healthz >/dev/null"]
       interval: 10s
@@ -72,8 +69,3 @@ services:
 
 volumes:
   pgdata_prod:
-
-networks:
-  mailu_external:
-    external: true
-    name: mailu_default
