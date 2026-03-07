@@ -392,6 +392,10 @@ export function renderUserAppHtml() {
             <div class="stat"><div class="k">Agent</div><div class="v" id="agentStat">-</div></div>
             <div class="stat"><div class="k">Billable</div><div class="v" id="usageStat">-</div></div>
           </div>
+          <div class="actions" style="margin-top:12px">
+            <button class="ghost" id="copyTokenBtn">Copy Access Token</button>
+            <button class="ghost" id="copyWalletBtn">Copy Wallet</button>
+          </div>
           <div class="token-box" id="tokenBox">no token yet</div>
         </article>
 
@@ -475,6 +479,8 @@ export function renderUserAppHtml() {
       tenantStat: document.getElementById("tenantStat"),
       agentStat: document.getElementById("agentStat"),
       usageStat: document.getElementById("usageStat"),
+      copyTokenBtn: document.getElementById("copyTokenBtn"),
+      copyWalletBtn: document.getElementById("copyWalletBtn"),
       apiDot: document.getElementById("api-dot"),
       apiStatus: document.getElementById("api-status"),
       authDot: document.getElementById("auth-dot"),
@@ -518,6 +524,16 @@ export function renderUserAppHtml() {
 
     function addLog(line) {
       els.log.textContent = "[" + new Date().toISOString() + "] " + line + "\\n" + els.log.textContent;
+    }
+
+    async function copyText(value, label) {
+      var text = String(value || "");
+      if (!text) throw new Error(label + " is empty");
+      if (!navigator.clipboard || typeof navigator.clipboard.writeText !== "function") {
+        throw new Error("clipboard API not available");
+      }
+      await navigator.clipboard.writeText(text);
+      addLog("copied " + label);
     }
 
     function setApiStatus(ok, text) {
@@ -717,7 +733,7 @@ export function renderUserAppHtml() {
     }
 
     function renderSession() {
-      els.tokenBox.textContent = state.token || "no token yet";
+      els.tokenBox.textContent = state.token ? ("token ready for tenant " + (state.tenantId || "-") + "\\n\\n" + state.token) : "no token yet";
       els.tenantStat.textContent = state.tenantId ? state.tenantId.slice(0, 8) : "-";
       els.agentStat.textContent = state.agentId ? state.agentId.slice(0, 8) : "-";
     }
@@ -740,7 +756,10 @@ export function renderUserAppHtml() {
           (creds ? '<div class="muted">webmail login <code>' + creds.login + '</code></div><div class="muted">webmail password <code>' + creds.password + '</code></div>' : '') +
           '<div class="actions">' +
             '<button class="ghost" data-select-mailbox="' + item.mailbox_id + '">Select</button>' +
+            '<button class="ghost" data-copy-address="' + item.address + '">Copy Address</button>' +
             '<button class="secondary" data-reset-webmail="' + item.mailbox_id + '">Issue Webmail Password</button>' +
+            (creds ? '<button class="ghost" data-copy-login="' + item.mailbox_id + '">Copy Login</button>' : '') +
+            (creds ? '<button class="ghost" data-copy-password="' + item.mailbox_id + '">Copy Password</button>' : '') +
             ((creds && creds.webmail_url) ? '<a class="ghost" href="' + creds.webmail_url + '" target="_blank" rel="noreferrer">Open Webmail</a>' : '') +
           '</div>' +
         '</article>';
@@ -885,7 +904,8 @@ export function renderUserAppHtml() {
       await refreshInvoices();
       renderSession();
       setAuthStatus(true, "signed in as " + wallet.slice(0, 10) + "...");
-      addLog("signed in; tenant " + verify.tenant_id);
+      setWalletNote("MetaMask signed in as " + wallet.slice(0, 10) + "... on " + (state.chainHex || expectedChainHex()) + ".");
+      addLog("signed in; tenant " + verify.tenant_id + ", agent " + verify.agent_id);
       return verify;
     }
 
@@ -1069,12 +1089,49 @@ export function renderUserAppHtml() {
           state.selectedMailboxId = button.getAttribute("data-select-mailbox") || "";
           saveMailboxState();
           renderMailboxes();
+          addLog("selected mailbox " + state.selectedMailboxId);
+          return;
+        }
+        button = event.target.closest("[data-copy-address]");
+        if (button) {
+          copyText(button.getAttribute("data-copy-address") || "", "mailbox address").catch(function(err) {
+            addLog("copy mailbox address failed: " + err.message);
+          });
           return;
         }
         button = event.target.closest("[data-reset-webmail]");
+        if (button) {
+          issueWebmailPassword(button.getAttribute("data-reset-webmail") || "").catch(function(err) {
+            addLog("issue webmail password failed: " + err.message);
+          });
+          return;
+        }
+        button = event.target.closest("[data-copy-login]");
+        if (button) {
+          var loginCreds = state.mailboxCredentials[button.getAttribute("data-copy-login") || ""];
+          copyText(loginCreds && loginCreds.login, "webmail login").catch(function(err) {
+            addLog("copy webmail login failed: " + err.message);
+          });
+          return;
+        }
+        button = event.target.closest("[data-copy-password]");
         if (!button) return;
-        issueWebmailPassword(button.getAttribute("data-reset-webmail") || "").catch(function(err) {
-          addLog("issue webmail password failed: " + err.message);
+        var passwordCreds = state.mailboxCredentials[button.getAttribute("data-copy-password") || ""];
+        copyText(passwordCreds && passwordCreds.password, "webmail password").catch(function(err) {
+          addLog("copy webmail password failed: " + err.message);
+        });
+      });
+    }
+
+    function wireCopyActions() {
+      els.copyTokenBtn.addEventListener("click", function() {
+        copyText(state.token, "access token").catch(function(err) {
+          addLog("copy access token failed: " + err.message);
+        });
+      });
+      els.copyWalletBtn.addEventListener("click", function() {
+        copyText(els.wallet.value.trim(), "wallet").catch(function(err) {
+          addLog("copy wallet failed: " + err.message);
         });
       });
     }
@@ -1123,7 +1180,7 @@ export function renderUserAppHtml() {
         var accounts = await provider.request({ method: "eth_accounts" });
         if (Array.isArray(accounts) && accounts[0]) {
           state.walletConnected = true;
-          els.wallet.value = String(accounts[0]).toLowerCase();
+          els.wallet.value = String(accounts[0]).trim();
           setWalletNote("MetaMask detected. Account " + els.wallet.value.slice(0, 10) + "... on " + state.chainHex + ".");
         } else {
           setWalletNote("MetaMask detected. Connect it and switch to " + chainLabel() + " (" + expectedChainHex() + ").");
@@ -1141,6 +1198,7 @@ export function renderUserAppHtml() {
     renderWebhooks();
     renderInvoices();
     wireMailboxSelect();
+    wireCopyActions();
     wireMessageSelect();
     wireInvoiceSelect();
     bindAction("healthBtn", checkHealth);
