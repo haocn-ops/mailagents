@@ -22,6 +22,10 @@ export class MemoryStore {
       riskEvents: new Map(),
       riskPolicies: new Map(),
       auditLogs: [],
+      runtimeSettings: {
+        overage_charge_usdc: null,
+        agent_allocate_hourly_limit: null,
+      },
     };
   }
 
@@ -200,6 +204,30 @@ export class MemoryStore {
       return null;
     }
     return { tenant, agent };
+  }
+
+  async getTenantPolicy(tenantId) {
+    const tenant = this.state.tenants.get(tenantId);
+    if (!tenant) return null;
+    return {
+      tenantId: tenant.id,
+      status: tenant.status,
+      quotas: this._getTenantQuota(tenantId),
+    };
+  }
+
+  async getRuntimeSettings() {
+    return { ...this.state.runtimeSettings };
+  }
+
+  async updateRuntimeSettings(patch = {}) {
+    if (patch.overage_charge_usdc !== undefined) {
+      this.state.runtimeSettings.overage_charge_usdc = Number(patch.overage_charge_usdc);
+    }
+    if (patch.agent_allocate_hourly_limit !== undefined) {
+      this.state.runtimeSettings.agent_allocate_hourly_limit = Number(patch.agent_allocate_hourly_limit);
+    }
+    return this.getRuntimeSettings();
   }
 
   async allocateMailbox({ tenantId, agentId, purpose, ttlHours }) {
@@ -618,6 +646,71 @@ export class MemoryStore {
     });
   }
 
+  async countTenantUsageSince(tenantId, since) {
+    return this.state.usageRecords
+      .filter((record) => record.tenantId === tenantId && new Date(record.occurredAt) >= since)
+      .reduce((sum, record) => sum + Number(record.quantity || 0), 0);
+  }
+
+  async countAgentEndpointUsageSince(tenantId, agentId, endpoint, since) {
+    return this.state.usageRecords
+      .filter(
+        (record) =>
+          record.tenantId === tenantId &&
+          record.agentId === agentId &&
+          record.endpoint === endpoint &&
+          new Date(record.occurredAt) >= since,
+      )
+      .reduce((sum, record) => sum + Number(record.quantity || 0), 0);
+  }
+
+  _getOrCreateCurrentInvoice(tenantId) {
+    const now = new Date();
+    const periodStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)).toISOString().slice(0, 10);
+    const periodEnd = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0)).toISOString().slice(0, 10);
+    let invoice = [...this.state.invoices.values()].find(
+      (item) => item.tenantId === tenantId && item.periodStart === periodStart,
+    );
+    if (!invoice) {
+      const invoiceId = randomUUID();
+      invoice = {
+        id: invoiceId,
+        tenantId,
+        periodStart,
+        periodEnd,
+        amountUsdc: 0,
+        status: "draft",
+        statementHash: null,
+        settlementTxHash: null,
+      };
+      this.state.invoices.set(invoiceId, invoice);
+    }
+    return invoice;
+  }
+
+  async recordOverageCharge({ tenantId, agentId, endpoint, reasons, amountUsdc, requestId }) {
+    const invoice = this._getOrCreateCurrentInvoice(tenantId);
+    invoice.amountUsdc = Number((Number(invoice.amountUsdc || 0) + Number(amountUsdc || 0)).toFixed(6));
+    this._recordAudit({
+      tenantId,
+      agentId,
+      actorDid: this._getPrimaryDid(tenantId),
+      action: "billing.overage_charge",
+      resourceType: "invoice",
+      resourceId: invoice.id,
+      requestId,
+      metadata: {
+        endpoint,
+        reasons,
+        amount_usdc: Number(amountUsdc || 0),
+      },
+    });
+    return {
+      invoiceId: invoice.id,
+      amountUsdc: invoice.amountUsdc,
+    };
+  }
+
   async usageSummary(tenantId, start, end) {
     const records = this.state.usageRecords.filter(
       (r) =>
@@ -703,6 +796,8 @@ export class MemoryStore {
         tenant_id: tenant.id,
         name: tenant.name,
         status: tenant.status,
+        qps: this._getTenantQuota(tenant.id).qps,
+        mailbox_limit: this._getTenantQuota(tenant.id).mailbox_limit,
         primary_did: tenant.did,
         active_agents: activeAgents,
         active_mailboxes: activeMailboxes,

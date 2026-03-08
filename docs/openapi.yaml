@@ -88,8 +88,8 @@ paths:
   /v1/mailboxes/allocate:
     post:
       tags: [Mailboxes]
-      summary: Allocate mailbox lease (x402 protected)
-      description: This endpoint requires x402 payment.
+      summary: Allocate mailbox lease
+      description: Free within limits; requires x402 payment only after the free limit is reached.
       requestBody:
         required: true
         content:
@@ -138,8 +138,8 @@ paths:
   /v1/messages/latest:
     get:
       tags: [Messages]
-      summary: Fetch latest parsed messages (x402 protected)
-      description: This endpoint requires x402 payment.
+      summary: Fetch latest parsed messages
+      description: Free within limits; requires x402 payment only after the free limit is reached.
       parameters:
         - in: query
           name: mailbox_id
@@ -177,8 +177,8 @@ paths:
   /v1/messages/send:
     post:
       tags: [Messages]
-      summary: Send email through the leased mailbox (x402 protected)
-      description: This endpoint requires x402 payment and the current mailbox password.
+      summary: Send email through the leased mailbox
+      description: Free within limits; requires x402 payment only after the free limit is reached, plus the current mailbox password.
       requestBody:
         required: true
         content:
@@ -198,8 +198,8 @@ paths:
   /v1/webhooks:
     post:
       tags: [Webhooks]
-      summary: Create webhook subscription (x402 protected)
-      description: This endpoint requires x402 payment.
+      summary: Create webhook subscription
+      description: Free within limits; requires x402 payment only after the free limit is reached.
       requestBody:
         required: true
         content:

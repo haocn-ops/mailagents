@@ -207,7 +207,7 @@ export class PostgresStore {
 
   async findTenantContext(tenantId, agentId) {
     const result = await this._query(
-      `select t.id as tenant_id, a.id as agent_id
+      `select t.id as tenant_id, t.status as tenant_status, a.id as agent_id, a.status as agent_status
          from tenants t
          join agents a on a.tenant_id = t.id
         where t.id = $1 and a.id = $2
@@ -217,9 +217,81 @@ export class PostgresStore {
 
     if (result.rowCount === 0) return null;
     return {
-      tenant: { id: result.rows[0].tenant_id },
-      agent: { id: result.rows[0].agent_id },
+      tenant: { id: result.rows[0].tenant_id, status: result.rows[0].tenant_status },
+      agent: { id: result.rows[0].agent_id, status: result.rows[0].agent_status },
     };
+  }
+
+  async getTenantPolicy(tenantId) {
+    const result = await this._query(
+      `select t.id as tenant_id,
+              t.status,
+              tq.qps,
+              tq.mailbox_limit
+         from tenants t
+         left join tenant_quotas tq on tq.tenant_id = t.id
+        where t.id = $1
+        limit 1`,
+      [tenantId],
+    );
+
+    if (result.rowCount === 0) return null;
+    const row = result.rows[0];
+    return {
+      tenantId: row.tenant_id,
+      status: row.status,
+      quotas: {
+        qps: Number(row.qps || 120),
+        mailbox_limit: Number(row.mailbox_limit || 100),
+      },
+    };
+  }
+
+  async getRuntimeSettings() {
+    const result = await this._query(
+      `select key, value
+         from app_settings
+        where key in ('overage_charge_usdc', 'agent_allocate_hourly_limit')`,
+    );
+    const settings = {
+      overage_charge_usdc: null,
+      agent_allocate_hourly_limit: null,
+    };
+    for (const row of result.rows) {
+      if (row.key === "overage_charge_usdc") {
+        settings.overage_charge_usdc = Number(row.value?.value ?? row.value);
+      }
+      if (row.key === "agent_allocate_hourly_limit") {
+        settings.agent_allocate_hourly_limit = Number(row.value?.value ?? row.value);
+      }
+    }
+    return settings;
+  }
+
+  async updateRuntimeSettings(patch = {}) {
+    return this._withTx(async (client) => {
+      if (patch.overage_charge_usdc !== undefined) {
+        await this._query(
+          `insert into app_settings (key, value)
+           values ('overage_charge_usdc', $1::jsonb)
+           on conflict (key)
+           do update set value = excluded.value, updated_at = now()`,
+          [JSON.stringify({ value: Number(patch.overage_charge_usdc) })],
+          client,
+        );
+      }
+      if (patch.agent_allocate_hourly_limit !== undefined) {
+        await this._query(
+          `insert into app_settings (key, value)
+           values ('agent_allocate_hourly_limit', $1::jsonb)
+           on conflict (key)
+           do update set value = excluded.value, updated_at = now()`,
+          [JSON.stringify({ value: Number(patch.agent_allocate_hourly_limit) })],
+          client,
+        );
+      }
+      return this.getRuntimeSettings();
+    });
   }
 
   async allocateMailbox({ tenantId, agentId, purpose, ttlHours }) {
@@ -863,6 +935,103 @@ export class PostgresStore {
     );
   }
 
+  async countTenantUsageSince(tenantId, since) {
+    const result = await this._query(
+      `select coalesce(sum(quantity), 0) as total
+         from usage_records
+        where tenant_id = $1 and occurred_at >= $2`,
+      [tenantId, since.toISOString()],
+    );
+    return Number(result.rows[0].total);
+  }
+
+  async countAgentEndpointUsageSince(tenantId, agentId, endpoint, since) {
+    const result = await this._query(
+      `select coalesce(sum(quantity), 0) as total
+         from usage_records
+        where tenant_id = $1
+          and agent_id = $2
+          and endpoint = $3
+          and occurred_at >= $4`,
+      [tenantId, agentId, endpoint, since.toISOString()],
+    );
+    return Number(result.rows[0].total);
+  }
+
+  async recordOverageCharge({ tenantId, agentId, endpoint, reasons, amountUsdc, requestId }) {
+    return this._withTx(async (client) => {
+      const now = new Date();
+      const periodStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)).toISOString().slice(0, 10);
+      const periodEnd = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0)).toISOString().slice(0, 10);
+
+      const currentInvoice = await this._query(
+        `select id
+           from invoices
+          where tenant_id = $1
+            and period_start = $2
+          order by created_at desc
+          limit 1`,
+        [tenantId, periodStart],
+        client,
+      );
+
+      let invoiceId = currentInvoice.rows[0]?.id;
+      if (!invoiceId) {
+        const invoiceResult = await this._query(
+          `insert into invoices (tenant_id, period_start, period_end, amount_usdc, status)
+           values ($1, $2, $3, 0, 'draft')
+           returning id`,
+          [tenantId, periodStart, periodEnd],
+          client,
+        );
+        invoiceId = invoiceResult.rows[0]?.id;
+      }
+
+      await this._query(
+        `update invoices
+            set amount_usdc = amount_usdc + $2
+          where id = $1`,
+        [invoiceId, Number(amountUsdc || 0)],
+        client,
+      );
+
+      const actorDidResult = await this._query(
+        `select did from wallet_identities where tenant_id = $1 and is_primary = true limit 1`,
+        [tenantId],
+        client,
+      );
+
+      await this._recordAudit(
+        {
+          tenantId,
+          agentId,
+          actorDid: actorDidResult.rows[0]?.did || null,
+          action: "billing.overage_charge",
+          resourceType: "invoice",
+          resourceId: invoiceId,
+          requestId,
+          metadata: {
+            endpoint,
+            reasons,
+            amount_usdc: Number(amountUsdc || 0),
+          },
+        },
+        client,
+      );
+
+      const updatedInvoice = await this._query(
+        `select amount_usdc from invoices where id = $1`,
+        [invoiceId],
+        client,
+      );
+
+      return {
+        invoiceId,
+        amountUsdc: Number(updatedInvoice.rows[0].amount_usdc),
+      };
+    });
+  }
+
   async usageSummary(tenantId, start, end) {
     const apiCallsResult = await this._query(
       `select coalesce(sum(quantity), 0) as api_calls
@@ -1000,6 +1169,8 @@ export class PostgresStore {
         tenant_id: row.tenant_id,
         name: row.name,
         status: row.status,
+        qps: Number(row.qps || 120),
+        mailbox_limit: Number(row.mailbox_limit || 100),
         primary_did: row.primary_did,
         active_agents: Number(row.active_agents),
         active_mailboxes: Number(row.active_mailboxes),

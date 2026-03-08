@@ -31,6 +31,19 @@ function parsePaging(requestUrl) {
   return { ok: true, page, pageSize };
 }
 
+function chargeRequiredResponse(requestId, amountUsdc, reasons) {
+  return jsonResponse(
+    402,
+    {
+      error: "payment_required",
+      message: "Free limit reached; payment is required to continue",
+      amount_usdc: amountUsdc,
+      reasons,
+    },
+    requestId,
+  );
+}
+
 async function readJsonBody(request) {
   const text = await request.text();
   if (!text) return {};
@@ -43,6 +56,11 @@ async function readJsonBody(request) {
 
 export function createFetchApp(deps = {}) {
   const runtimeConfig = deps.config || createConfig(process.env);
+  const runtimeSettings = {
+    overageChargeUsdc: Number(runtimeConfig.overageChargeUsdc || 0.001),
+    agentAllocateHourlyLimit: Number(runtimeConfig.agentAllocateHourlyLimit || 0),
+  };
+  let runtimeSettingsLoaded = false;
   const store = deps.store || getDefaultStore();
   const paymentVerifier =
     deps.paymentVerifier ||
@@ -68,6 +86,33 @@ export function createFetchApp(deps = {}) {
       timeoutMs: runtimeConfig.webhookTimeoutMs,
       retryAttempts: runtimeConfig.webhookRetryAttempts,
     });
+  const paidBypassTargets = new Set([
+    "POST /v1/mailboxes/allocate",
+    "POST /v1/messages/send",
+    "GET /v1/messages/latest",
+    "POST /v1/webhooks",
+  ]);
+
+  function getOverageChargeUsdc() {
+    return Number(runtimeSettings.overageChargeUsdc || 0);
+  }
+
+  function getAgentAllocateHourlyLimit() {
+    return Number(runtimeSettings.agentAllocateHourlyLimit || 0);
+  }
+
+  async function ensureRuntimeSettingsLoaded() {
+    if (runtimeSettingsLoaded) return;
+    if (typeof store.getRuntimeSettings !== "function") return;
+    const persisted = await store.getRuntimeSettings();
+    if (persisted?.overage_charge_usdc != null) {
+      runtimeSettings.overageChargeUsdc = Number(persisted.overage_charge_usdc);
+    }
+    if (persisted?.agent_allocate_hourly_limit != null) {
+      runtimeSettings.agentAllocateHourlyLimit = Number(persisted.agent_allocate_hourly_limit);
+    }
+    runtimeSettingsLoaded = true;
+  }
 
   async function requireAuth(request, requestId) {
     const token = parseBearerToken(request.headers.get("authorization"));
@@ -87,6 +132,26 @@ export function createFetchApp(deps = {}) {
           response: jsonResponse(
             403,
             { error: "forbidden", message: "Tenant/agent context not found" },
+            requestId,
+          ),
+        };
+      }
+      if (ctx.tenant?.status && ctx.tenant.status !== "active") {
+        return {
+          ok: false,
+          response: jsonResponse(
+            403,
+            { error: "tenant_inactive", message: `Tenant is ${ctx.tenant.status}` },
+            requestId,
+          ),
+        };
+      }
+      if (ctx.agent?.status && ctx.agent.status !== "active") {
+        return {
+          ok: false,
+          response: jsonResponse(
+            403,
+            { error: "agent_inactive", message: `Agent is ${ctx.agent.status}` },
             requestId,
           ),
         };
@@ -152,6 +217,82 @@ export function createFetchApp(deps = {}) {
     return { ok: true };
   }
 
+  async function evaluateAccess({ request, requestId, tenantId, agentId, endpoint, checkAllocateHourly = false }) {
+    const tenantPolicy = await store.getTenantPolicy(tenantId);
+    if (!tenantPolicy) {
+      return {
+        ok: false,
+        response: jsonResponse(403, { error: "forbidden", message: "Tenant not found" }, requestId),
+      };
+    }
+
+    if (tenantPolicy.status !== "active") {
+      return {
+        ok: false,
+        response: jsonResponse(403, { error: "tenant_inactive", message: `Tenant is ${tenantPolicy.status}` }, requestId),
+      };
+    }
+
+    const reasons = [];
+    const now = Date.now();
+    const qpsLimit = Number(tenantPolicy.quotas?.qps || 0);
+    if (qpsLimit > 0) {
+      const recentCalls = await store.countTenantUsageSince(tenantId, new Date(now - 1000));
+      if (recentCalls >= qpsLimit) {
+        reasons.push({
+          code: "tenant_qps",
+          limit: qpsLimit,
+          window: "1s",
+        });
+      }
+    }
+
+    const hourlyAllocateLimit = getAgentAllocateHourlyLimit();
+    if (checkAllocateHourly && hourlyAllocateLimit > 0) {
+      const recentAllocations = await store.countAgentEndpointUsageSince(
+        tenantId,
+        agentId,
+        "POST /v1/mailboxes/allocate",
+        new Date(now - 3600 * 1000),
+      );
+      if (recentAllocations >= hourlyAllocateLimit) {
+        reasons.push({
+          code: "agent_allocate_hourly",
+          limit: hourlyAllocateLimit,
+          window: "1h",
+        });
+      }
+    }
+
+    if (!reasons.length) {
+      return { ok: true, requiresCharge: false, reasons: [] };
+    }
+
+    if (!paidBypassTargets.has(endpoint)) {
+      return {
+        ok: false,
+        response: jsonResponse(429, { error: "rate_limited", message: "Rate limit exceeded", reasons }, requestId),
+      };
+    }
+
+    const pay = requirePayment(request, requestId);
+    if (!pay.ok) {
+      return {
+        ok: false,
+        response:
+          pay.response?.status === 402
+            ? chargeRequiredResponse(requestId, getOverageChargeUsdc(), reasons)
+            : pay.response,
+      };
+    }
+
+    return {
+      ok: true,
+      requiresCharge: true,
+      reasons,
+    };
+  }
+
   return async function handleRequest(request) {
     const requestId = createRequestId();
     const method = request.method || "GET";
@@ -159,6 +300,8 @@ export function createFetchApp(deps = {}) {
     const path = requestUrl.pathname;
 
     try {
+      await ensureRuntimeSettingsLoaded();
+
       if (method === "GET" && path === "/healthz") {
         return jsonResponse(200, { status: "ok", service: "agent-mail-cloud" }, requestId);
       }
@@ -175,10 +318,63 @@ export function createFetchApp(deps = {}) {
             chain_rpc_urls: runtimeConfig.chainRpcUrls,
             chain_explorer_urls: runtimeConfig.chainExplorerUrls,
             mailbox_domain: runtimeConfig.mailboxDomain,
+            overage_charge_usdc: getOverageChargeUsdc(),
+            agent_allocate_hourly_limit: getAgentAllocateHourlyLimit(),
             webmail_url: runtimeConfig.mailuBaseUrl ? `${runtimeConfig.mailuBaseUrl.replace(/\/$/, "")}/webmail/` : null,
             auth: {
               browser_wallet_required: runtimeConfig.siweMode === "strict",
             },
+          },
+          requestId,
+        );
+      }
+
+      if (method === "GET" && path === "/v1/admin/settings/limits") {
+        const auth = await requireAdminAuth(request, requestId);
+        if (!auth.ok) return auth.response;
+        return jsonResponse(
+          200,
+          {
+            overage_charge_usdc: getOverageChargeUsdc(),
+            agent_allocate_hourly_limit: getAgentAllocateHourlyLimit(),
+          },
+          requestId,
+        );
+      }
+
+      if (method === "PATCH" && path === "/v1/admin/settings/limits") {
+        const auth = await requireAdminAuth(request, requestId);
+        if (!auth.ok) return auth.response;
+        const body = await readJsonBody(request);
+        const nextOverage =
+          body.overage_charge_usdc === undefined ? getOverageChargeUsdc() : Number(body.overage_charge_usdc);
+        const nextAgentAllocateHourlyLimit =
+          body.agent_allocate_hourly_limit === undefined
+            ? getAgentAllocateHourlyLimit()
+            : Number(body.agent_allocate_hourly_limit);
+
+        if (!Number.isFinite(nextOverage) || nextOverage < 0) {
+          return jsonResponse(400, { error: "bad_request", message: "overage_charge_usdc must be >= 0" }, requestId);
+        }
+        if (!Number.isInteger(nextAgentAllocateHourlyLimit) || nextAgentAllocateHourlyLimit < 0) {
+          return jsonResponse(400, { error: "bad_request", message: "agent_allocate_hourly_limit must be an integer >= 0" }, requestId);
+        }
+
+        runtimeSettings.overageChargeUsdc = Number(nextOverage.toFixed(6));
+        runtimeSettings.agentAllocateHourlyLimit = nextAgentAllocateHourlyLimit;
+        if (typeof store.updateRuntimeSettings === "function") {
+          await store.updateRuntimeSettings({
+            overage_charge_usdc: runtimeSettings.overageChargeUsdc,
+            agent_allocate_hourly_limit: runtimeSettings.agentAllocateHourlyLimit,
+          });
+        }
+
+        return jsonResponse(
+          200,
+          {
+            status: "updated",
+            overage_charge_usdc: getOverageChargeUsdc(),
+            agent_allocate_hourly_limit: getAgentAllocateHourlyLimit(),
           },
           requestId,
         );
@@ -191,18 +387,11 @@ export function createFetchApp(deps = {}) {
         const body = await readJsonBody(request);
         const proofMethod = String(body.method || "").trim().toUpperCase();
         const proofPath = String(body.path || "").trim();
-        const protectedTargets = new Set([
-          "POST /v1/mailboxes/allocate",
-          "POST /v1/messages/send",
-          "GET /v1/messages/latest",
-          "POST /v1/webhooks",
-        ]);
-
         if (!proofMethod || !proofPath) {
           return jsonResponse(400, { error: "bad_request", message: "method and path are required" }, requestId);
         }
 
-        if (!protectedTargets.has(`${proofMethod} ${proofPath}`)) {
+        if (!paidBypassTargets.has(`${proofMethod} ${proofPath}`)) {
           return jsonResponse(400, { error: "bad_request", message: "unsupported payment proof target" }, requestId);
         }
 
@@ -223,6 +412,7 @@ export function createFetchApp(deps = {}) {
             x_payment_proof: proof,
             method: proofMethod,
             path: proofPath,
+            amount_usdc: getOverageChargeUsdc(),
             expires_at: new Date((nowSec + runtimeConfig.paymentHmacSkewSec) * 1000).toISOString(),
           },
           requestId,
@@ -349,8 +539,6 @@ export function createFetchApp(deps = {}) {
       if (method === "POST" && path === "/v1/mailboxes/allocate") {
         const auth = await requireAuth(request, requestId);
         if (!auth.ok) return auth.response;
-        const pay = requirePayment(request, requestId);
-        if (!pay.ok) return pay.response;
 
         const body = await readJsonBody(request);
         const purpose = String(body.purpose || "").trim();
@@ -366,6 +554,16 @@ export function createFetchApp(deps = {}) {
         if (ttlHours < 1 || ttlHours > 720) {
           return jsonResponse(400, { error: "bad_request", message: "ttl_hours must be 1..720" }, requestId);
         }
+
+        const access = await evaluateAccess({
+          request,
+          requestId,
+          tenantId: auth.payload.tenant_id,
+          agentId,
+          endpoint: "POST /v1/mailboxes/allocate",
+          checkAllocateHourly: true,
+        });
+        if (!access.ok) return access.response;
 
         const result = await store.allocateMailbox({
           tenantId: auth.payload.tenant_id,
@@ -406,6 +604,16 @@ export function createFetchApp(deps = {}) {
           quantity: 1,
           requestId,
         });
+        if (access.requiresCharge) {
+          await store.recordOverageCharge({
+            tenantId: auth.payload.tenant_id,
+            agentId: auth.payload.agent_id,
+            endpoint: "POST /v1/mailboxes/allocate",
+            reasons: access.reasons,
+            amountUsdc: getOverageChargeUsdc(),
+            requestId,
+          });
+        }
 
         return jsonResponse(
           200,
@@ -517,8 +725,14 @@ export function createFetchApp(deps = {}) {
       if (method === "GET" && path === "/v1/messages/latest") {
         const auth = await requireAuth(request, requestId);
         if (!auth.ok) return auth.response;
-        const pay = requirePayment(request, requestId);
-        if (!pay.ok) return pay.response;
+        const access = await evaluateAccess({
+          request,
+          requestId,
+          tenantId: auth.payload.tenant_id,
+          agentId: auth.payload.agent_id,
+          endpoint: "GET /v1/messages/latest",
+        });
+        if (!access.ok) return access.response;
 
         const mailboxId = requestUrl.searchParams.get("mailbox_id");
         const since = requestUrl.searchParams.get("since");
@@ -549,6 +763,16 @@ export function createFetchApp(deps = {}) {
           quantity: 1,
           requestId,
         });
+        if (access.requiresCharge) {
+          await store.recordOverageCharge({
+            tenantId: auth.payload.tenant_id,
+            agentId: auth.payload.agent_id,
+            endpoint: "GET /v1/messages/latest",
+            reasons: access.reasons,
+            amountUsdc: getOverageChargeUsdc(),
+            requestId,
+          });
+        }
 
         return jsonResponse(200, { messages }, requestId);
       }
@@ -556,8 +780,14 @@ export function createFetchApp(deps = {}) {
       if (method === "POST" && path === "/v1/messages/send") {
         const auth = await requireAuth(request, requestId);
         if (!auth.ok) return auth.response;
-        const pay = requirePayment(request, requestId);
-        if (!pay.ok) return pay.response;
+        const access = await evaluateAccess({
+          request,
+          requestId,
+          tenantId: auth.payload.tenant_id,
+          agentId: auth.payload.agent_id,
+          endpoint: "POST /v1/messages/send",
+        });
+        if (!access.ok) return access.response;
 
         const body = await readJsonBody(request);
         const mailboxId = String(body.mailbox_id || "").trim();
@@ -612,6 +842,16 @@ export function createFetchApp(deps = {}) {
           quantity: 1,
           requestId,
         });
+        if (access.requiresCharge) {
+          await store.recordOverageCharge({
+            tenantId: auth.payload.tenant_id,
+            agentId: auth.payload.agent_id,
+            endpoint: "POST /v1/messages/send",
+            reasons: access.reasons,
+            amountUsdc: getOverageChargeUsdc(),
+            requestId,
+          });
+        }
 
         return jsonResponse(
           200,
@@ -647,8 +887,14 @@ export function createFetchApp(deps = {}) {
       if (method === "POST" && path === "/v1/webhooks") {
         const auth = await requireAuth(request, requestId);
         if (!auth.ok) return auth.response;
-        const pay = requirePayment(request, requestId);
-        if (!pay.ok) return pay.response;
+        const access = await evaluateAccess({
+          request,
+          requestId,
+          tenantId: auth.payload.tenant_id,
+          agentId: auth.payload.agent_id,
+          endpoint: "POST /v1/webhooks",
+        });
+        if (!access.ok) return access.response;
 
         const body = await readJsonBody(request);
         const eventTypes = Array.isArray(body.event_types) ? body.event_types : null;
@@ -681,6 +927,16 @@ export function createFetchApp(deps = {}) {
           quantity: 1,
           requestId,
         });
+        if (access.requiresCharge) {
+          await store.recordOverageCharge({
+            tenantId: auth.payload.tenant_id,
+            agentId: auth.payload.agent_id,
+            endpoint: "POST /v1/webhooks",
+            reasons: access.reasons,
+            amountUsdc: getOverageChargeUsdc(),
+            requestId,
+          });
+        }
 
         return jsonResponse(
           200,

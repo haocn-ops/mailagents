@@ -10,6 +10,7 @@ security:
 tags:
   - name: Overview
   - name: Tenants
+  - name: Settings
   - name: Mailboxes
   - name: Messages
   - name: Webhooks
@@ -114,6 +115,40 @@ paths:
       responses:
         '200':
           description: Updated
+
+  /v1/admin/settings/limits:
+    get:
+      tags: [Settings]
+      summary: Get runtime limit settings
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RuntimeLimitSettings'
+    patch:
+      tags: [Settings]
+      summary: Update runtime limit settings
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RuntimeLimitSettingsPatchRequest'
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/RuntimeLimitSettings'
+                  - type: object
+                    properties:
+                      status:
+                        type: string
+                        example: updated
 
   /v1/admin/mailboxes:
     get:
@@ -543,6 +578,26 @@ components:
               type: integer
               minimum: 1
 
+    RuntimeLimitSettings:
+      type: object
+      properties:
+        overage_charge_usdc:
+          type: number
+          minimum: 0
+        agent_allocate_hourly_limit:
+          type: integer
+          minimum: 0
+
+    RuntimeLimitSettingsPatchRequest:
+      type: object
+      properties:
+        overage_charge_usdc:
+          type: number
+          minimum: 0
+        agent_allocate_hourly_limit:
+          type: integer
+          minimum: 0
+
     Mailbox:
       type: object
       properties:
@@ -682,4 +737,3 @@ components:
         result:
           type: string
           enum: [success, failed]
-

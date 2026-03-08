@@ -1,15 +1,25 @@
 # Agent Mail Cloud (V1 Scaffold)
 
-This repository implements a V1 API scaffold based on:
+This repository currently contains a working V1 implementation plus a documented V2 redesign path.
+
+Current baseline documents:
 - `docs/development.md`
 - `docs/mailu-fork-architecture.md`
 - `docs/openapi.yaml`
 - `docs/db/schema.sql`
 
+Recommended redesign documents:
+- `docs/redesign-architecture.md`
+- `docs/redesign-schema.md`
+
 Start with the customer-facing guide: `docs/user-guide.md`.
 Operational handoff documents:
 - `docs/project-retrospective.md`
 - `docs/current-production-state.md`
+
+If the project is being evolved instead of patched incrementally, start from:
+- `docs/redesign-architecture.md`
+- `docs/redesign-schema.md`
 
 Current capabilities:
 - SIWE challenge/verify (`mock` and `strict` modes)
@@ -23,6 +33,8 @@ Current capabilities:
 - Dual runtime support: Node server + Cloudflare Worker entry
 - Live Admin Dashboard backed by `/v1/admin/*`
 - Postgres-backed admin persistence for tenant quotas, webhook delivery state, risk policies, and risk events
+- Free usage within tenant/agent limits, then paid bypass at `0.001 USDC` per over-limit request
+- Admin-editable runtime limits persisted in storage (`memory` in-process, `postgres` across restarts)
 - Configurable mailbox domain via `MAILBOX_DOMAIN`
 - Mail backend adapter layer with `noop` and `mailu` backends
 - Local `mailu-dev` simulator for Mailu fork integration development

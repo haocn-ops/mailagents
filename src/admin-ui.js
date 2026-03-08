@@ -110,6 +110,34 @@ export function renderAdminDashboardHtml({ adminTokenRequired = false } = {}) {
       <section class="panel" data-panel="Audit"><article class="card table-wrap" id="tbl-audit"></article></section>
       <section class="panel" data-panel="Settings">
         <article class="card">
+          <h3>Tenant Limits</h3>
+          <p class="hint">Edit tenant status and rate limits via <code>/v1/admin/tenants/{tenant_id}</code>.</p>
+          <div class="settings-grid">
+            <input id="tenant-id" placeholder="tenant_id" />
+            <select id="tenant-status">
+              <option value="active">active</option>
+              <option value="suspended">suspended</option>
+              <option value="archived">archived</option>
+            </select>
+            <input id="tenant-qps" type="number" min="1" step="1" placeholder="tenant QPS" />
+          </div>
+          <div class="settings-grid" style="margin-top:10px">
+            <input id="tenant-mailbox-limit" type="number" min="1" step="1" placeholder="mailbox limit" />
+            <input id="tenant-overage" type="number" min="0" step="0.000001" placeholder="overage charge usdc" />
+            <input id="tenant-allocate-hourly-limit" type="number" min="0" step="1" placeholder="agent allocate hourly limit" />
+          </div>
+          <div style="margin-top:10px; display:flex; gap:10px">
+            <button class="cta ghost" id="load-tenant">Load Tenant</button>
+            <button class="cta" id="save-tenant">Save Tenant Limits</button>
+            <button class="cta alt" id="save-runtime-limits">Save Runtime Limits</button>
+          </div>
+        </article>
+        <article class="card">
+          <h3>Active Runtime Limits</h3>
+          <p class="hint">Current process-level limits; payment bypass uses these values.</p>
+          <div class="log" id="limits-log"></div>
+        </article>
+        <article class="card">
           <h3>Risk Policy Writer</h3>
           <p class="hint">Writes directly to <code>/v1/admin/risk/policies</code>.</p>
           <div class="settings-grid">
@@ -144,6 +172,7 @@ export function renderAdminDashboardHtml({ adminTokenRequired = false } = {}) {
     var metricsEl = document.getElementById("metrics");
     var logEl = document.getElementById("live-log");
     var stateLogEl = document.getElementById("state-log");
+    var limitsLogEl = document.getElementById("limits-log");
     var apiBaseEl = document.getElementById("apiBase");
     var tokenEl = document.getElementById("token");
     var apiDot = document.getElementById("api-dot");
@@ -156,6 +185,10 @@ export function renderAdminDashboardHtml({ adminTokenRequired = false } = {}) {
 
     function setState(text) {
       stateLogEl.textContent = text;
+    }
+
+    function setLimitsState(text) {
+      limitsLogEl.textContent = text;
     }
 
     function mkTag(value) {
@@ -293,10 +326,19 @@ export function renderAdminDashboardHtml({ adminTokenRequired = false } = {}) {
     }
 
     async function loadOverview() {
+      var runtime = await fetchJson("/v1/meta/runtime", { headers: authHeaders() });
       var metrics = await fetchJson("/v1/admin/overview/metrics", { headers: authHeaders() });
       var timeseries = await fetchJson("/v1/admin/overview/timeseries?bucket=hour", { headers: authHeaders() });
       renderMetrics(metrics);
       drawBars(timeseries.points || []);
+      document.getElementById("tenant-overage").value = String(runtime.overage_charge_usdc == null ? "" : runtime.overage_charge_usdc);
+      document.getElementById("tenant-allocate-hourly-limit").value = String(runtime.agent_allocate_hourly_limit == null ? "" : runtime.agent_allocate_hourly_limit);
+      setLimitsState(
+        "overage_charge_usdc=" + String(runtime.overage_charge_usdc) + "\\n" +
+        "agent_allocate_hourly_limit=" + String(runtime.agent_allocate_hourly_limit) + "\\n" +
+        "payment_mode=" + String(runtime.payment_mode) + "\\n" +
+        "mailbox_domain=" + String(runtime.mailbox_domain)
+      );
       setState(
         "api_base=" + baseUrl() + "\\n" +
         "token_present=" + String(Boolean(tokenEl.value.trim())) + "\\n" +
@@ -311,12 +353,15 @@ export function renderAdminDashboardHtml({ adminTokenRequired = false } = {}) {
         { key: "tenant_id", label: "tenant_id" },
         { key: "name", label: "name" },
         { key: "status", label: "status" },
+        { key: "qps", label: "qps" },
+        { key: "mailbox_limit", label: "mailbox_limit" },
         { key: "primary_did", label: "primary_did" },
         { key: "active_agents", label: "active_agents" },
         { key: "active_mailboxes", label: "active_mailboxes" },
         { key: "monthly_usage", label: "monthly_usage" },
         { key: "updated_at", label: "updated_at" }
       ], tenants.items || [], [
+        { name: "tenant.edit", label: "Edit Limits", idKey: "tenant_id" },
         { name: "tenant.disable", label: "Suspend", idKey: "tenant_id" }
       ]);
 
@@ -413,6 +458,8 @@ export function renderAdminDashboardHtml({ adminTokenRequired = false } = {}) {
             headers: authHeaders(),
             body: JSON.stringify({ status: "suspended" })
           });
+        } else if (action === "tenant.edit") {
+          await loadTenantSettings(id);
         } else if (action === "mailbox.freeze") {
           await fetchJson("/v1/admin/mailboxes/" + id + "/freeze", {
             method: "POST",
@@ -460,9 +507,81 @@ export function renderAdminDashboardHtml({ adminTokenRequired = false } = {}) {
           });
         }
         addLog("action ok: " + action + " id=" + id);
-        await refreshDashboard();
+        if (action !== "tenant.edit") await refreshDashboard();
       } catch (err) {
         addLog("action failed: " + err.message);
+      }
+    }
+
+    async function loadTenantSettings(id) {
+      try {
+        await ensureToken();
+        var tenantId = id || document.getElementById("tenant-id").value.trim();
+        if (!tenantId) throw new Error("tenant_id is required");
+        var tenant = await fetchJson("/v1/admin/tenants/" + tenantId, { headers: authHeaders() });
+        document.getElementById("tenant-id").value = tenant.tenant_id;
+        document.getElementById("tenant-status").value = tenant.status || "active";
+        document.getElementById("tenant-qps").value = tenant.quotas && tenant.quotas.qps != null ? tenant.quotas.qps : "";
+        document.getElementById("tenant-mailbox-limit").value = tenant.quotas && tenant.quotas.mailbox_limit != null ? tenant.quotas.mailbox_limit : "";
+        addLog("tenant loaded: " + tenant.tenant_id);
+        document.querySelectorAll(".nav button").forEach(function(item) { item.classList.remove("active"); });
+        document.querySelectorAll(".panel").forEach(function(item) { item.classList.remove("active"); });
+        var settingsBtn = Array.from(document.querySelectorAll(".nav button")).find(function(item) { return item.textContent === "Settings"; });
+        if (settingsBtn) settingsBtn.classList.add("active");
+        var settingsPanel = document.querySelector('[data-panel="Settings"]');
+        if (settingsPanel) settingsPanel.classList.add("active");
+      } catch (err) {
+        addLog("load tenant failed: " + err.message);
+      }
+    }
+
+    async function saveTenantSettings() {
+      try {
+        await ensureToken();
+        var tenantId = document.getElementById("tenant-id").value.trim();
+        if (!tenantId) throw new Error("tenant_id is required");
+        var qpsValue = document.getElementById("tenant-qps").value.trim();
+        var mailboxLimitValue = document.getElementById("tenant-mailbox-limit").value.trim();
+        var payload = {
+          status: document.getElementById("tenant-status").value
+        };
+        if (qpsValue || mailboxLimitValue) {
+          payload.quotas = {};
+          if (qpsValue) payload.quotas.qps = Number(qpsValue);
+          if (mailboxLimitValue) payload.quotas.mailbox_limit = Number(mailboxLimitValue);
+        }
+        await fetchJson("/v1/admin/tenants/" + tenantId, {
+          method: "PATCH",
+          headers: authHeaders(),
+          body: JSON.stringify(payload)
+        });
+        addLog("tenant limits saved: " + tenantId);
+        await refreshDashboard();
+      } catch (err) {
+        addLog("save tenant failed: " + err.message);
+      }
+    }
+
+    async function saveRuntimeLimits() {
+      try {
+        await ensureToken();
+        var overageValue = document.getElementById("tenant-overage").value.trim();
+        var allocateHourlyValue = document.getElementById("tenant-allocate-hourly-limit").value.trim();
+        var payload = {};
+        if (overageValue) payload.overage_charge_usdc = Number(overageValue);
+        if (allocateHourlyValue) payload.agent_allocate_hourly_limit = Number(allocateHourlyValue);
+        if (!Object.keys(payload).length) throw new Error("at least one runtime limit is required");
+        var updated = await fetchJson("/v1/admin/settings/limits", {
+          method: "PATCH",
+          headers: authHeaders(),
+          body: JSON.stringify(payload)
+        });
+        document.getElementById("tenant-overage").value = String(updated.overage_charge_usdc);
+        document.getElementById("tenant-allocate-hourly-limit").value = String(updated.agent_allocate_hourly_limit);
+        addLog("runtime limits saved");
+        await refreshDashboard();
+      } catch (err) {
+        addLog("save runtime limits failed: " + err.message);
       }
     }
 
@@ -518,6 +637,9 @@ export function renderAdminDashboardHtml({ adminTokenRequired = false } = {}) {
     document.getElementById("refresh").addEventListener("click", refreshDashboard);
     document.getElementById("run-flow").addEventListener("click", runFlow);
     document.getElementById("save-policy").addEventListener("click", savePolicy);
+    document.getElementById("load-tenant").addEventListener("click", function() { loadTenantSettings(); });
+    document.getElementById("save-tenant").addEventListener("click", saveTenantSettings);
+    document.getElementById("save-runtime-limits").addEventListener("click", saveRuntimeLimits);
 
     addLog("dashboard ready");
     if (!adminTokenRequired) refreshDashboard();

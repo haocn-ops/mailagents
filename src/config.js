@@ -52,6 +52,8 @@ export function createConfig(source = {}) {
     paymentMode: asLower(source.PAYMENT_MODE, "mock"),
     paymentHmacSecret: String(source.X402_HMAC_SECRET || ""),
     paymentHmacSkewSec: asNumber(source.X402_HMAC_SKEW_SEC, 300),
+    overageChargeUsdc: asNumber(source.OVERAGE_CHARGE_USDC, 0.001),
+    agentAllocateHourlyLimit: asNumber(source.AGENT_ALLOCATE_HOURLY_LIMIT, 5),
     webhookSecretEncryptionKey: String(source.WEBHOOK_SECRET_ENCRYPTION_KEY || source.JWT_SECRET || "dev-jwt-secret"),
     webhookTimeoutMs: asNumber(source.WEBHOOK_TIMEOUT_MS, 5000),
     webhookRetryAttempts: asNumber(source.WEBHOOK_RETRY_ATTEMPTS, 3),

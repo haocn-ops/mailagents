@@ -4,7 +4,7 @@ import { createFetchApp } from "../src/fetch-app.js";
 import { MemoryStore } from "../src/storage/memory-store.js";
 import { createConfig } from "../src/config.js";
 
-function makeApp() {
+function makeApp(overrides = {}) {
   const cfg = createConfig({
     JWT_SECRET: "test-secret",
     INTERNAL_API_TOKEN: "internal-secret",
@@ -12,13 +12,16 @@ function makeApp() {
     MAILBOX_DOMAIN: "inbox.example.com",
     SIWE_MODE: "mock",
     PAYMENT_MODE: "mock",
+    ...overrides,
   });
   const store = new MemoryStore({
     chainId: cfg.baseChainId,
     challengeTtlMs: cfg.siweChallengeTtlMs,
     mailboxDomain: cfg.mailboxDomain,
   });
-  return createFetchApp({ config: cfg, store });
+  const app = createFetchApp({ config: cfg, store });
+  app.store = store;
+  return app;
 }
 
 async function issueToken(app, wallet = "0xabc0000000000000000000000000000000000123") {
@@ -108,6 +111,10 @@ test("fetch app serves admin dashboard html", async () => {
   const html = await res.text();
   assert.match(html, /Admin Dashboard/);
   assert.match(html, /Live API/);
+  assert.match(html, /Tenant Limits/);
+  assert.match(html, /Active Runtime Limits/);
+  assert.match(html, /Save Tenant Limits/);
+  assert.match(html, /Save Runtime Limits/);
 });
 
 test("fetch app serves user app html", async () => {
@@ -149,11 +156,13 @@ test("fetch app exposes runtime meta for the user app", async () => {
   assert.equal(body.base_chain_id, 84532);
   assert.equal(body.chain_name, "Base Sepolia");
   assert.equal(body.chain_hex, "0x14a34");
+  assert.equal(body.overage_charge_usdc, 0.001);
+  assert.equal(body.agent_allocate_hourly_limit, 5);
   assert.deepEqual(body.chain_rpc_urls, ["https://sepolia.base.org"]);
   assert.deepEqual(body.chain_explorer_urls, ["https://sepolia.basescan.org"]);
 });
 
-test("fetch app issues a tenant payment proof for protected hmac endpoints", async () => {
+test("fetch app issues a tenant payment proof for over-limit hmac endpoints", async () => {
   const cfg = createConfig({
     JWT_SECRET: "test-secret",
     INTERNAL_API_TOKEN: "internal-secret",
@@ -184,6 +193,7 @@ test("fetch app issues a tenant payment proof for protected hmac endpoints", asy
   assert.equal(proofRes.status, 200);
   const proofBody = await proofRes.json();
   assert.match(proofBody.x_payment_proof, /^t=\d+,v1=[0-9a-f]+$/);
+  assert.equal(proofBody.amount_usdc, 0.001);
 
   const allocateRes = await app(
     new Request("http://localhost/v1/mailboxes/allocate", {
@@ -209,6 +219,144 @@ test("fetch app issues a tenant payment proof for protected hmac endpoints", asy
     }),
   );
   assert.equal(sendProofRes.status, 200);
+});
+
+test("fetch app requires payment after agent hourly allocate limit and records invoice charge", async () => {
+  const app = makeApp({ AGENT_ALLOCATE_HOURLY_LIMIT: "1" });
+  const verify = await issueToken(app, "0xabc0000000000000000000000000000000000667");
+
+  const firstAllocateRes = await app(
+    new Request("http://localhost/v1/mailboxes/allocate", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${verify.access_token}`,
+      },
+      body: JSON.stringify({ agent_id: verify.agent_id, purpose: "free-allocate", ttl_hours: 1 }),
+    }),
+  );
+  assert.equal(firstAllocateRes.status, 200);
+
+  const secondDeniedRes = await app(
+    new Request("http://localhost/v1/mailboxes/allocate", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${verify.access_token}`,
+      },
+      body: JSON.stringify({ agent_id: verify.agent_id, purpose: "paid-allocate", ttl_hours: 1 }),
+    }),
+  );
+  assert.equal(secondDeniedRes.status, 402);
+  const deniedBody = await secondDeniedRes.json();
+  assert.equal(deniedBody.amount_usdc, 0.001);
+  assert.equal(deniedBody.reasons[0].code, "agent_allocate_hourly");
+
+  const secondPaidRes = await app(
+    new Request("http://localhost/v1/mailboxes/allocate", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${verify.access_token}`,
+        "x-payment-proof": "mock-proof",
+      },
+      body: JSON.stringify({ agent_id: verify.agent_id, purpose: "paid-allocate", ttl_hours: 1 }),
+    }),
+  );
+  assert.equal(secondPaidRes.status, 200);
+
+  const invoicesRes = await app(
+    new Request("http://localhost/v1/billing/invoices", {
+      method: "GET",
+      headers: { authorization: `Bearer ${verify.access_token}` },
+    }),
+  );
+  assert.equal(invoicesRes.status, 200);
+  const invoices = await invoicesRes.json();
+  assert.equal(invoices.items[0].amount_usdc, 0.001);
+});
+
+test("fetch app requires payment after tenant qps limit and still allows paid bypass", async () => {
+  const app = makeApp();
+  const verify = await issueToken(app, "0xabc0000000000000000000000000000000000668");
+
+  const store = app.store || null;
+  await store?.adminPatchTenant?.(verify.tenant_id, { quotas: { qps: 1 } });
+
+  const allocateRes = await app(
+    new Request("http://localhost/v1/mailboxes/allocate", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${verify.access_token}`,
+      },
+      body: JSON.stringify({ agent_id: verify.agent_id, purpose: "seed-mailbox", ttl_hours: 1 }),
+    }),
+  );
+  assert.equal(allocateRes.status, 200);
+  const allocation = await allocateRes.json();
+
+  const limitedRes = await app(
+    new Request(`http://localhost/v1/messages/latest?mailbox_id=${allocation.mailbox_id}&limit=10`, {
+      method: "GET",
+      headers: {
+        authorization: `Bearer ${verify.access_token}`,
+      },
+    }),
+  );
+  assert.equal(limitedRes.status, 402);
+  const limitedBody = await limitedRes.json();
+  assert.equal(limitedBody.reasons[0].code, "tenant_qps");
+
+  const paidRes = await app(
+    new Request(`http://localhost/v1/messages/latest?mailbox_id=${allocation.mailbox_id}&limit=10`, {
+      method: "GET",
+      headers: {
+        authorization: `Bearer ${verify.access_token}`,
+        "x-payment-proof": "mock-proof",
+      },
+    }),
+  );
+  assert.equal(paidRes.status, 200);
+});
+
+test("fetch app blocks suspended tenants even with payment proof", async () => {
+  const cfg = createConfig({
+    JWT_SECRET: "test-secret",
+    INTERNAL_API_TOKEN: "internal-secret",
+    BASE_CHAIN_ID: "84532",
+    MAILBOX_DOMAIN: "inbox.example.com",
+    SIWE_MODE: "mock",
+    PAYMENT_MODE: "mock",
+  });
+  const store = new MemoryStore({
+    chainId: cfg.baseChainId,
+    challengeTtlMs: cfg.siweChallengeTtlMs,
+    mailboxDomain: cfg.mailboxDomain,
+  });
+  const app = createFetchApp({ config: cfg, store });
+  const verify = await issueToken(app, "0xabc0000000000000000000000000000000000669");
+
+  await store.adminPatchTenant(verify.tenant_id, { status: "suspended" });
+
+  const res = await app(
+    new Request("http://localhost/v1/webhooks", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${verify.access_token}`,
+        "x-payment-proof": "mock-proof",
+      },
+      body: JSON.stringify({
+        event_types: ["otp.extracted"],
+        target_url: "https://example.com/blocked-webhook",
+        secret: "1234567890abcdef",
+      }),
+    }),
+  );
+  assert.equal(res.status, 403);
+  const body = await res.json();
+  assert.equal(body.error, "tenant_inactive");
 });
 
 test("fetch app exposes tenant mailbox and webhook lists", async () => {
@@ -434,6 +582,140 @@ test("fetch app requires dedicated admin token when configured", async () => {
     }),
   );
   assert.equal(allowedRes.status, 200);
+});
+
+test("fetch app admin tenant detail includes editable quota fields", async () => {
+  const app = makeApp();
+  const verify = await issueToken(app, "0xabc0000000000000000000000000000000000670");
+
+  await app(
+    new Request("http://localhost/v1/admin/tenants/" + verify.tenant_id, {
+      method: "PATCH",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${verify.access_token}`,
+      },
+      body: JSON.stringify({ quotas: { qps: 9, mailbox_limit: 12 } }),
+    }),
+  );
+
+  const res = await app(
+    new Request("http://localhost/v1/admin/tenants/" + verify.tenant_id, {
+      method: "GET",
+      headers: { authorization: `Bearer ${verify.access_token}` },
+    }),
+  );
+  assert.equal(res.status, 200);
+  const body = await res.json();
+  assert.equal(body.quotas.qps, 9);
+  assert.equal(body.quotas.mailbox_limit, 12);
+});
+
+test("fetch app admin can update runtime limit settings", async () => {
+  const app = makeApp();
+  const verify = await issueToken(app, "0xabc0000000000000000000000000000000000671");
+
+  const patchRes = await app(
+    new Request("http://localhost/v1/admin/settings/limits", {
+      method: "PATCH",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${verify.access_token}`,
+      },
+      body: JSON.stringify({ overage_charge_usdc: 0.0025, agent_allocate_hourly_limit: 7 }),
+    }),
+  );
+  assert.equal(patchRes.status, 200);
+  const patched = await patchRes.json();
+  assert.equal(patched.overage_charge_usdc, 0.0025);
+  assert.equal(patched.agent_allocate_hourly_limit, 7);
+
+  const runtimeRes = await app(new Request("http://localhost/v1/meta/runtime", { method: "GET" }));
+  assert.equal(runtimeRes.status, 200);
+  const runtime = await runtimeRes.json();
+  assert.equal(runtime.overage_charge_usdc, 0.0025);
+  assert.equal(runtime.agent_allocate_hourly_limit, 7);
+});
+
+test("updated runtime overage amount is used in payment-required responses", async () => {
+  const app = makeApp({ AGENT_ALLOCATE_HOURLY_LIMIT: "1" });
+  const verify = await issueToken(app, "0xabc0000000000000000000000000000000000672");
+
+  const patchRes = await app(
+    new Request("http://localhost/v1/admin/settings/limits", {
+      method: "PATCH",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${verify.access_token}`,
+      },
+      body: JSON.stringify({ overage_charge_usdc: 0.003 }),
+    }),
+  );
+  assert.equal(patchRes.status, 200);
+
+  const firstAllocateRes = await app(
+    new Request("http://localhost/v1/mailboxes/allocate", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${verify.access_token}`,
+      },
+      body: JSON.stringify({ agent_id: verify.agent_id, purpose: "free-allocate", ttl_hours: 1 }),
+    }),
+  );
+  assert.equal(firstAllocateRes.status, 200);
+
+  const secondDeniedRes = await app(
+    new Request("http://localhost/v1/mailboxes/allocate", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${verify.access_token}`,
+      },
+      body: JSON.stringify({ agent_id: verify.agent_id, purpose: "paid-allocate", ttl_hours: 1 }),
+    }),
+  );
+  assert.equal(secondDeniedRes.status, 402);
+  const denied = await secondDeniedRes.json();
+  assert.equal(denied.amount_usdc, 0.003);
+});
+
+test("runtime settings persist across app instances when store retains them", async () => {
+  const cfg = createConfig({
+    JWT_SECRET: "test-secret",
+    INTERNAL_API_TOKEN: "internal-secret",
+    BASE_CHAIN_ID: "84532",
+    MAILBOX_DOMAIN: "inbox.example.com",
+    SIWE_MODE: "mock",
+    PAYMENT_MODE: "mock",
+  });
+  const store = new MemoryStore({
+    chainId: cfg.baseChainId,
+    challengeTtlMs: cfg.siweChallengeTtlMs,
+    mailboxDomain: cfg.mailboxDomain,
+  });
+
+  const appA = createFetchApp({ config: cfg, store });
+  const verify = await issueToken(appA, "0xabc0000000000000000000000000000000000673");
+
+  const patchRes = await appA(
+    new Request("http://localhost/v1/admin/settings/limits", {
+      method: "PATCH",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${verify.access_token}`,
+      },
+      body: JSON.stringify({ overage_charge_usdc: 0.0042, agent_allocate_hourly_limit: 11 }),
+    }),
+  );
+  assert.equal(patchRes.status, 200);
+
+  const appB = createFetchApp({ config: cfg, store });
+  const runtimeRes = await appB(new Request("http://localhost/v1/meta/runtime", { method: "GET" }));
+  assert.equal(runtimeRes.status, 200);
+  const runtime = await runtimeRes.json();
+  assert.equal(runtime.overage_charge_usdc, 0.0042);
+  assert.equal(runtime.agent_allocate_hourly_limit, 11);
 });
 
 test("fetch app admin API exposes live overview and lists", async () => {

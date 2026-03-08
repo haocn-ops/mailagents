@@ -92,7 +92,7 @@ test("health endpoint returns ok", async () => {
   assert.equal(res.body.status, "ok");
 });
 
-test("allocate and messages require x402 payment proof", async () => {
+test("allocate and messages are free within limits", async () => {
   const app = createApp();
   const wallet = "0xabc0000000000000000000000000000000000456";
 
@@ -126,32 +126,14 @@ test("allocate and messages require x402 payment proof", async () => {
     },
   });
 
-  assert.equal(withoutPayment.status, 402);
-
-  const allocated = await invoke(app, {
-    method: "POST",
-    path: "/v1/mailboxes/allocate",
-    headers: {
-      authorization: `Bearer ${token}`,
-      "content-type": "application/json",
-      "x-payment-proof": "mock-proof",
-    },
-    body: {
-      agent_id: verify.body.agent_id,
-      purpose: "signup",
-      ttl_hours: 1,
-    },
-  });
-
-  assert.equal(allocated.status, 200);
-  assert.ok(allocated.body.mailbox_id);
+  assert.equal(withoutPayment.status, 200);
+  assert.ok(withoutPayment.body.mailbox_id);
 
   const latest = await invoke(app, {
     method: "GET",
-    path: `/v1/messages/latest?mailbox_id=${allocated.body.mailbox_id}&limit=10`,
+    path: `/v1/messages/latest?mailbox_id=${withoutPayment.body.mailbox_id}&limit=10`,
     headers: {
       authorization: `Bearer ${token}`,
-      "x-payment-proof": "mock-proof",
     },
   });
 

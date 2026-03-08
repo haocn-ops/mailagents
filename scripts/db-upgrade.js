@@ -22,6 +22,13 @@ async function main() {
     await client.query("BEGIN");
     await client.query(`alter table webhooks add column if not exists secret_enc text`);
     await client.query(`
+      create table if not exists app_settings (
+        key text primary key,
+        value jsonb not null,
+        updated_at timestamptz not null default now()
+      )
+    `);
+    await client.query(`
       create unique index if not exists idx_messages_mailbox_provider_message
       on messages(mailbox_id, provider_message_id)
       where provider_message_id is not null

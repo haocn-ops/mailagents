@@ -162,6 +162,12 @@ create table risk_events (
   occurred_at timestamptz not null default now()
 );
 
+create table app_settings (
+  key text primary key,
+  value jsonb not null,
+  updated_at timestamptz not null default now()
+);
+
 create index idx_mailbox_leases_active on mailbox_leases(mailbox_id, status, expires_at);
 create index idx_messages_mailbox_received on messages(mailbox_id, received_at desc);
 create index idx_message_events_message on message_events(message_id, event_type);

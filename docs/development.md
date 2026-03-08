@@ -11,7 +11,7 @@
 - SIWE 登入與 DID 映射。
 - 郵箱池分配/回收。
 - 收件解析（OTP/驗證連結）。
-- 3 個付費 API（x402）：
+- 3 個可超額付費 API（超出免費限制後要求 x402）：
   - `POST /v1/mailboxes/allocate`
   - `GET /v1/messages/latest`
   - `POST /v1/webhooks`
@@ -135,14 +135,14 @@ flowchart LR
 - `POST /v1/auth/siwe/verify`
 
 ### 6.2 郵箱
-- `POST /v1/mailboxes/allocate`（付費）
+- `POST /v1/mailboxes/allocate`（超額後付費）
 - `POST /v1/mailboxes/release`
 
 ### 6.3 消息
-- `GET /v1/messages/latest`（付費）
+- `GET /v1/messages/latest`（超額後付費）
 
 ### 6.4 Webhook
-- `POST /v1/webhooks`（付費）
+- `POST /v1/webhooks`（超額後付費）
 
 ### 6.5 計費
 - `GET /v1/usage/summary`
@@ -216,6 +216,7 @@ flowchart LR
 - 每 tenant QPS 限制。
 - 每 agent 每小時 allocate 次數上限。
 - 風險域名策略（denylist/allowlist）。
+- 超出免費限制後，改為要求 x402 付款；每次超額請求目前按 `0.001 USDC` 收費。
 
 ### 9.3 數據治理
 - 默認保留 30 天。
