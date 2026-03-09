@@ -1,5 +1,6 @@
 import { createAdminRouteHandler } from "./admin/index.js";
 import { createConfig } from "./config.js";
+import { createRequestContext, handleFetchAppError } from "./fetch-app-runtime.js";
 import { chargeRequiredResponse, jsonResponse, parsePaging, readJsonBody } from "./http-helpers.js";
 import { createMailBackendAdapter } from "./mail-backend/index.js";
 import { createPaymentVerifier } from "./payment.js";
@@ -9,7 +10,6 @@ import { createRequestAuth } from "./request-auth.js";
 import { createRuntimeSettingsManager } from "./runtime-settings.js";
 import { createSiweService } from "./siwe.js";
 import { getDefaultStore } from "./store.js";
-import { createRequestId } from "./utils.js";
 import { createV1RouteHandler } from "./v1/index.js";
 import { createV1SystemRouteHandler } from "./v1/system-routes.js";
 import { createV2RouteHandler } from "./v2/index.js";
@@ -130,10 +130,7 @@ export function createFetchApp(deps = {}) {
   }
 
   return async function handleRequest(request) {
-    const requestId = createRequestId();
-    const method = request.method || "GET";
-    const requestUrl = new URL(request.url);
-    const path = requestUrl.pathname;
+    const { requestId, method, requestUrl, path } = createRequestContext(request);
 
     try {
       await runtimeSettings.ensureLoaded();
@@ -156,25 +153,11 @@ export function createFetchApp(deps = {}) {
 
       return jsonResponse(404, { error: "not_found", message: "Route not found" }, requestId);
     } catch (err) {
-      if (err.message === "Invalid JSON") {
-        return jsonResponse(400, { error: "bad_request", message: err.message }, requestId);
-      }
-      if (err.message === "Payload too large") {
-        return jsonResponse(413, { error: "payload_too_large", message: err.message }, requestId);
-      }
-      if (err.code === "SIWE_UNAVAILABLE") {
-        return jsonResponse(500, { error: "siwe_unavailable", message: err.message }, requestId);
-      }
-
-      return jsonResponse(
-        500,
-        {
-          error: "internal_error",
-          message: "Unexpected server error",
-          detail: process.env.NODE_ENV === "production" ? undefined : err.message,
-        },
+      return handleFetchAppError(err, {
+        jsonResponse,
         requestId,
-      );
+        isProduction: process.env.NODE_ENV === "production",
+      });
     }
   };
 }
