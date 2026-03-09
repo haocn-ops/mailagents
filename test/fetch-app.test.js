@@ -548,6 +548,113 @@ test("fetch app sends mail through the backend adapter", async () => {
   assert.match(sent.message_id, /^noop:/);
 });
 
+test("fetch app exposes v2 messages and send attempts read endpoints", async () => {
+  const app = makeApp();
+  const verify = await issueToken(app, "0xabc0000000000000000000000000000000000888");
+
+  const allocateRes = await app(
+    new Request("http://localhost/v1/mailboxes/allocate", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${verify.access_token}`,
+        "x-payment-proof": "mock-proof",
+      },
+      body: JSON.stringify({ agent_id: verify.agent_id, purpose: "v2-read", ttl_hours: 1 }),
+    }),
+  );
+  assert.equal(allocateRes.status, 200);
+  const allocation = await allocateRes.json();
+
+  const inboundRes = await app(
+    new Request("http://localhost/internal/inbound/events", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: "Bearer internal-secret",
+      },
+      body: JSON.stringify({
+        address: allocation.address,
+        sender: "notify@example.com",
+        sender_domain: "example.com",
+        subject: "Your code is 654321",
+        text_excerpt: "Click https://example.com/verify?token=abc",
+      }),
+    }),
+  );
+  assert.equal(inboundRes.status, 202);
+  const inbound = await inboundRes.json();
+
+  const sendRes = await app(
+    new Request("http://localhost/v1/messages/send", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${verify.access_token}`,
+        "x-payment-proof": "mock-proof",
+      },
+      body: JSON.stringify({
+        mailbox_id: allocation.mailbox_id,
+        to: ["receiver@example.com"],
+        subject: "hello-v2",
+        text: "mail body",
+        mailbox_password: allocation.webmail_password,
+      }),
+    }),
+  );
+  assert.equal(sendRes.status, 200);
+  const sent = await sendRes.json();
+
+  const v2MessagesRes = await app(
+    new Request(`http://localhost/v2/messages?mailbox_id=${allocation.mailbox_id}&page=1&page_size=20`, {
+      method: "GET",
+      headers: { authorization: `Bearer ${verify.access_token}` },
+    }),
+  );
+  assert.equal(v2MessagesRes.status, 200);
+  const v2Messages = await v2MessagesRes.json();
+  assert.equal(v2Messages.total, 1);
+  assert.equal(v2Messages.items[0].message_id, inbound.message_id);
+  assert.equal(v2Messages.items[0].message_status, "parsed");
+  assert.equal(v2Messages.items[0].otp_code, "654321");
+
+  const v2MessageDetailRes = await app(
+    new Request(`http://localhost/v2/messages/${inbound.message_id}`, {
+      method: "GET",
+      headers: { authorization: `Bearer ${verify.access_token}` },
+    }),
+  );
+  assert.equal(v2MessageDetailRes.status, 200);
+  const v2MessageDetail = await v2MessageDetailRes.json();
+  assert.equal(v2MessageDetail.message_id, inbound.message_id);
+  assert.equal(v2MessageDetail.message_status, "parsed");
+  assert.equal(v2MessageDetail.verification_link, "https://example.com/verify?token=abc");
+
+  const sendAttemptsRes = await app(
+    new Request(`http://localhost/v2/send-attempts?mailbox_id=${allocation.mailbox_id}&page=1&page_size=20`, {
+      method: "GET",
+      headers: { authorization: `Bearer ${verify.access_token}` },
+    }),
+  );
+  assert.equal(sendAttemptsRes.status, 200);
+  const sendAttempts = await sendAttemptsRes.json();
+  assert.equal(sendAttempts.total, 1);
+  assert.equal(sendAttempts.items[0].send_attempt_id, sent.send_attempt_id);
+  assert.equal(sendAttempts.items[0].submission_status, "accepted");
+
+  const sendAttemptDetailRes = await app(
+    new Request(`http://localhost/v2/send-attempts/${sent.send_attempt_id}`, {
+      method: "GET",
+      headers: { authorization: `Bearer ${verify.access_token}` },
+    }),
+  );
+  assert.equal(sendAttemptDetailRes.status, 200);
+  const sendAttemptDetail = await sendAttemptDetailRes.json();
+  assert.equal(sendAttemptDetail.send_attempt_id, sent.send_attempt_id);
+  assert.deepEqual(sendAttemptDetail.recipients, ["receiver@example.com"]);
+  assert.equal(sendAttemptDetail.submission_status, "accepted");
+});
+
 test("fetch app requires dedicated admin token when configured", async () => {
   const cfg = createConfig({
     JWT_SECRET: "test-secret",

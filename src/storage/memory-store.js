@@ -686,6 +686,67 @@ export class MemoryStore {
     };
   }
 
+  async listTenantMessagesV2({ tenantId, mailboxId = null, page, pageSize, messageStatus = null }) {
+    const mailboxAccount =
+      mailboxId
+        ? [...this.state.mailboxAccountsV2.values()].find((item) => item.legacyMailboxId === mailboxId) || null
+        : null;
+
+    let items = [...this.state.messagesV2.values()]
+      .filter((message) => message.tenantId === tenantId)
+      .filter((message) => !mailboxId || message.mailboxAccountId === (mailboxAccount?.id || mailboxId))
+      .map((message) => {
+        const parseResults = this.state.messageParseResultsV2.get(message.id) || [];
+        const latestParse = parseResults.at(-1) || null;
+        const account = this.state.mailboxAccountsV2.get(message.mailboxAccountId) || null;
+        return {
+          message_id: message.id,
+          mailbox_id: account?.legacyMailboxId || null,
+          mailbox_account_id: message.mailboxAccountId,
+          mailbox_lease_id: message.mailboxLeaseId,
+          from_address: message.fromAddress,
+          subject: message.subject,
+          received_at: message.receivedAt,
+          message_status: message.messageStatus,
+          otp_code: latestParse?.otpCode || null,
+          verification_link: latestParse?.verificationLink || null,
+          parser_version: latestParse?.parserVersion || null,
+        };
+      });
+
+    if (messageStatus) {
+      items = items.filter((item) => item.message_status === messageStatus);
+    }
+
+    items.sort((a, b) => new Date(b.received_at) - new Date(a.received_at));
+    return this._paginate(items, page, pageSize);
+  }
+
+  async getTenantMessageDetailV2(tenantId, messageId) {
+    const message = this.state.messagesV2.get(messageId);
+    if (!message || message.tenantId !== tenantId) return null;
+    const parseResults = this.state.messageParseResultsV2.get(messageId) || [];
+    const latestParse = parseResults.at(-1) || null;
+    const account = this.state.mailboxAccountsV2.get(message.mailboxAccountId) || null;
+    return {
+      message_id: message.id,
+      mailbox_id: account?.legacyMailboxId || null,
+      mailbox_account_id: message.mailboxAccountId,
+      mailbox_lease_id: message.mailboxLeaseId,
+      from_address: message.fromAddress,
+      subject: message.subject,
+      received_at: message.receivedAt,
+      message_status: message.messageStatus,
+      otp_code: latestParse?.otpCode || null,
+      verification_link: latestParse?.verificationLink || null,
+      parser_version: latestParse?.parserVersion || null,
+      parse_status: latestParse?.parseStatus || null,
+      text_excerpt: latestParse?.textExcerpt || null,
+      confidence: latestParse?.confidence ?? null,
+      error_code: latestParse?.errorCode || null,
+    };
+  }
+
   async applyMessageParseResult({ messageId, otpCode, verificationLink, payload = {}, requestId = null }) {
     const message = this.state.messages.get(messageId);
     if (!message) return null;
@@ -1216,6 +1277,52 @@ export class MemoryStore {
     if (submissionStatus) items = items.filter((attempt) => attempt.submission_status === submissionStatus);
     items.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
     return this._paginate(items, page, pageSize);
+  }
+
+  async listTenantSendAttemptsV2({ tenantId, mailboxId = null, page, pageSize, submissionStatus = null }) {
+    let items = [...this.state.sendAttempts.values()]
+      .filter((attempt) => attempt.tenantId === tenantId)
+      .filter((attempt) => !mailboxId || attempt.legacyMailboxId === mailboxId)
+      .map((attempt) => ({
+        send_attempt_id: attempt.id,
+        mailbox_id: attempt.legacyMailboxId || null,
+        mailbox_account_id: attempt.mailboxAccountId,
+        agent_id: attempt.agentId,
+        from_address: attempt.fromAddress,
+        recipient_count: Array.isArray(attempt.to) ? attempt.to.length : 0,
+        subject: attempt.subject,
+        submission_status: attempt.status,
+        backend_queue_id: attempt.backendQueueId,
+        smtp_response: attempt.smtpResponse,
+        submitted_at: attempt.submittedAt,
+        created_at: attempt.createdAt,
+        updated_at: attempt.updatedAt,
+      }));
+    if (submissionStatus) {
+      items = items.filter((attempt) => attempt.submission_status === submissionStatus);
+    }
+    items.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+    return this._paginate(items, page, pageSize);
+  }
+
+  async getTenantSendAttemptV2(tenantId, sendAttemptId) {
+    const attempt = this.state.sendAttempts.get(sendAttemptId);
+    if (!attempt || attempt.tenantId !== tenantId) return null;
+    return {
+      send_attempt_id: attempt.id,
+      mailbox_id: attempt.legacyMailboxId || null,
+      mailbox_account_id: attempt.mailboxAccountId,
+      agent_id: attempt.agentId,
+      from_address: attempt.fromAddress,
+      recipients: attempt.to,
+      subject: attempt.subject,
+      submission_status: attempt.status,
+      backend_queue_id: attempt.backendQueueId,
+      smtp_response: attempt.smtpResponse,
+      submitted_at: attempt.submittedAt,
+      created_at: attempt.createdAt,
+      updated_at: attempt.updatedAt,
+    };
   }
 
   async adminReparseMessage(messageId, { actorDid, requestId }) {

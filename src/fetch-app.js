@@ -790,6 +790,52 @@ export function createFetchApp(deps = {}) {
         return jsonResponse(200, { messages }, requestId);
       }
 
+      if (method === "GET" && path === "/v2/messages") {
+        const auth = await requireAuth(request, requestId);
+        if (!auth.ok) return auth.response;
+        const paging = parsePaging(requestUrl);
+        if (!paging.ok) return jsonResponse(400, { error: "bad_request", message: paging.message }, requestId);
+
+        const result = await store.listTenantMessagesV2({
+          tenantId: auth.payload.tenant_id,
+          mailboxId: requestUrl.searchParams.get("mailbox_id"),
+          messageStatus: requestUrl.searchParams.get("message_status"),
+          page: paging.page,
+          pageSize: paging.pageSize,
+        });
+        await store.recordUsage({
+          tenantId: auth.payload.tenant_id,
+          agentId: auth.payload.agent_id,
+          endpoint: "GET /v2/messages",
+          quantity: 1,
+          requestId,
+        });
+        return jsonResponse(200, result, requestId);
+      }
+
+      if (method === "GET" && path.startsWith("/v2/messages/")) {
+        const auth = await requireAuth(request, requestId);
+        if (!auth.ok) return auth.response;
+
+        const messageId = path.replace("/v2/messages/", "").trim();
+        if (!messageId) {
+          return jsonResponse(400, { error: "bad_request", message: "message_id is required" }, requestId);
+        }
+
+        const message = await store.getTenantMessageDetailV2(auth.payload.tenant_id, messageId);
+        if (!message) {
+          return jsonResponse(404, { error: "not_found", message: "Message not found" }, requestId);
+        }
+        await store.recordUsage({
+          tenantId: auth.payload.tenant_id,
+          agentId: auth.payload.agent_id,
+          endpoint: "GET /v2/messages/{message_id}",
+          quantity: 1,
+          requestId,
+        });
+        return jsonResponse(200, message, requestId);
+      }
+
       if (method === "POST" && path === "/v1/messages/send") {
         const auth = await requireAuth(request, requestId);
         if (!auth.ok) return auth.response;
@@ -880,6 +926,52 @@ export function createFetchApp(deps = {}) {
           },
           requestId,
         );
+      }
+
+      if (method === "GET" && path === "/v2/send-attempts") {
+        const auth = await requireAuth(request, requestId);
+        if (!auth.ok) return auth.response;
+        const paging = parsePaging(requestUrl);
+        if (!paging.ok) return jsonResponse(400, { error: "bad_request", message: paging.message }, requestId);
+
+        const result = await store.listTenantSendAttemptsV2({
+          tenantId: auth.payload.tenant_id,
+          mailboxId: requestUrl.searchParams.get("mailbox_id"),
+          submissionStatus: requestUrl.searchParams.get("submission_status"),
+          page: paging.page,
+          pageSize: paging.pageSize,
+        });
+        await store.recordUsage({
+          tenantId: auth.payload.tenant_id,
+          agentId: auth.payload.agent_id,
+          endpoint: "GET /v2/send-attempts",
+          quantity: 1,
+          requestId,
+        });
+        return jsonResponse(200, result, requestId);
+      }
+
+      if (method === "GET" && path.startsWith("/v2/send-attempts/")) {
+        const auth = await requireAuth(request, requestId);
+        if (!auth.ok) return auth.response;
+
+        const sendAttemptId = path.replace("/v2/send-attempts/", "").trim();
+        if (!sendAttemptId) {
+          return jsonResponse(400, { error: "bad_request", message: "send_attempt_id is required" }, requestId);
+        }
+
+        const attempt = await store.getTenantSendAttemptV2(auth.payload.tenant_id, sendAttemptId);
+        if (!attempt) {
+          return jsonResponse(404, { error: "not_found", message: "Send attempt not found" }, requestId);
+        }
+        await store.recordUsage({
+          tenantId: auth.payload.tenant_id,
+          agentId: auth.payload.agent_id,
+          endpoint: "GET /v2/send-attempts/{send_attempt_id}",
+          quantity: 1,
+          requestId,
+        });
+        return jsonResponse(200, attempt, requestId);
       }
 
       if (method === "GET" && path.startsWith("/v1/messages/")) {

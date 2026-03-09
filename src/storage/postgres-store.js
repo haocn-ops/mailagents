@@ -1012,6 +1012,185 @@ export class PostgresStore {
     };
   }
 
+  async listTenantMessagesV2({ tenantId, mailboxId = null, page, pageSize, messageStatus = null }) {
+    const tables = await this._loadV2TableAvailability();
+    const values = [tenantId];
+    const filters = [`mv2.tenant_id = $1`];
+    if (mailboxId) {
+      values.push(mailboxId);
+      filters.push(`m.id = $${values.length}`);
+    }
+    if (messageStatus) {
+      values.push(messageStatus);
+      filters.push(`mv2.message_status = $${values.length}`);
+    }
+    const where = `where ${filters.join(" and ")}`;
+
+    if (!tables.messages_v2) {
+      const result = await this._query(
+        `select msg.id as message_id,
+                msg.mailbox_id,
+                msg.sender as from_address,
+                msg.subject,
+                msg.received_at,
+                case when exists (
+                  select 1 from message_events me where me.message_id = msg.id and me.event_type = 'otp.extracted'
+                ) then 'parsed'
+                when exists (
+                  select 1 from message_events me where me.message_id = msg.id and me.event_type = 'mail.parse_failed'
+                ) then 'parse_failed'
+                else 'received' end as message_status,
+                (
+                  select me.otp_code from message_events me where me.message_id = msg.id and me.event_type = 'otp.extracted' order by me.created_at desc limit 1
+                ) as otp_code,
+                (
+                  select me.verification_link from message_events me where me.message_id = msg.id and me.event_type = 'otp.extracted' order by me.created_at desc limit 1
+                ) as verification_link
+           from messages msg
+           join mailboxes m on m.id = msg.mailbox_id
+          where m.tenant_id = $1
+            ${mailboxId ? `and m.id = $${values.indexOf(mailboxId) + 1}` : ""}
+          order by msg.received_at desc`,
+        values.slice(0, mailboxId ? 2 : 1),
+      );
+      let items = result.rows.map((row) => ({
+        message_id: row.message_id,
+        mailbox_id: row.mailbox_id,
+        mailbox_account_id: null,
+        mailbox_lease_id: null,
+        from_address: row.from_address,
+        subject: row.subject,
+        received_at: row.received_at.toISOString(),
+        message_status: row.message_status,
+        otp_code: row.otp_code,
+        verification_link: row.verification_link,
+        parser_version: null,
+      }));
+      if (messageStatus) items = items.filter((item) => item.message_status === messageStatus);
+      return this._paginate(items, page, pageSize);
+    }
+
+    const result = await this._query(
+      `select mv2.id as message_id,
+              m.id as mailbox_id,
+              mv2.mailbox_account_id,
+              mv2.mailbox_lease_id,
+              mv2.from_address,
+              mv2.subject,
+              mv2.received_at,
+              mv2.message_status,
+              pr.otp_code,
+              pr.verification_link,
+              pr.parser_version
+         from messages_v2 mv2
+         left join mailbox_accounts a on a.id = mv2.mailbox_account_id
+         left join mailboxes m on m.address = a.address
+         left join lateral (
+           select parser_version, otp_code, verification_link
+             from message_parse_results
+            where message_id = mv2.id
+            order by created_at desc
+            limit 1
+         ) pr on true
+         ${where}
+        order by mv2.received_at desc`,
+      values,
+    );
+    return this._paginate(
+      result.rows.map((row) => ({
+        message_id: row.message_id,
+        mailbox_id: row.mailbox_id,
+        mailbox_account_id: row.mailbox_account_id,
+        mailbox_lease_id: row.mailbox_lease_id,
+        from_address: row.from_address,
+        subject: row.subject,
+        received_at: row.received_at.toISOString(),
+        message_status: row.message_status,
+        otp_code: row.otp_code,
+        verification_link: row.verification_link,
+        parser_version: row.parser_version,
+      })),
+      page,
+      pageSize,
+    );
+  }
+
+  async getTenantMessageDetailV2(tenantId, messageId) {
+    const tables = await this._loadV2TableAvailability();
+    if (!tables.messages_v2) {
+      const fallback = await this.getTenantMessageDetail(tenantId, messageId);
+      if (!fallback) return null;
+      return {
+        message_id: fallback.message_id,
+        mailbox_id: fallback.mailbox_id,
+        mailbox_account_id: null,
+        mailbox_lease_id: null,
+        from_address: fallback.sender,
+        subject: fallback.subject,
+        received_at: fallback.received_at,
+        message_status: fallback.parsed_status === "parsed" ? "parsed" : fallback.parsed_status === "failed" ? "parse_failed" : "received",
+        otp_code: fallback.otp_code,
+        verification_link: fallback.verification_link,
+        parser_version: null,
+        parse_status: fallback.parsed_status,
+        text_excerpt: null,
+        confidence: null,
+        error_code: null,
+      };
+    }
+
+    const result = await this._query(
+      `select mv2.id as message_id,
+              m.id as mailbox_id,
+              mv2.mailbox_account_id,
+              mv2.mailbox_lease_id,
+              mv2.from_address,
+              mv2.subject,
+              mv2.received_at,
+              mv2.message_status,
+              pr.parser_version,
+              pr.parse_status,
+              pr.otp_code,
+              pr.verification_link,
+              pr.text_excerpt,
+              pr.confidence,
+              pr.error_code
+         from messages_v2 mv2
+         left join mailbox_accounts a on a.id = mv2.mailbox_account_id
+         left join mailboxes m on m.address = a.address
+         left join lateral (
+           select parser_version, parse_status, otp_code, verification_link, text_excerpt, confidence, error_code
+             from message_parse_results
+            where message_id = mv2.id
+            order by created_at desc
+            limit 1
+         ) pr on true
+        where mv2.id = $1
+          and mv2.tenant_id = $2
+        limit 1`,
+      [messageId, tenantId],
+    );
+    if (result.rowCount === 0) return null;
+    const row = result.rows[0];
+    return {
+      message_id: row.message_id,
+      mailbox_id: row.mailbox_id,
+      mailbox_account_id: row.mailbox_account_id,
+      mailbox_lease_id: row.mailbox_lease_id,
+      from_address: row.from_address,
+      subject: row.subject,
+      received_at: row.received_at.toISOString(),
+      message_status: row.message_status,
+      otp_code: row.otp_code,
+      verification_link: row.verification_link,
+      parser_version: row.parser_version,
+      parse_status: row.parse_status,
+      text_excerpt: row.text_excerpt,
+      confidence: row.confidence == null ? null : Number(row.confidence),
+      error_code: row.error_code,
+    };
+  }
+
   async applyMessageParseResult({ messageId, otpCode, verificationLink, payload = {}, requestId = null }) {
     return this._withTx(async (client) => {
       const message = await this.getMessage(messageId);
@@ -1861,6 +2040,108 @@ export class PostgresStore {
       page,
       pageSize,
     );
+  }
+
+  async listTenantSendAttemptsV2({ tenantId, mailboxId = null, page, pageSize, submissionStatus = null }) {
+    const tables = await this._loadV2TableAvailability();
+    if (!tables.send_attempts) {
+      return this._paginate([], page, pageSize);
+    }
+    const values = [tenantId];
+    const filters = [`sa.tenant_id = $1`];
+    if (mailboxId) {
+      values.push(mailboxId);
+      filters.push(`m.id = $${values.length}`);
+    }
+    if (submissionStatus) {
+      values.push(submissionStatus);
+      filters.push(`sa.submission_status = $${values.length}`);
+    }
+    const where = `where ${filters.join(" and ")}`;
+    const result = await this._query(
+      `select sa.id as send_attempt_id,
+              m.id as mailbox_id,
+              sa.mailbox_account_id,
+              sa.agent_id,
+              sa.from_address,
+              jsonb_array_length(sa.to_json) as recipient_count,
+              sa.subject,
+              sa.submission_status,
+              sa.backend_queue_id,
+              sa.smtp_response,
+              sa.submitted_at,
+              sa.created_at,
+              sa.updated_at
+         from send_attempts sa
+         left join mailbox_accounts a on a.id = sa.mailbox_account_id
+         left join mailboxes m on m.address = a.address
+         ${where}
+        order by sa.created_at desc`,
+      values,
+    );
+    return this._paginate(
+      result.rows.map((row) => ({
+        send_attempt_id: row.send_attempt_id,
+        mailbox_id: row.mailbox_id,
+        mailbox_account_id: row.mailbox_account_id,
+        agent_id: row.agent_id,
+        from_address: row.from_address,
+        recipient_count: Number(row.recipient_count || 0),
+        subject: row.subject,
+        submission_status: row.submission_status,
+        backend_queue_id: row.backend_queue_id,
+        smtp_response: row.smtp_response,
+        submitted_at: row.submitted_at ? row.submitted_at.toISOString() : null,
+        created_at: row.created_at.toISOString(),
+        updated_at: row.updated_at.toISOString(),
+      })),
+      page,
+      pageSize,
+    );
+  }
+
+  async getTenantSendAttemptV2(tenantId, sendAttemptId) {
+    const tables = await this._loadV2TableAvailability();
+    if (!tables.send_attempts) return null;
+    const result = await this._query(
+      `select sa.id as send_attempt_id,
+              m.id as mailbox_id,
+              sa.mailbox_account_id,
+              sa.agent_id,
+              sa.from_address,
+              sa.to_json,
+              sa.subject,
+              sa.submission_status,
+              sa.backend_queue_id,
+              sa.smtp_response,
+              sa.submitted_at,
+              sa.created_at,
+              sa.updated_at
+         from send_attempts sa
+         left join mailbox_accounts a on a.id = sa.mailbox_account_id
+         left join mailboxes m on m.address = a.address
+        where sa.id = $1
+          and sa.tenant_id = $2
+        limit 1`,
+      [sendAttemptId, tenantId],
+    );
+    if (result.rowCount === 0) return null;
+    const row = result.rows[0];
+    return {
+      send_attempt_id: row.send_attempt_id,
+      mailbox_id: row.mailbox_id,
+      mailbox_account_id: row.mailbox_account_id,
+      agent_id: row.agent_id,
+      from_address: row.from_address,
+      recipients: row.to_json,
+      subject: row.subject,
+      submission_status: row.submission_status,
+      backend_queue_id: row.backend_queue_id,
+      smtp_response: row.smtp_response,
+      submitted_at: row.submitted_at ? row.submitted_at.toISOString() : null,
+      created_at: row.created_at.toISOString(),
+      updated_at: row.updated_at.toISOString(),
+    };
   }
 
   async adminReparseMessage(messageId, { actorDid, requestId }) {
