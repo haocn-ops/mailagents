@@ -1,4 +1,4 @@
-import { parsePeriod } from "../utils.js";
+import { createWebhookService } from "../services/webhook-service.js";
 
 export function createV2WebhookRouteHandler({
   store,
@@ -8,6 +8,8 @@ export function createV2WebhookRouteHandler({
   readJsonBody,
   getOverageChargeUsdc,
 }) {
+  const webhookService = createWebhookService({ store });
+
   return async function handleV2WebhookRoute({ method, path, request, requestId, requestUrl }) {
     if (!path.startsWith("/v2/webhooks") && !path.startsWith("/v2/usage") && !path.startsWith("/v2/billing")) return null;
 
@@ -40,7 +42,7 @@ export function createV2WebhookRouteHandler({
         return jsonResponse(400, { error: "bad_request", message: "event_types contains unsupported values" }, requestId);
       }
 
-      const webhook = await store.createWebhook({
+      const webhook = await webhookService.createWebhook({
         tenantId: auth.payload.tenant_id,
         eventTypes,
         targetUrl,
@@ -80,7 +82,7 @@ export function createV2WebhookRouteHandler({
     if (method === "GET" && path === "/v2/webhooks") {
       const auth = await requireAuth(request, requestId);
       if (!auth.ok) return auth.response;
-      const items = await store.listTenantWebhooks(auth.payload.tenant_id);
+      const items = await webhookService.listWebhooks(auth.payload.tenant_id);
       return jsonResponse(200, { items }, requestId);
     }
 
@@ -89,15 +91,16 @@ export function createV2WebhookRouteHandler({
       if (!auth.ok) return auth.response;
 
       const webhookId = path.slice("/v2/webhooks/".length, -"/rotate-secret".length);
-      const webhook = await store.getTenantWebhook(auth.payload.tenant_id, webhookId);
-      if (!webhook) {
-        return jsonResponse(404, { error: "not_found", message: "Webhook not found" }, requestId);
-      }
-
-      const rotated = await store.rotateTenantWebhookSecret(auth.payload.tenant_id, webhookId, {
+      const rotated = await webhookService.rotateWebhookSecret({
+        tenantId: auth.payload.tenant_id,
+        webhookId,
         actorDid: auth.payload.did,
         requestId,
       });
+      if (!rotated) {
+        return jsonResponse(404, { error: "not_found", message: "Webhook not found" }, requestId);
+      }
+
       return jsonResponse(200, rotated, requestId);
     }
 
@@ -106,7 +109,10 @@ export function createV2WebhookRouteHandler({
       if (!auth.ok) return auth.response;
 
       const webhookId = requestUrl.searchParams.get("webhook_id");
-      const items = await store.listTenantWebhookDeliveries(auth.payload.tenant_id, { webhookId });
+      const items = await webhookService.listWebhookDeliveries({
+        tenantId: auth.payload.tenant_id,
+        webhookId,
+      });
       return jsonResponse(200, { items }, requestId);
     }
 
@@ -115,25 +121,14 @@ export function createV2WebhookRouteHandler({
       if (!auth.ok) return auth.response;
 
       const period = requestUrl.searchParams.get("period");
-      const parsed = parsePeriod(period);
-      if (!parsed) {
+      const summary = await webhookService.getUsageSummary({
+        tenantId: auth.payload.tenant_id,
+        period,
+      });
+      if (!summary) {
         return jsonResponse(400, { error: "bad_request", message: "period must match YYYY-MM" }, requestId);
       }
-
-      const summary = await store.usageSummary(auth.payload.tenant_id, parsed.start, parsed.end);
-      return jsonResponse(
-        200,
-        {
-          period,
-          usage: {
-            api_calls: summary.api_calls,
-            active_mailboxes: summary.active_mailboxes,
-            message_parses: summary.message_parses,
-            billable_units: summary.billable_units,
-          },
-        },
-        requestId,
-      );
+      return jsonResponse(200, summary, requestId);
     }
 
     if (method === "GET" && path.startsWith("/v2/billing/invoices/")) {
@@ -145,25 +140,14 @@ export function createV2WebhookRouteHandler({
         return jsonResponse(400, { error: "bad_request", message: "invoice_id is required" }, requestId);
       }
 
-      const invoice = await store.getInvoice(invoiceId, auth.payload.tenant_id);
+      const invoice = await webhookService.getInvoice({
+        tenantId: auth.payload.tenant_id,
+        invoiceId,
+      });
       if (!invoice) {
         return jsonResponse(404, { error: "not_found", message: "Invoice not found" }, requestId);
       }
-
-      return jsonResponse(
-        200,
-        {
-          invoice_id: invoice.id,
-          tenant_id: invoice.tenantId,
-          period_start: invoice.periodStart,
-          period_end: invoice.periodEnd,
-          amount_usdc: invoice.amountUsdc,
-          status: invoice.status,
-          statement_hash: invoice.statementHash,
-          settlement_tx_hash: invoice.settlementTxHash,
-        },
-        requestId,
-      );
+      return jsonResponse(200, invoice, requestId);
     }
 
     if (method === "GET" && path === "/v2/billing/invoices") {
@@ -171,7 +155,10 @@ export function createV2WebhookRouteHandler({
       if (!auth.ok) return auth.response;
 
       const period = requestUrl.searchParams.get("period");
-      const items = await store.listTenantInvoices(auth.payload.tenant_id, period);
+      const items = await webhookService.listInvoices({
+        tenantId: auth.payload.tenant_id,
+        period,
+      });
       return jsonResponse(200, { items }, requestId);
     }
 
