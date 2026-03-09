@@ -1,4 +1,5 @@
 import { parsePeriod } from "../utils.js";
+import { toV2Invoice } from "../v2/presenters.js";
 
 export function createV2WebhookService({ store }) {
   return {
@@ -43,17 +44,7 @@ export function createV2WebhookService({ store }) {
     async getInvoice({ tenantId, invoiceId }) {
       const invoice = await store.getInvoice(invoiceId, tenantId);
       if (!invoice) return null;
-
-      return {
-        invoice_id: invoice.id,
-        tenant_id: invoice.tenantId,
-        period_start: invoice.periodStart,
-        period_end: invoice.periodEnd,
-        amount_usdc: invoice.amountUsdc,
-        status: invoice.status,
-        statement_hash: invoice.statementHash,
-        settlement_tx_hash: invoice.settlementTxHash,
-      };
+      return toV2Invoice(invoice);
     },
   };
 }

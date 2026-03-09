@@ -1,18 +1,4 @@
-function toV2Message(message) {
-  const parsedStatus = message.parsed_status || (message.otp_code || message.verification_link ? "parsed" : "pending");
-  return {
-    message_id: message.message_id,
-    mailbox_id: message.mailbox_id,
-    sender: message.sender,
-    sender_domain: message.sender_domain,
-    subject: message.subject,
-    raw_ref: message.raw_ref || null,
-    received_at: message.received_at,
-    otp_code: message.otp_code || null,
-    verification_link: message.verification_link || null,
-    parsed_status: parsedStatus,
-  };
-}
+import { toV2Message } from "../v2/presenters.js";
 
 export function createV2MessageService({ store, mailBackend }) {
   return {
