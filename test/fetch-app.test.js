@@ -505,6 +505,85 @@ test("fetch app exposes tenant mailbox and webhook lists", async () => {
   assert.equal(webhooks.items[0].target_url, "https://example.com/user-app-webhook");
 });
 
+test("fetch app exposes v2 webhook, usage, and billing endpoints", async () => {
+  const app = makeApp({ AGENT_ALLOCATE_HOURLY_LIMIT: "1" });
+  const verify = await issueToken(app, "0xabc0000000000000000000000000000000000a11");
+
+  const allocateRes = await app(
+    new Request("http://localhost/v1/mailboxes/allocate", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${verify.access_token}`,
+      },
+      body: JSON.stringify({ agent_id: verify.agent_id, purpose: "seed-v2-billing", ttl_hours: 1 }),
+    }),
+  );
+  assert.equal(allocateRes.status, 200);
+
+  const paidWebhookRes = await app(
+    new Request("http://localhost/v2/webhooks", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${verify.access_token}`,
+        "x-payment-proof": "mock-proof",
+      },
+      body: JSON.stringify({
+        event_types: ["otp.extracted"],
+        target_url: "https://example.com/v2-webhook",
+        secret: "1234567890abcdef",
+      }),
+    }),
+  );
+  assert.equal(paidWebhookRes.status, 201);
+  const createdWebhook = await paidWebhookRes.json();
+  assert.equal(createdWebhook.target_url, "https://example.com/v2-webhook");
+
+  const webhooksRes = await app(
+    new Request("http://localhost/v2/webhooks", {
+      method: "GET",
+      headers: { authorization: `Bearer ${verify.access_token}` },
+    }),
+  );
+  assert.equal(webhooksRes.status, 200);
+  const webhooks = await webhooksRes.json();
+  assert.equal(webhooks.items.length, 1);
+  assert.equal(webhooks.items[0].webhook_id, createdWebhook.webhook_id);
+
+  const usageRes = await app(
+    new Request("http://localhost/v2/usage/summary?period=2026-03", {
+      method: "GET",
+      headers: { authorization: `Bearer ${verify.access_token}` },
+    }),
+  );
+  assert.equal(usageRes.status, 200);
+  const usage = await usageRes.json();
+  assert.equal(usage.period, "2026-03");
+  assert.ok(typeof usage.usage.api_calls === "number");
+  assert.ok(usage.usage.billable_units >= 1);
+
+  const invoicesRes = await app(
+    new Request("http://localhost/v2/billing/invoices?period=2026-03", {
+      method: "GET",
+      headers: { authorization: `Bearer ${verify.access_token}` },
+    }),
+  );
+  assert.equal(invoicesRes.status, 200);
+  const invoices = await invoicesRes.json();
+  assert.equal(invoices.items.length, 1);
+
+  const invoiceDetailRes = await app(
+    new Request(`http://localhost/v2/billing/invoices/${invoices.items[0].invoice_id}`, {
+      method: "GET",
+      headers: { authorization: `Bearer ${verify.access_token}` },
+    }),
+  );
+  assert.equal(invoiceDetailRes.status, 200);
+  const invoiceDetail = await invoiceDetailRes.json();
+  assert.equal(invoiceDetail.invoice_id, invoices.items[0].invoice_id);
+});
+
 test("fetch app issues webmail credentials for an existing tenant mailbox", async () => {
   const app = makeApp();
   const verify = await issueToken(app, "0xabc0000000000000000000000000000000000777");

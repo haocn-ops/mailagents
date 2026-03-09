@@ -125,6 +125,7 @@ export function createFetchApp(deps = {}) {
     "POST /v2/messages/send",
     "GET /v1/messages/latest",
     "POST /v1/webhooks",
+    "POST /v2/webhooks",
   ]);
 
   function getOverageChargeUsdc() {
@@ -1371,6 +1372,80 @@ export function createFetchApp(deps = {}) {
         return jsonResponse(200, result, requestId);
       }
 
+      if (method === "POST" && path === "/v2/webhooks") {
+        const auth = await requireAuth(request, requestId);
+        if (!auth.ok) return auth.response;
+        const access = await evaluateAccess({
+          request,
+          requestId,
+          tenantId: auth.payload.tenant_id,
+          agentId: auth.payload.agent_id,
+          endpoint: "POST /v2/webhooks",
+        });
+        if (!access.ok) return access.response;
+
+        const body = await readJsonBody(request);
+        const eventTypes = Array.isArray(body.event_types) ? body.event_types : null;
+        const targetUrl = String(body.target_url || "").trim();
+        const secret = String(body.secret || "");
+
+        if (!eventTypes || !targetUrl || !secret) {
+          return jsonResponse(400, { error: "bad_request", message: "event_types, target_url, secret are required" }, requestId);
+        }
+        if (secret.length < 16) {
+          return jsonResponse(400, { error: "bad_request", message: "secret must have at least 16 chars" }, requestId);
+        }
+
+        const allowedEvents = new Set(["mail.received", "otp.extracted"]);
+        if (eventTypes.some((e) => !allowedEvents.has(e))) {
+          return jsonResponse(400, { error: "bad_request", message: "event_types contains unsupported values" }, requestId);
+        }
+
+        const webhook = await store.createWebhook({
+          tenantId: auth.payload.tenant_id,
+          eventTypes,
+          targetUrl,
+          secret,
+        });
+
+        await store.recordUsage({
+          tenantId: auth.payload.tenant_id,
+          agentId: auth.payload.agent_id,
+          endpoint: "POST /v2/webhooks",
+          quantity: 1,
+          requestId,
+        });
+        if (access.requiresCharge) {
+          await store.recordOverageCharge({
+            tenantId: auth.payload.tenant_id,
+            agentId: auth.payload.agent_id,
+            endpoint: "POST /v2/webhooks",
+            reasons: access.reasons,
+            amountUsdc: getOverageChargeUsdc(),
+            requestId,
+          });
+        }
+
+        return jsonResponse(
+          201,
+          {
+            webhook_id: webhook.id,
+            event_types: webhook.eventTypes,
+            target_url: webhook.targetUrl,
+            status: webhook.status,
+          },
+          requestId,
+        );
+      }
+
+      if (method === "GET" && path === "/v2/webhooks") {
+        const auth = await requireAuth(request, requestId);
+        if (!auth.ok) return auth.response;
+
+        const items = await store.listTenantWebhooks(auth.payload.tenant_id);
+        return jsonResponse(200, { items }, requestId);
+      }
+
       if (method === "GET" && path === "/v1/usage/summary") {
         const auth = await requireAuth(request, requestId);
         if (!auth.ok) return auth.response;
@@ -1390,6 +1465,32 @@ export function createFetchApp(deps = {}) {
             active_mailboxes: summary.active_mailboxes,
             message_parses: summary.message_parses,
             billable_units: summary.billable_units,
+          },
+          requestId,
+        );
+      }
+
+      if (method === "GET" && path === "/v2/usage/summary") {
+        const auth = await requireAuth(request, requestId);
+        if (!auth.ok) return auth.response;
+
+        const period = requestUrl.searchParams.get("period");
+        const parsed = parsePeriod(period);
+        if (!parsed) {
+          return jsonResponse(400, { error: "bad_request", message: "period must match YYYY-MM" }, requestId);
+        }
+
+        const summary = await store.usageSummary(auth.payload.tenant_id, parsed.start, parsed.end);
+        return jsonResponse(
+          200,
+          {
+            period,
+            usage: {
+              api_calls: summary.api_calls,
+              active_mailboxes: summary.active_mailboxes,
+              message_parses: summary.message_parses,
+              billable_units: summary.billable_units,
+            },
           },
           requestId,
         );
@@ -1425,7 +1526,46 @@ export function createFetchApp(deps = {}) {
         );
       }
 
+      if (method === "GET" && path.startsWith("/v2/billing/invoices/")) {
+        const auth = await requireAuth(request, requestId);
+        if (!auth.ok) return auth.response;
+
+        const invoiceId = path.replace("/v2/billing/invoices/", "").trim();
+        if (!invoiceId) {
+          return jsonResponse(400, { error: "bad_request", message: "invoice_id is required" }, requestId);
+        }
+
+        const invoice = await store.getInvoice(invoiceId, auth.payload.tenant_id);
+        if (!invoice) {
+          return jsonResponse(404, { error: "not_found", message: "Invoice not found" }, requestId);
+        }
+
+        return jsonResponse(
+          200,
+          {
+            invoice_id: invoice.id,
+            tenant_id: invoice.tenantId,
+            period_start: invoice.periodStart,
+            period_end: invoice.periodEnd,
+            amount_usdc: invoice.amountUsdc,
+            status: invoice.status,
+            statement_hash: invoice.statementHash,
+            settlement_tx_hash: invoice.settlementTxHash,
+          },
+          requestId,
+        );
+      }
+
       if (method === "GET" && path === "/v1/billing/invoices") {
+        const auth = await requireAuth(request, requestId);
+        if (!auth.ok) return auth.response;
+
+        const period = requestUrl.searchParams.get("period");
+        const items = await store.listTenantInvoices(auth.payload.tenant_id, period);
+        return jsonResponse(200, { items }, requestId);
+      }
+
+      if (method === "GET" && path === "/v2/billing/invoices") {
         const auth = await requireAuth(request, requestId);
         if (!auth.ok) return auth.response;
 
