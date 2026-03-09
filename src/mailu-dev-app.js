@@ -1,28 +1,5 @@
 import { randomUUID } from "node:crypto";
-
-function jsonResponse(status, payload) {
-  return new Response(JSON.stringify(payload), {
-    status,
-    headers: { "content-type": "application/json; charset=utf-8" },
-  });
-}
-
-function emptyResponse(status) {
-  return new Response(null, { status });
-}
-
-function buildExpectedAuth(token, scheme = "BEARER") {
-  if (!token) return "";
-  return scheme === "RAW" ? token : `Bearer ${token}`;
-}
-
-async function readJson(request) {
-  try {
-    return await request.json();
-  } catch {
-    return {};
-  }
-}
+import { buildExpectedAuth, emptyResponse, jsonResponse, readJson } from "./mailu-dev-helpers.js";
 
 function normalizeEmail(value) {
   return String(value || "").trim().toLowerCase();
