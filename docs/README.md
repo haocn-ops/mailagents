@@ -28,6 +28,7 @@
 - [V2 Admin API Draft](./openapi-admin-v2.yaml)
 - [V2 Additive DB Migration](./db-migration-v2.sql)
 - [V2 Sprint 1 Plan](./sprint-1-implementation-plan.md)
+- [V2 Sprint 1 PR Summary](./pr-sprint-1-v2-foundation.md)
 - [Database DDL](./db/schema.sql)
 
 ## Suggested Reading Order
@@ -58,4 +59,5 @@
 24. `openapi-admin-v2.yaml` - proposed V2 admin API contract
 25. `db-migration-v2.sql` - additive V2 schema migration draft
 26. `sprint-1-implementation-plan.md` - first implementation sprint breakdown
-27. `db/schema.sql` - current schema implementation
+27. `pr-sprint-1-v2-foundation.md` - reviewer-oriented summary of the Sprint 1 implementation branch
+28. `db/schema.sql` - current schema implementation
