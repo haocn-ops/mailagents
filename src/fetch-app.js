@@ -10,6 +10,11 @@ import { renderUserAppHtml } from "./user-ui.js";
 import { getDefaultStore } from "./store.js";
 import { createNonce, createRequestId, parseBearerToken, parsePeriod } from "./utils.js";
 import { createWebhookDispatcher } from "./webhook-dispatcher.js";
+import { createMailboxProvisionJob, MAILBOX_PROVISION_JOB } from "./jobs/mailbox-provision-job.js";
+import { createJobQueue } from "./jobs/queue.js";
+import { createSendSubmitJob, SEND_SUBMIT_JOB } from "./jobs/send-submit-job.js";
+import { createMailboxService } from "./services/mailbox-service.js";
+import { createSendService } from "./services/send-service.js";
 
 function jsonResponse(status, payload, requestId) {
   const headers = new Headers({
@@ -86,6 +91,15 @@ export function createFetchApp(deps = {}) {
       timeoutMs: runtimeConfig.webhookTimeoutMs,
       retryAttempts: runtimeConfig.webhookRetryAttempts,
     });
+  const queue =
+    deps.queue ||
+    createJobQueue({
+      mode: deps.queueMode || "inline",
+    });
+  queue.register(MAILBOX_PROVISION_JOB, createMailboxProvisionJob({ store, mailBackend }));
+  queue.register(SEND_SUBMIT_JOB, createSendSubmitJob({ mailBackend }));
+  const mailboxService = deps.mailboxService || createMailboxService({ store, queue });
+  const sendService = deps.sendService || createSendService({ store, queue });
   const paidBypassTargets = new Set([
     "POST /v1/mailboxes/allocate",
     "POST /v1/messages/send",
@@ -565,36 +579,24 @@ export function createFetchApp(deps = {}) {
         });
         if (!access.ok) return access.response;
 
-        const result = await store.allocateMailbox({
-          tenantId: auth.payload.tenant_id,
-          agentId,
-          purpose,
-          ttlHours,
-        });
-
-        if (!result) {
-          return jsonResponse(409, { error: "no_available_mailbox", message: "No available mailbox for current tenant" }, requestId);
-        }
-
-        let provider = null;
+        let result;
         try {
-          provider = await mailBackend.provisionMailbox({
+          result = await mailboxService.requestLease({
             tenantId: auth.payload.tenant_id,
             agentId,
-            mailboxId: result.mailbox.id,
-            address: result.mailbox.address,
+            purpose,
             ttlHours,
           });
-          if (provider?.providerRef) {
-            await store.saveMailboxProviderRef(result.mailbox.id, provider.providerRef);
-          }
         } catch (err) {
-          await store.releaseMailbox({ tenantId: auth.payload.tenant_id, mailboxId: result.mailbox.id });
           return jsonResponse(
             502,
             { error: "mail_backend_error", message: err.message || "Mail backend provisioning failed" },
             requestId,
           );
+        }
+
+        if (!result) {
+          return jsonResponse(409, { error: "no_available_mailbox", message: "No available mailbox for current tenant" }, requestId);
         }
 
         await store.recordUsage({
@@ -621,9 +623,11 @@ export function createFetchApp(deps = {}) {
             mailbox_id: result.mailbox.id,
             address: result.mailbox.address,
             lease_expires_at: result.lease.expiresAt,
-            webmail_login: provider?.credentials?.login || null,
-            webmail_password: provider?.credentials?.password || null,
-            webmail_url: provider?.credentials?.webmailUrl || null,
+            webmail_login: result.provider?.credentials?.login || null,
+            webmail_password: result.provider?.credentials?.password || null,
+            webmail_url: result.provider?.credentials?.webmailUrl || null,
+            job_id: result.jobId,
+            job_status: result.jobStatus,
           },
           requestId,
         );
@@ -809,23 +813,17 @@ export function createFetchApp(deps = {}) {
           );
         }
 
-        const mailbox = await store.getTenantMailbox(auth.payload.tenant_id, mailboxId);
-        if (!mailbox) {
-          return jsonResponse(404, { error: "not_found", message: "Mailbox not found" }, requestId);
-        }
-
-        let delivery;
+        let result;
         try {
-          delivery = await mailBackend.sendMailboxMessage({
+          result = await sendService.queueSend({
             tenantId: auth.payload.tenant_id,
             agentId: auth.payload.agent_id,
             mailboxId,
-            address: mailbox.address,
-            password: mailboxPassword,
-            to: recipients,
+            recipients,
             subject,
             text,
             html,
+            mailboxPassword,
           });
         } catch (err) {
           return jsonResponse(
@@ -833,6 +831,10 @@ export function createFetchApp(deps = {}) {
             { error: "mail_backend_error", message: err.message || "Mail backend send failed" },
             requestId,
           );
+        }
+
+        if (!result) {
+          return jsonResponse(404, { error: "not_found", message: "Mailbox not found" }, requestId);
         }
 
         await store.recordUsage({
@@ -856,13 +858,16 @@ export function createFetchApp(deps = {}) {
         return jsonResponse(
           200,
           {
-            mailbox_id: mailbox.id,
-            from: mailbox.address,
-            accepted: delivery?.accepted || [],
-            rejected: delivery?.rejected || [],
-            message_id: delivery?.messageId || null,
-            envelope: delivery?.envelope || null,
-            response: delivery?.response || null,
+            mailbox_id: result.mailbox.id,
+            from: result.mailbox.address,
+            accepted: result.delivery?.accepted || [],
+            rejected: result.delivery?.rejected || [],
+            message_id: result.delivery?.messageId || null,
+            envelope: result.delivery?.envelope || null,
+            response: result.delivery?.response || null,
+            send_attempt_id: result.sendAttemptId,
+            job_id: result.jobId,
+            job_status: result.jobStatus,
           },
           requestId,
         );

@@ -20,6 +20,7 @@
     "siwe:verify": "node scripts/siwe-verify.js",
     "preflight:prod": "node scripts/preflight-prod.js",
     "smoke": "bash scripts/smoke.sh",
+    "worker:start": "node src/workers/job-worker.js",
     "mailu-dev": "node scripts/mailu-dev.js",
     "smoke:mailu": "bash scripts/mailu-dev-smoke.sh",
     "sync:mailu": "node scripts/mailu-maildir-sync.js",
