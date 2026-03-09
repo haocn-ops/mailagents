@@ -1,4 +1,6 @@
 import { createInternalService } from "../services/internal-service.js";
+import { createInternalResponses } from "./responses.js";
+import { parseInboundEventBody, parseInternalPathParam, parseMailboxCallbackBody } from "./validation.js";
 
 export function createInternalRouteHandler({
   store,
@@ -8,6 +10,7 @@ export function createInternalRouteHandler({
   webhookDispatcher,
 }) {
   const internalService = createInternalService({ store, webhookDispatcher });
+  const responses = createInternalResponses({ jsonResponse });
 
   return async function handleInternalRoute({ method, path, request, requestId }) {
     if (!path.startsWith("/internal/")) return null;
@@ -17,45 +20,30 @@ export function createInternalRouteHandler({
       if (!auth.ok) return auth.response;
 
       const body = await readJsonBody(request);
-      const mailboxAddress = String(body.address || "").trim().toLowerCase();
-      const sender = String(body.sender || "").trim().toLowerCase();
-      const senderDomain = String(body.sender_domain || "").trim().toLowerCase();
-      const subject = String(body.subject || "").trim();
-      const providerMessageId = String(body.provider_message_id || "").trim() || null;
-      const rawRef = String(body.raw_ref || "").trim() || null;
-      const receivedAt = String(body.received_at || "").trim() || new Date().toISOString();
-      const textExcerpt = String(body.text_excerpt || "").trim() || null;
-      const htmlExcerpt = String(body.html_excerpt || "").trim() || null;
-      const htmlBody = String(body.html_body || "").trim() || null;
-      const headers = body.headers && typeof body.headers === "object" ? body.headers : {};
-
-      if (!mailboxAddress || !senderDomain) {
-        return jsonResponse(
-          400,
-          { error: "bad_request", message: "address and sender_domain are required" },
-          requestId,
-        );
+      const parsed = parseInboundEventBody(body);
+      if (!parsed.ok) {
+        return responses.badRequest(requestId, parsed.message);
       }
 
       const result = await internalService.ingestInboundEvent({
-        mailboxAddress,
-        sender,
-        senderDomain,
-        subject,
-        providerMessageId,
-        rawRef,
-        receivedAt,
-        textExcerpt,
-        htmlExcerpt,
-        htmlBody,
-        headers,
+        mailboxAddress: parsed.mailboxAddress,
+        sender: parsed.sender,
+        senderDomain: parsed.senderDomain,
+        subject: parsed.subject,
+        providerMessageId: parsed.providerMessageId,
+        rawRef: parsed.rawRef,
+        receivedAt: parsed.receivedAt,
+        textExcerpt: parsed.textExcerpt,
+        htmlExcerpt: parsed.htmlExcerpt,
+        htmlBody: parsed.htmlBody,
+        headers: parsed.headers,
         requestId,
       });
       if (!result) {
-        return jsonResponse(404, { error: "not_found", message: "Mailbox not found" }, requestId);
+        return responses.notFound(requestId, "Mailbox not found");
       }
 
-      return jsonResponse(202, result, requestId);
+      return responses.accepted(requestId, result);
     }
 
     if (method === "POST" && path === "/internal/mailboxes/provision") {
@@ -63,21 +51,20 @@ export function createInternalRouteHandler({
       if (!auth.ok) return auth.response;
 
       const body = await readJsonBody(request);
-      const mailboxAddress = String(body.address || "").trim().toLowerCase();
-      const providerRef = String(body.provider_ref || "").trim() || null;
-      if (!mailboxAddress) {
-        return jsonResponse(400, { error: "bad_request", message: "address is required" }, requestId);
+      const parsed = parseMailboxCallbackBody(body);
+      if (!parsed.ok) {
+        return responses.badRequest(requestId, parsed.message);
       }
 
       const result = await internalService.recordMailboxProvision({
-        mailboxAddress,
-        providerRef,
+        mailboxAddress: parsed.mailboxAddress,
+        providerRef: parsed.providerRef,
         requestId,
       });
       if (!result) {
-        return jsonResponse(404, { error: "not_found", message: "Mailbox not found" }, requestId);
+        return responses.notFound(requestId, "Mailbox not found");
       }
-      return jsonResponse(202, result, requestId);
+      return responses.accepted(requestId, result);
     }
 
     if (method === "POST" && path === "/internal/mailboxes/release") {
@@ -85,53 +72,58 @@ export function createInternalRouteHandler({
       if (!auth.ok) return auth.response;
 
       const body = await readJsonBody(request);
-      const mailboxAddress = String(body.address || "").trim().toLowerCase();
-      const providerRef = String(body.provider_ref || "").trim() || null;
-      if (!mailboxAddress) {
-        return jsonResponse(400, { error: "bad_request", message: "address is required" }, requestId);
+      const parsed = parseMailboxCallbackBody(body);
+      if (!parsed.ok) {
+        return responses.badRequest(requestId, parsed.message);
       }
 
       const result = await internalService.recordMailboxRelease({
-        mailboxAddress,
-        providerRef,
+        mailboxAddress: parsed.mailboxAddress,
+        providerRef: parsed.providerRef,
         requestId,
       });
       if (!result) {
-        return jsonResponse(404, { error: "not_found", message: "Mailbox not found" }, requestId);
+        return responses.notFound(requestId, "Mailbox not found");
       }
-      return jsonResponse(202, result, requestId);
+      return responses.accepted(requestId, result);
     }
 
     if (method === "GET" && path.startsWith("/internal/mailboxes/")) {
       const auth = requireInternalAuth(request, requestId);
       if (!auth.ok) return auth.response;
 
-      const mailboxAddress = decodeURIComponent(path.replace("/internal/mailboxes/", "")).trim().toLowerCase();
-      if (!mailboxAddress) {
-        return jsonResponse(400, { error: "bad_request", message: "address is required" }, requestId);
+      const mailboxAddressResult = parseInternalPathParam(path, {
+        prefix: "/internal/mailboxes/",
+        name: "address",
+      });
+      if (!mailboxAddressResult.ok) {
+        return responses.badRequest(requestId, mailboxAddressResult.message);
       }
 
-      const mailbox = await internalService.getMailboxByAddress(mailboxAddress);
+      const mailbox = await internalService.getMailboxByAddress(mailboxAddressResult.value);
       if (!mailbox) {
-        return jsonResponse(404, { error: "not_found", message: "Mailbox not found" }, requestId);
+        return responses.notFound(requestId, "Mailbox not found");
       }
-      return jsonResponse(200, mailbox, requestId);
+      return responses.ok(requestId, mailbox);
     }
 
     if (method === "GET" && path.startsWith("/internal/messages/")) {
       const auth = requireInternalAuth(request, requestId);
       if (!auth.ok) return auth.response;
 
-      const messageId = decodeURIComponent(path.replace("/internal/messages/", "")).trim();
-      if (!messageId) {
-        return jsonResponse(400, { error: "bad_request", message: "message_id is required" }, requestId);
+      const messageIdResult = parseInternalPathParam(path, {
+        prefix: "/internal/messages/",
+        name: "message_id",
+      });
+      if (!messageIdResult.ok) {
+        return responses.badRequest(requestId, messageIdResult.message);
       }
 
-      const message = await internalService.getMessageById(messageId);
+      const message = await internalService.getMessageById(messageIdResult.value);
       if (!message) {
-        return jsonResponse(404, { error: "not_found", message: "Message not found" }, requestId);
+        return responses.notFound(requestId, "Message not found");
       }
-      return jsonResponse(200, message, requestId);
+      return responses.ok(requestId, message);
     }
 
     return null;
