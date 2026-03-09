@@ -137,6 +137,37 @@ test("mailbox service releases mailbox via queue", async () => {
   assert.equal(result.release.status, "released");
 });
 
+test("mailbox service does not mutate mailbox state when release enqueue fails", async () => {
+  let released = false;
+  const store = {
+    async getTenantMailbox() {
+      return { id: "mailbox-1", address: "a@example.com", providerRef: "provider-ref", status: "leased" };
+    },
+    async upsertMailboxAccountFromLegacyMailbox() {
+      return { id: "account-1" };
+    },
+    async getActiveMailboxLeaseV2ByLegacyMailboxId() {
+      return { id: "lease-v2-1" };
+    },
+    async releaseMailbox() {
+      released = true;
+      return { mailbox: { id: "mailbox-1", address: "a@example.com", providerRef: "provider-ref" }, lease: {} };
+    },
+  };
+  const queue = {
+    async enqueue() {
+      throw new Error("redis unavailable");
+    },
+  };
+
+  const service = createMailboxService({ store, queue });
+  await assert.rejects(
+    service.releaseLease({ tenantId: "tenant-1", mailboxId: "mailbox-1" }),
+    /redis unavailable/,
+  );
+  assert.equal(released, false);
+});
+
 test("mailbox service resets credentials via queue", async () => {
   const store = {
     async getTenantMailbox() {

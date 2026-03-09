@@ -320,6 +320,92 @@ test("fetch app requires payment after tenant qps limit and still allows paid by
   assert.equal(paidRes.status, 200);
 });
 
+test("fetch app enforces payment on v2 allocate and send endpoints", async () => {
+  const app = makeApp({ AGENT_ALLOCATE_HOURLY_LIMIT: "1" });
+  const verify = await issueToken(app, "0xabc0000000000000000000000000000000000669");
+
+  const firstAllocateRes = await app(
+    new Request("http://localhost/v1/mailboxes/allocate", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${verify.access_token}`,
+      },
+      body: JSON.stringify({ agent_id: verify.agent_id, purpose: "seed-mailbox", ttl_hours: 1 }),
+    }),
+  );
+  assert.equal(firstAllocateRes.status, 200);
+  const allocation = await firstAllocateRes.json();
+
+  const v2AllocateDeniedRes = await app(
+    new Request("http://localhost/v2/mailboxes/leases", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${verify.access_token}`,
+      },
+      body: JSON.stringify({ agent_id: verify.agent_id, purpose: "paid-allocate", ttl_hours: 1 }),
+    }),
+  );
+  assert.equal(v2AllocateDeniedRes.status, 402);
+  const v2AllocateDenied = await v2AllocateDeniedRes.json();
+  assert.equal(v2AllocateDenied.reasons[0].code, "agent_allocate_hourly");
+
+  const v2AllocatePaidRes = await app(
+    new Request("http://localhost/v2/mailboxes/leases", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${verify.access_token}`,
+        "x-payment-proof": "mock-proof",
+      },
+      body: JSON.stringify({ agent_id: verify.agent_id, purpose: "paid-allocate", ttl_hours: 1 }),
+    }),
+  );
+  assert.equal(v2AllocatePaidRes.status, 202);
+
+  await app.store?.adminPatchTenant?.(verify.tenant_id, { quotas: { qps: 1 } });
+
+  const v2SendDeniedRes = await app(
+    new Request("http://localhost/v2/messages/send", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${verify.access_token}`,
+      },
+      body: JSON.stringify({
+        mailbox_id: allocation.mailbox_id,
+        to: ["receiver@example.com"],
+        subject: "hello-v2-send",
+        text: "mail body",
+        mailbox_password: allocation.webmail_password,
+      }),
+    }),
+  );
+  assert.equal(v2SendDeniedRes.status, 402);
+  const v2SendDenied = await v2SendDeniedRes.json();
+  assert.equal(v2SendDenied.reasons[0].code, "tenant_qps");
+
+  const v2SendPaidRes = await app(
+    new Request("http://localhost/v2/messages/send", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${verify.access_token}`,
+        "x-payment-proof": "mock-proof",
+      },
+      body: JSON.stringify({
+        mailbox_id: allocation.mailbox_id,
+        to: ["receiver@example.com"],
+        subject: "hello-v2-send",
+        text: "mail body",
+        mailbox_password: allocation.webmail_password,
+      }),
+    }),
+  );
+  assert.equal(v2SendPaidRes.status, 202);
+});
+
 test("fetch app blocks suspended tenants even with payment proof", async () => {
   const cfg = createConfig({
     JWT_SECRET: "test-secret",

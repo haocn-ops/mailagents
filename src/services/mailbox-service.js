@@ -71,17 +71,23 @@ export class MailboxService {
         ? await this.store.upsertMailboxAccountFromLegacyMailbox(mailbox)
         : null;
 
+    let job;
+    try {
+      job = await this.queue.enqueue("mailbox.release", {
+        tenantId,
+        mailboxId,
+        address: mailbox.address,
+        providerRef: mailbox.providerRef || null,
+        mailboxAccountId: mailboxAccount?.id || null,
+        mailboxLeaseV2Id: activeLeaseV2?.id || null,
+      });
+    } catch (err) {
+      err.code = err.code || "MAILBOX_RELEASE_ENQUEUE_FAILED";
+      throw err;
+    }
+
     const result = await this.store.releaseMailbox({ tenantId, mailboxId });
     if (!result) return null;
-
-    const job = await this.queue.enqueue("mailbox.release", {
-      tenantId,
-      mailboxId,
-      address: result.mailbox.address,
-      providerRef: result.mailbox.providerRef || null,
-      mailboxAccountId: mailboxAccount?.id || null,
-      mailboxLeaseV2Id: activeLeaseV2?.id || null,
-    });
 
     return {
       mailbox: result.mailbox,

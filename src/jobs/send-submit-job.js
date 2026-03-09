@@ -1,6 +1,6 @@
 export const SEND_SUBMIT_JOB = "send.submit";
 
-export function createSendSubmitJob({ mailBackend }) {
+export function createSendSubmitJob({ mailBackend, store = null }) {
   return async function runSendSubmitJob(payload) {
     try {
       const delivery = await mailBackend.sendMailboxMessage({
@@ -15,8 +15,8 @@ export function createSendSubmitJob({ mailBackend }) {
         html: payload.html,
       });
 
-      if (payload.store?.completeSendAttempt) {
-        await payload.store.completeSendAttempt({
+      if (store?.completeSendAttempt) {
+        await store.completeSendAttempt({
           sendAttemptId: payload.sendAttemptId,
           backendQueueId: delivery?.messageId || null,
           smtpResponse: delivery?.response || null,
@@ -30,8 +30,8 @@ export function createSendSubmitJob({ mailBackend }) {
         delivery,
       };
     } catch (err) {
-      if (payload.store?.failSendAttempt) {
-        await payload.store.failSendAttempt({
+      if (store?.failSendAttempt) {
+        await store.failSendAttempt({
           sendAttemptId: payload.sendAttemptId,
           errorMessage: err.message || "send failed",
         });

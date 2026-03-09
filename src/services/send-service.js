@@ -30,7 +30,6 @@ export class SendService {
 
     const job = await this.queue.enqueue("send.submit", {
       sendAttemptId,
-      store: this.store,
       tenantId,
       agentId,
       mailboxId,

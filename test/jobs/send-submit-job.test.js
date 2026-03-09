@@ -23,10 +23,9 @@ test("send submit job delegates to mail backend", async () => {
     },
   };
 
-  const job = createSendSubmitJob({ mailBackend });
+  const job = createSendSubmitJob({ mailBackend, store });
   const result = await job({
     sendAttemptId: "attempt-1",
-    store,
     tenantId: "tenant-1",
     agentId: "agent-1",
     mailboxId: "mailbox-1",
@@ -56,11 +55,10 @@ test("send submit job marks failed attempts", async () => {
     },
   };
 
-  const job = createSendSubmitJob({ mailBackend });
+  const job = createSendSubmitJob({ mailBackend, store });
   await assert.rejects(
     job({
       sendAttemptId: "attempt-2",
-      store,
       tenantId: "tenant-1",
       agentId: "agent-1",
       mailboxId: "mailbox-1",

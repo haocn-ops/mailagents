@@ -113,14 +113,16 @@ export function createFetchApp(deps = {}) {
     MAILBOX_CREDENTIALS_RESET_JOB,
     createMailboxCredentialsResetJob({ store, mailBackend }),
   );
-  queue.register(SEND_SUBMIT_JOB, createSendSubmitJob({ mailBackend }));
+  queue.register(SEND_SUBMIT_JOB, createSendSubmitJob({ mailBackend, store }));
   queue.register(MESSAGE_PARSE_JOB, createMessageParseJob({ store, queue }));
   queue.register(WEBHOOK_DELIVERY_JOB, createWebhookDeliveryJob({ store, webhookDispatcher }));
   const mailboxService = deps.mailboxService || createMailboxService({ store, queue });
   const sendService = deps.sendService || createSendService({ store, queue });
   const paidBypassTargets = new Set([
     "POST /v1/mailboxes/allocate",
+    "POST /v2/mailboxes/leases",
     "POST /v1/messages/send",
+    "POST /v2/messages/send",
     "GET /v1/messages/latest",
     "POST /v1/webhooks",
   ]);
@@ -249,7 +251,15 @@ export function createFetchApp(deps = {}) {
     return { ok: true };
   }
 
-  async function evaluateAccess({ request, requestId, tenantId, agentId, endpoint, checkAllocateHourly = false }) {
+  async function evaluateAccess({
+    request,
+    requestId,
+    tenantId,
+    agentId,
+    endpoint,
+    checkAllocateHourly = false,
+    allocateHourlyEndpoints = ["POST /v1/mailboxes/allocate"],
+  }) {
     const tenantPolicy = await store.getTenantPolicy(tenantId);
     if (!tenantPolicy) {
       return {
@@ -281,12 +291,13 @@ export function createFetchApp(deps = {}) {
 
     const hourlyAllocateLimit = getAgentAllocateHourlyLimit();
     if (checkAllocateHourly && hourlyAllocateLimit > 0) {
-      const recentAllocations = await store.countAgentEndpointUsageSince(
-        tenantId,
-        agentId,
-        "POST /v1/mailboxes/allocate",
-        new Date(now - 3600 * 1000),
+      const since = new Date(now - 3600 * 1000);
+      const usageByEndpoint = await Promise.all(
+        allocateHourlyEndpoints.map((candidate) =>
+          store.countAgentEndpointUsageSince(tenantId, agentId, candidate, since),
+        ),
       );
+      const recentAllocations = usageByEndpoint.reduce((sum, value) => sum + Number(value || 0), 0);
       if (recentAllocations >= hourlyAllocateLimit) {
         reasons.push({
           code: "agent_allocate_hourly",
@@ -798,6 +809,17 @@ export function createFetchApp(deps = {}) {
           return jsonResponse(400, { error: "bad_request", message: "ttl_hours must be 1..720" }, requestId);
         }
 
+        const access = await evaluateAccess({
+          request,
+          requestId,
+          tenantId: auth.payload.tenant_id,
+          agentId,
+          endpoint: "POST /v2/mailboxes/leases",
+          checkAllocateHourly: true,
+          allocateHourlyEndpoints: ["POST /v1/mailboxes/allocate", "POST /v2/mailboxes/leases"],
+        });
+        if (!access.ok) return access.response;
+
         const result = await mailboxService.requestLease({
           tenantId: auth.payload.tenant_id,
           agentId,
@@ -815,6 +837,16 @@ export function createFetchApp(deps = {}) {
           quantity: 1,
           requestId,
         });
+        if (access.requiresCharge) {
+          await store.recordOverageCharge({
+            tenantId: auth.payload.tenant_id,
+            agentId: auth.payload.agent_id,
+            endpoint: "POST /v2/mailboxes/leases",
+            reasons: access.reasons,
+            amountUsdc: getOverageChargeUsdc(),
+            requestId,
+          });
+        }
 
         return jsonResponse(
           202,
@@ -1092,6 +1124,14 @@ export function createFetchApp(deps = {}) {
       if (method === "POST" && path === "/v2/messages/send") {
         const auth = await requireAuth(request, requestId);
         if (!auth.ok) return auth.response;
+        const access = await evaluateAccess({
+          request,
+          requestId,
+          tenantId: auth.payload.tenant_id,
+          agentId: auth.payload.agent_id,
+          endpoint: "POST /v2/messages/send",
+        });
+        if (!access.ok) return access.response;
 
         const body = await readJsonBody(request);
         const mailboxId = String(body.mailbox_id || "").trim();
@@ -1144,6 +1184,16 @@ export function createFetchApp(deps = {}) {
           quantity: 1,
           requestId,
         });
+        if (access.requiresCharge) {
+          await store.recordOverageCharge({
+            tenantId: auth.payload.tenant_id,
+            agentId: auth.payload.agent_id,
+            endpoint: "POST /v2/messages/send",
+            reasons: access.reasons,
+            amountUsdc: getOverageChargeUsdc(),
+            requestId,
+          });
+        }
 
         return jsonResponse(
           202,

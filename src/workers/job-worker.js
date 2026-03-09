@@ -34,7 +34,7 @@ queue.register(
   MAILBOX_CREDENTIALS_RESET_JOB,
   createMailboxCredentialsResetJob({ store, mailBackend }),
 );
-queue.register(SEND_SUBMIT_JOB, createSendSubmitJob({ mailBackend }));
+queue.register(SEND_SUBMIT_JOB, createSendSubmitJob({ mailBackend, store }));
 queue.register(MESSAGE_PARSE_JOB, createMessageParseJob({ store, queue }));
 queue.register(WEBHOOK_DELIVERY_JOB, createWebhookDeliveryJob({ store, webhookDispatcher }));
 

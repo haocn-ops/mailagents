@@ -35,7 +35,7 @@ test("send service queues send and returns delivery info", async () => {
     },
   };
   const queue = createJobQueue({ mode: "inline" });
-  queue.register(SEND_SUBMIT_JOB, createSendSubmitJob({ mailBackend }));
+  queue.register(SEND_SUBMIT_JOB, createSendSubmitJob({ mailBackend, store }));
 
   const service = createSendService({ store, queue });
   const result = await service.queueSend({

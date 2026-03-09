@@ -66,6 +66,10 @@ export class InMemoryJobQueue {
   listJobs() {
     return [...this.jobs.values()].sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
   }
+
+  async startWorkers() {
+    return [];
+  }
 }
 
 export class BullMqJobQueue {
