@@ -1,6 +1,6 @@
 import { createV2TenantReadModels } from "../v2/tenant-read-models.js";
 
-export function createMessageService({ store, mailBackend }) {
+export function createV2MessageService({ store, mailBackend }) {
   const readModels = createV2TenantReadModels({ store });
 
   return {

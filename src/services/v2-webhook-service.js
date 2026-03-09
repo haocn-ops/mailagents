@@ -1,6 +1,6 @@
 import { createV2TenantReadModels } from "../v2/tenant-read-models.js";
 
-export function createWebhookService({ store }) {
+export function createV2WebhookService({ store }) {
   const readModels = createV2TenantReadModels({ store });
 
   return {
