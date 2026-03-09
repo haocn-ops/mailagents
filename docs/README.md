@@ -23,6 +23,11 @@
 - [Admin Dashboard Design](./admin-dashboard.md)
 - [Business API Contract](./openapi.yaml)
 - [Admin API Contract](./openapi-admin.yaml)
+- [V2 Technical Design](./mailagents-v2-technical-design.md)
+- [V2 Business API Draft](./openapi-v2.yaml)
+- [V2 Admin API Draft](./openapi-admin-v2.yaml)
+- [V2 Additive DB Migration](./db-migration-v2.sql)
+- [V2 Sprint 1 Plan](./sprint-1-implementation-plan.md)
 - [Database DDL](./db/schema.sql)
 
 ## Suggested Reading Order
@@ -48,4 +53,9 @@
 19. `openapi.yaml` - business API contract
 20. `admin-dashboard.md` - dashboard IA and operation flows
 21. `openapi-admin.yaml` - admin API contract
-22. `db/schema.sql` - schema implementation
+22. `mailagents-v2-technical-design.md` - integrated V2 technical design and migration target
+23. `openapi-v2.yaml` - proposed V2 public API contract
+24. `openapi-admin-v2.yaml` - proposed V2 admin API contract
+25. `db-migration-v2.sql` - additive V2 schema migration draft
+26. `sprint-1-implementation-plan.md` - first implementation sprint breakdown
+27. `db/schema.sql` - current schema implementation

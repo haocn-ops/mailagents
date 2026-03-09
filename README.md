@@ -11,6 +11,11 @@ Current baseline documents:
 Recommended redesign documents:
 - `docs/redesign-architecture.md`
 - `docs/redesign-schema.md`
+- `docs/mailagents-v2-technical-design.md`
+- `docs/openapi-v2.yaml`
+- `docs/openapi-admin-v2.yaml`
+- `docs/db-migration-v2.sql`
+- `docs/sprint-1-implementation-plan.md`
 
 Start with the customer-facing guide: `docs/user-guide.md`.
 Operational handoff documents:
