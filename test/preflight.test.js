@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { validateProductionReadiness } from "../src/preflight.js";
+import { evaluateStartupPreflight, shouldEnforceStartupPreflight } from "../src/startup-policy.js";
 
 test("production preflight rejects unsafe defaults", () => {
   const result = validateProductionReadiness({
@@ -45,4 +46,41 @@ test("production preflight accepts hardened config", () => {
   });
 
   assert.equal(result.ok, true);
+});
+
+test("startup policy enforcement respects explicit and production env flags", () => {
+  assert.equal(shouldEnforceStartupPreflight({ REQUIRE_PROD_PREFLIGHT: "true" }), true);
+  assert.equal(
+    shouldEnforceStartupPreflight({ NODE_ENV: "production", ENFORCE_SAFE_STARTUP: "true" }),
+    true,
+  );
+  assert.equal(
+    shouldEnforceStartupPreflight({ NODE_ENV: "production", ENFORCE_SAFE_STARTUP: "false" }),
+    false,
+  );
+  assert.equal(shouldEnforceStartupPreflight({ NODE_ENV: "development" }), false);
+});
+
+test("startup policy evaluation throws enriched preflight error for unsafe config", () => {
+  assert.throws(
+    () =>
+      evaluateStartupPreflight({
+        jwtSecret: "dev-jwt-secret",
+        internalApiToken: "",
+        adminApiToken: "",
+        siweMode: "mock",
+        paymentMode: "mock",
+        paymentHmacSecret: "",
+        mailProvider: "noop",
+        mailuBaseUrl: "http://localhost:3001",
+        mailuApiToken: "",
+        storageBackend: "memory",
+        databaseUrl: "",
+        webhookSecretEncryptionKey: "",
+        webhookRetryAttempts: 1,
+        webhookTimeoutMs: 500,
+        webhookRetryBackoffMs: 50,
+      }),
+    (err) => err?.code === "PROD_PREFLIGHT_FAILED" && Array.isArray(err?.details?.errors),
+  );
 });
