@@ -1,31 +1,4 @@
-function toV2MailboxAccount(mailbox, lease = null) {
-  return {
-    account_id: mailbox.mailbox_id,
-    mailbox_id: mailbox.mailbox_id,
-    address: mailbox.address,
-    account_status: mailbox.status === "leased" ? "active" : mailbox.status,
-    lease_status: lease?.status || null,
-    lease_id: lease?.id || null,
-    lease_expires_at: mailbox.lease_expires_at || lease?.expiresAt || null,
-    provider_ref: mailbox.provider_ref || null,
-    updated_at: mailbox.updated_at || null,
-  };
-}
-
-function toV2MailboxLease(mailbox, lease) {
-  return {
-    lease_id: lease.id,
-    mailbox_id: mailbox.mailbox_id,
-    account_id: mailbox.mailbox_id,
-    address: mailbox.address,
-    agent_id: lease.agentId,
-    purpose: lease.purpose,
-    lease_status: lease.status,
-    started_at: lease.startedAt,
-    expires_at: lease.expiresAt,
-    released_at: lease.releasedAt || null,
-  };
-}
+import { createMailboxService } from "../services/mailbox-service.js";
 
 export function createV2MailboxRouteHandler({
   store,
@@ -36,32 +9,22 @@ export function createV2MailboxRouteHandler({
   readJsonBody,
   getOverageChargeUsdc,
 }) {
+  const mailboxService = createMailboxService({ store, mailBackend });
+
   return async function handleV2MailboxRoute({ method, path, request, requestId }) {
     if (!path.startsWith("/v2/mailboxes/")) return null;
 
     if (method === "GET" && path === "/v2/mailboxes/accounts") {
       const auth = await requireAuth(request, requestId);
       if (!auth.ok) return auth.response;
-
-      const mailboxes = await store.listTenantMailboxes(auth.payload.tenant_id);
-      const items = [];
-      for (const mailbox of mailboxes) {
-        const lease = await store.getActiveLeaseByMailboxId(mailbox.mailbox_id);
-        items.push(toV2MailboxAccount(mailbox, lease));
-      }
+      const items = await mailboxService.listAccounts(auth.payload.tenant_id);
       return jsonResponse(200, { items }, requestId);
     }
 
     if (method === "GET" && path === "/v2/mailboxes/leases") {
       const auth = await requireAuth(request, requestId);
       if (!auth.ok) return auth.response;
-
-      const mailboxes = await store.listTenantMailboxes(auth.payload.tenant_id);
-      const items = [];
-      for (const mailbox of mailboxes) {
-        const lease = await store.getActiveLeaseByMailboxId(mailbox.mailbox_id);
-        if (lease) items.push(toV2MailboxLease(mailbox, lease));
-      }
+      const items = await mailboxService.listLeases(auth.payload.tenant_id);
       return jsonResponse(200, { items }, requestId);
     }
 
@@ -95,31 +58,19 @@ export function createV2MailboxRouteHandler({
       });
       if (!access.ok) return access.response;
 
-      const result = await store.allocateMailbox({
-        tenantId: auth.payload.tenant_id,
-        agentId,
-        purpose,
-        ttlHours,
-      });
-      if (!result) {
-        return jsonResponse(409, { error: "no_available_mailbox", message: "No available mailbox for current tenant" }, requestId);
-      }
-
-      let provider = null;
+      let result;
       try {
-        provider = await mailBackend.provisionMailbox({
+        result = await mailboxService.allocateLease({
           tenantId: auth.payload.tenant_id,
           agentId,
-          mailboxId: result.mailbox.id,
-          address: result.mailbox.address,
+          purpose,
           ttlHours,
         });
-        if (provider?.providerRef) {
-          await store.saveMailboxProviderRef(result.mailbox.id, provider.providerRef);
-        }
       } catch (err) {
-        await store.releaseMailbox({ tenantId: auth.payload.tenant_id, mailboxId: result.mailbox.id });
         return jsonResponse(502, { error: "mail_backend_error", message: err.message || "Mail backend provisioning failed" }, requestId);
+      }
+      if (!result) {
+        return jsonResponse(409, { error: "no_available_mailbox", message: "No available mailbox for current tenant" }, requestId);
       }
 
       await store.recordUsage({
@@ -140,21 +91,7 @@ export function createV2MailboxRouteHandler({
         });
       }
 
-      return jsonResponse(
-        201,
-        {
-          lease_id: result.lease.id,
-          mailbox_id: result.mailbox.id,
-          account_id: result.mailbox.id,
-          address: result.mailbox.address,
-          lease_status: result.lease.status,
-          expires_at: result.lease.expiresAt,
-          webmail_login: provider?.credentials?.login || null,
-          webmail_password: provider?.credentials?.password || null,
-          webmail_url: provider?.credentials?.webmailUrl || null,
-        },
-        requestId,
-      );
+      return jsonResponse(201, result, requestId);
     }
 
     if (method === "POST" && path.startsWith("/v2/mailboxes/leases/") && path.endsWith("/release")) {
@@ -162,25 +99,14 @@ export function createV2MailboxRouteHandler({
       if (!auth.ok) return auth.response;
 
       const leaseId = path.slice("/v2/mailboxes/leases/".length, -"/release".length);
-      const lease = await store.getTenantLeaseById(auth.payload.tenant_id, leaseId);
-      if (!lease) {
-        return jsonResponse(404, { error: "not_found", message: "Lease not found" }, requestId);
-      }
-
-      const result = await store.releaseMailbox({ tenantId: auth.payload.tenant_id, mailboxId: lease.mailboxId });
-      if (!result) {
-        return jsonResponse(404, { error: "not_found", message: "Lease not found" }, requestId);
-      }
-
+      let result;
       try {
-        await mailBackend.releaseMailbox({
-          tenantId: auth.payload.tenant_id,
-          mailboxId: lease.mailboxId,
-          address: result.mailbox.address,
-          providerRef: result.mailbox.providerRef || null,
-        });
+        result = await mailboxService.releaseLease({ tenantId: auth.payload.tenant_id, leaseId });
       } catch (err) {
         return jsonResponse(502, { error: "mail_backend_error", message: err.message || "Mail backend release failed" }, requestId);
+      }
+      if (!result) {
+        return jsonResponse(404, { error: "not_found", message: "Lease not found" }, requestId);
       }
 
       await store.recordUsage({
@@ -191,7 +117,7 @@ export function createV2MailboxRouteHandler({
         requestId,
       });
 
-      return jsonResponse(202, { lease_id: leaseId, mailbox_id: lease.mailboxId, lease_status: "released" }, requestId);
+      return jsonResponse(202, result, requestId);
     }
 
     if (method === "POST" && path.startsWith("/v2/mailboxes/accounts/") && path.endsWith("/credentials/reset")) {
@@ -199,18 +125,14 @@ export function createV2MailboxRouteHandler({
       if (!auth.ok) return auth.response;
 
       const accountId = path.slice("/v2/mailboxes/accounts/".length, -"/credentials/reset".length);
-      const mailbox = await store.getTenantMailbox(auth.payload.tenant_id, accountId);
-      if (!mailbox) {
-        return jsonResponse(404, { error: "not_found", message: "Mailbox not found" }, requestId);
-      }
-
-      const credentials = await mailBackend.issueMailboxCredentials({
+      const credentials = await mailboxService.resetCredentials({
         tenantId: auth.payload.tenant_id,
         agentId: auth.payload.agent_id,
-        mailboxId: accountId,
-        address: mailbox.address,
-        providerRef: mailbox.providerRef || null,
+        accountId,
       });
+      if (!credentials) {
+        return jsonResponse(404, { error: "not_found", message: "Mailbox not found" }, requestId);
+      }
 
       await store.recordUsage({
         tenantId: auth.payload.tenant_id,
@@ -220,18 +142,7 @@ export function createV2MailboxRouteHandler({
         requestId,
       });
 
-      return jsonResponse(
-        200,
-        {
-          account_id: mailbox.id,
-          mailbox_id: mailbox.id,
-          address: mailbox.address,
-          webmail_login: credentials?.login || mailbox.address,
-          webmail_password: credentials?.password || null,
-          webmail_url: credentials?.webmailUrl || null,
-        },
-        requestId,
-      );
+      return jsonResponse(200, credentials, requestId);
     }
 
     return null;
