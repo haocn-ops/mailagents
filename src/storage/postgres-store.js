@@ -531,6 +531,154 @@ export class PostgresStore {
     };
   }
 
+  async listTenantMailboxAccountsV2({ tenantId, page, pageSize }) {
+    const tables = await this._loadV2TableAvailability();
+    if (!tables.mailbox_accounts) {
+      const fallback = await this.listTenantMailboxes(tenantId);
+      return this._paginate(
+        fallback.map((mailbox) => ({
+          mailbox_id: mailbox.mailbox_id,
+          mailbox_account_id: null,
+          address: mailbox.address,
+          domain: String(mailbox.address).split("@")[1] || this.mailboxDomain,
+          mailbox_type: "pooled",
+          backend_ref: mailbox.provider_ref,
+          backend_status: mailbox.status === "leased" ? "active" : "disabled",
+          last_password_reset_at: null,
+          updated_at: mailbox.updated_at,
+        })),
+        page,
+        pageSize,
+      );
+    }
+
+    const result = await this._query(
+      `select m.id as mailbox_id,
+              a.id as mailbox_account_id,
+              coalesce(a.address, m.address) as address,
+              coalesce(a.domain, split_part(m.address, '@', 2)) as domain,
+              coalesce(a.mailbox_type, 'pooled') as mailbox_type,
+              coalesce(a.backend_ref, m.provider_ref) as backend_ref,
+              coalesce(a.backend_status, case when m.status = 'leased' then 'active' else 'disabled' end) as backend_status,
+              a.last_password_reset_at,
+              coalesce(a.updated_at, m.created_at) as updated_at
+         from mailboxes m
+         left join mailbox_accounts a on a.address = m.address
+        where m.tenant_id = $1
+        order by coalesce(a.updated_at, m.created_at) desc, m.address asc`,
+      [tenantId],
+    );
+    return this._paginate(
+      result.rows.map((row) => ({
+        mailbox_id: row.mailbox_id,
+        mailbox_account_id: row.mailbox_account_id,
+        address: row.address,
+        domain: row.domain,
+        mailbox_type: row.mailbox_type,
+        backend_ref: row.backend_ref,
+        backend_status: row.backend_status,
+        last_password_reset_at: row.last_password_reset_at ? row.last_password_reset_at.toISOString() : null,
+        updated_at: row.updated_at ? row.updated_at.toISOString() : null,
+      })),
+      page,
+      pageSize,
+    );
+  }
+
+  async listTenantMailboxLeasesV2({ tenantId, page, pageSize, leaseStatus = null }) {
+    const tables = await this._loadV2TableAvailability();
+    if (!tables.mailbox_leases_v2) {
+      return this._paginate([], page, pageSize);
+    }
+    const values = [tenantId];
+    let statusFilter = "";
+    if (leaseStatus) {
+      values.push(leaseStatus);
+      statusFilter = `and l.lease_status = $${values.length}`;
+    }
+    const result = await this._query(
+      `select l.id as lease_id,
+              m.id as mailbox_id,
+              l.mailbox_account_id,
+              l.agent_id,
+              l.purpose,
+              l.lease_status,
+              l.started_at,
+              l.ends_at,
+              l.released_at,
+              a.address,
+              l.created_at,
+              l.updated_at
+         from mailbox_leases_v2 l
+         join mailbox_accounts a on a.id = l.mailbox_account_id
+         left join mailboxes m on m.address = a.address
+        where l.tenant_id = $1
+          ${statusFilter}
+        order by l.created_at desc`,
+      values,
+    );
+    return this._paginate(
+      result.rows.map((row) => ({
+        lease_id: row.lease_id,
+        mailbox_id: row.mailbox_id,
+        mailbox_account_id: row.mailbox_account_id,
+        agent_id: row.agent_id,
+        purpose: row.purpose,
+        lease_status: row.lease_status,
+        started_at: row.started_at ? row.started_at.toISOString() : null,
+        ends_at: row.ends_at ? row.ends_at.toISOString() : null,
+        released_at: row.released_at ? row.released_at.toISOString() : null,
+        address: row.address,
+        created_at: row.created_at ? row.created_at.toISOString() : null,
+        updated_at: row.updated_at ? row.updated_at.toISOString() : null,
+      })),
+      page,
+      pageSize,
+    );
+  }
+
+  async getTenantMailboxLeaseV2(tenantId, leaseId) {
+    const tables = await this._loadV2TableAvailability();
+    if (!tables.mailbox_leases_v2) return null;
+    const result = await this._query(
+      `select l.id as lease_id,
+              m.id as mailbox_id,
+              l.mailbox_account_id,
+              l.agent_id,
+              l.purpose,
+              l.lease_status,
+              l.started_at,
+              l.ends_at,
+              l.released_at,
+              a.address,
+              l.created_at,
+              l.updated_at
+         from mailbox_leases_v2 l
+         join mailbox_accounts a on a.id = l.mailbox_account_id
+         left join mailboxes m on m.address = a.address
+        where l.id = $1
+          and l.tenant_id = $2
+        limit 1`,
+      [leaseId, tenantId],
+    );
+    if (result.rowCount === 0) return null;
+    const row = result.rows[0];
+    return {
+      lease_id: row.lease_id,
+      mailbox_id: row.mailbox_id,
+      mailbox_account_id: row.mailbox_account_id,
+      agent_id: row.agent_id,
+      purpose: row.purpose,
+      lease_status: row.lease_status,
+      started_at: row.started_at ? row.started_at.toISOString() : null,
+      ends_at: row.ends_at ? row.ends_at.toISOString() : null,
+      released_at: row.released_at ? row.released_at.toISOString() : null,
+      address: row.address,
+      created_at: row.created_at ? row.created_at.toISOString() : null,
+      updated_at: row.updated_at ? row.updated_at.toISOString() : null,
+    };
+  }
+
   async upsertMailboxAccountFromLegacyMailbox(mailbox) {
     const tables = await this._loadV2TableAvailability();
     if (!tables.mailbox_accounts) return null;

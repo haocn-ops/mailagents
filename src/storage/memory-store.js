@@ -368,6 +368,74 @@ export class MemoryStore {
     };
   }
 
+  async listTenantMailboxAccountsV2({ tenantId, page, pageSize }) {
+    const items = [...this.state.mailboxes.values()]
+      .filter((mailbox) => mailbox.tenantId === tenantId)
+      .map((mailbox) => {
+        const account = [...this.state.mailboxAccountsV2.values()].find((item) => item.legacyMailboxId === mailbox.id) || null;
+        return {
+          mailbox_id: mailbox.id,
+          mailbox_account_id: account?.id || null,
+          address: mailbox.address,
+          domain: account?.domain || String(mailbox.address).split("@")[1] || this.mailboxDomain,
+          mailbox_type: account?.mailboxType || "pooled",
+          backend_ref: account?.backendRef || mailbox.providerRef || null,
+          backend_status: account?.backendStatus || (mailbox.status === "leased" ? "active" : "disabled"),
+          last_password_reset_at: account?.lastPasswordResetAt || null,
+          updated_at: account?.updatedAt || mailbox.updatedAt || mailbox.createdAt || null,
+        };
+      })
+      .sort((a, b) => String(b.updated_at || "").localeCompare(String(a.updated_at || "")));
+    return this._paginate(items, page, pageSize);
+  }
+
+  async listTenantMailboxLeasesV2({ tenantId, page, pageSize, leaseStatus = null }) {
+    let items = [...this.state.mailboxLeasesV2.values()]
+      .filter((lease) => lease.tenantId === tenantId)
+      .map((lease) => {
+        const account = this.state.mailboxAccountsV2.get(lease.mailboxAccountId) || null;
+        return {
+          lease_id: lease.id,
+          mailbox_id: account?.legacyMailboxId || null,
+          mailbox_account_id: lease.mailboxAccountId,
+          agent_id: lease.agentId,
+          purpose: lease.purpose,
+          lease_status: lease.status,
+          started_at: lease.startedAt,
+          ends_at: lease.endsAt,
+          released_at: lease.releasedAt,
+          address: account?.address || null,
+          created_at: lease.createdAt,
+          updated_at: lease.updatedAt,
+        };
+      });
+    if (leaseStatus) {
+      items = items.filter((lease) => lease.lease_status === leaseStatus);
+    }
+    items.sort((a, b) => String(b.created_at || "").localeCompare(String(a.created_at || "")));
+    return this._paginate(items, page, pageSize);
+  }
+
+  async getTenantMailboxLeaseV2(tenantId, leaseId) {
+    const lease = this.state.mailboxLeasesV2.get(leaseId);
+    if (!lease || lease.tenantId !== tenantId) return null;
+    const account = this.state.mailboxAccountsV2.get(lease.mailboxAccountId) || null;
+    return {
+      lease_id: lease.id,
+      mailbox_id: account?.legacyMailboxId || null,
+      mailbox_account_id: lease.mailboxAccountId,
+      agent_id: lease.agentId,
+      purpose: lease.purpose,
+      lease_status: lease.status,
+      started_at: lease.startedAt,
+      ends_at: lease.endsAt,
+      released_at: lease.releasedAt,
+      address: account?.address || null,
+      created_at: lease.createdAt,
+      updated_at: lease.updatedAt,
+    };
+  }
+
   async upsertMailboxAccountFromLegacyMailbox(mailbox) {
     const existing = [...this.state.mailboxAccountsV2.values()].find((item) => item.address === mailbox.address);
     if (existing) {

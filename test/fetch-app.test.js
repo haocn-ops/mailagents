@@ -655,6 +655,78 @@ test("fetch app exposes v2 messages and send attempts read endpoints", async () 
   assert.equal(sendAttemptDetail.submission_status, "accepted");
 });
 
+test("fetch app exposes v2 mailbox accounts and leases endpoints", async () => {
+  const app = makeApp();
+  const verify = await issueToken(app, "0xabc0000000000000000000000000000000000778");
+
+  const createLeaseRes = await app(
+    new Request("http://localhost/v2/mailboxes/leases", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${verify.access_token}`,
+      },
+      body: JSON.stringify({ agent_id: verify.agent_id, purpose: "v2-lease", ttl_hours: 1 }),
+    }),
+  );
+  assert.equal(createLeaseRes.status, 202);
+  const createdLease = await createLeaseRes.json();
+  assert.ok(createdLease.lease_id);
+  assert.ok(createdLease.mailbox_account_id);
+  assert.equal(createdLease.lease_status, "active");
+
+  const accountsRes = await app(
+    new Request("http://localhost/v2/mailboxes/accounts?page=1&page_size=20", {
+      method: "GET",
+      headers: { authorization: `Bearer ${verify.access_token}` },
+    }),
+  );
+  assert.equal(accountsRes.status, 200);
+  const accounts = await accountsRes.json();
+  assert.equal(accounts.total, 5);
+  const leasedAccount = accounts.items.find((item) => item.mailbox_id === createdLease.mailbox_id);
+  assert.ok(leasedAccount?.mailbox_account_id);
+  assert.equal(leasedAccount?.backend_status, "active");
+
+  const leasesRes = await app(
+    new Request("http://localhost/v2/mailboxes/leases?page=1&page_size=20", {
+      method: "GET",
+      headers: { authorization: `Bearer ${verify.access_token}` },
+    }),
+  );
+  assert.equal(leasesRes.status, 200);
+  const leases = await leasesRes.json();
+  assert.equal(leases.total, 1);
+  assert.equal(leases.items[0].lease_id, createdLease.lease_id);
+  assert.equal(leases.items[0].mailbox_id, createdLease.mailbox_id);
+
+  const leaseDetailRes = await app(
+    new Request(`http://localhost/v2/mailboxes/leases/${createdLease.lease_id}`, {
+      method: "GET",
+      headers: { authorization: `Bearer ${verify.access_token}` },
+    }),
+  );
+  assert.equal(leaseDetailRes.status, 200);
+  const leaseDetail = await leaseDetailRes.json();
+  assert.equal(leaseDetail.lease_id, createdLease.lease_id);
+  assert.equal(leaseDetail.address, createdLease.address);
+
+  const releaseRes = await app(
+    new Request(`http://localhost/v2/mailboxes/leases/${createdLease.lease_id}/release`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${verify.access_token}`,
+      },
+      body: "{}",
+    }),
+  );
+  assert.equal(releaseRes.status, 202);
+  const released = await releaseRes.json();
+  assert.equal(released.lease_id, createdLease.lease_id);
+  assert.equal(released.lease_status, "released");
+});
+
 test("fetch app requires dedicated admin token when configured", async () => {
   const cfg = createConfig({
     JWT_SECRET: "test-secret",

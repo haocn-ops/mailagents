@@ -735,6 +735,166 @@ export function createFetchApp(deps = {}) {
         return jsonResponse(200, { items }, requestId);
       }
 
+      if (method === "GET" && path === "/v2/mailboxes/accounts") {
+        const auth = await requireAuth(request, requestId);
+        if (!auth.ok) return auth.response;
+        const paging = parsePaging(requestUrl);
+        if (!paging.ok) return jsonResponse(400, { error: "bad_request", message: paging.message }, requestId);
+
+        const result = await store.listTenantMailboxAccountsV2({
+          tenantId: auth.payload.tenant_id,
+          page: paging.page,
+          pageSize: paging.pageSize,
+        });
+        await store.recordUsage({
+          tenantId: auth.payload.tenant_id,
+          agentId: auth.payload.agent_id,
+          endpoint: "GET /v2/mailboxes/accounts",
+          quantity: 1,
+          requestId,
+        });
+        return jsonResponse(200, result, requestId);
+      }
+
+      if (method === "GET" && path === "/v2/mailboxes/leases") {
+        const auth = await requireAuth(request, requestId);
+        if (!auth.ok) return auth.response;
+        const paging = parsePaging(requestUrl);
+        if (!paging.ok) return jsonResponse(400, { error: "bad_request", message: paging.message }, requestId);
+
+        const result = await store.listTenantMailboxLeasesV2({
+          tenantId: auth.payload.tenant_id,
+          leaseStatus: requestUrl.searchParams.get("lease_status"),
+          page: paging.page,
+          pageSize: paging.pageSize,
+        });
+        await store.recordUsage({
+          tenantId: auth.payload.tenant_id,
+          agentId: auth.payload.agent_id,
+          endpoint: "GET /v2/mailboxes/leases",
+          quantity: 1,
+          requestId,
+        });
+        return jsonResponse(200, result, requestId);
+      }
+
+      if (method === "POST" && path === "/v2/mailboxes/leases") {
+        const auth = await requireAuth(request, requestId);
+        if (!auth.ok) return auth.response;
+
+        const body = await readJsonBody(request);
+        const purpose = String(body.purpose || "").trim();
+        const ttlHours = Number(body.ttl_hours);
+        const agentId = String(body.agent_id || "");
+
+        if (!agentId || !purpose || !Number.isFinite(ttlHours)) {
+          return jsonResponse(400, { error: "bad_request", message: "agent_id, purpose, ttl_hours are required" }, requestId);
+        }
+        if (auth.payload.agent_id !== agentId) {
+          return jsonResponse(403, { error: "forbidden", message: "agent_id does not match token" }, requestId);
+        }
+        if (ttlHours < 1 || ttlHours > 720) {
+          return jsonResponse(400, { error: "bad_request", message: "ttl_hours must be 1..720" }, requestId);
+        }
+
+        const result = await mailboxService.requestLease({
+          tenantId: auth.payload.tenant_id,
+          agentId,
+          purpose,
+          ttlHours,
+        });
+        if (!result) {
+          return jsonResponse(409, { error: "no_available_mailbox", message: "No available mailbox for current tenant" }, requestId);
+        }
+
+        await store.recordUsage({
+          tenantId: auth.payload.tenant_id,
+          agentId: auth.payload.agent_id,
+          endpoint: "POST /v2/mailboxes/leases",
+          quantity: 1,
+          requestId,
+        });
+
+        return jsonResponse(
+          202,
+          {
+            lease_id: result.leaseV2?.id || null,
+            mailbox_id: result.mailbox.id,
+            mailbox_account_id: result.mailboxAccount?.id || null,
+            address: result.mailbox.address,
+            lease_status: result.leaseV2?.status || "pending",
+            started_at: result.leaseV2?.startedAt || null,
+            ends_at: result.leaseV2?.endsAt || result.lease.expiresAt,
+            released_at: result.leaseV2?.releasedAt || null,
+            job_id: result.jobId,
+            job_status: result.jobStatus,
+          },
+          requestId,
+        );
+      }
+
+      if (method === "GET" && path.startsWith("/v2/mailboxes/leases/")) {
+        const auth = await requireAuth(request, requestId);
+        if (!auth.ok) return auth.response;
+
+        const leaseId = path.replace("/v2/mailboxes/leases/", "").trim();
+        if (!leaseId) {
+          return jsonResponse(400, { error: "bad_request", message: "lease_id is required" }, requestId);
+        }
+        const lease = await store.getTenantMailboxLeaseV2(auth.payload.tenant_id, leaseId);
+        if (!lease) {
+          return jsonResponse(404, { error: "not_found", message: "Lease not found" }, requestId);
+        }
+        await store.recordUsage({
+          tenantId: auth.payload.tenant_id,
+          agentId: auth.payload.agent_id,
+          endpoint: "GET /v2/mailboxes/leases/{lease_id}",
+          quantity: 1,
+          requestId,
+        });
+        return jsonResponse(200, lease, requestId);
+      }
+
+      if (method === "POST" && path.startsWith("/v2/mailboxes/leases/") && path.endsWith("/release")) {
+        const auth = await requireAuth(request, requestId);
+        if (!auth.ok) return auth.response;
+
+        const leaseId = path.slice("/v2/mailboxes/leases/".length, -"/release".length);
+        const lease = await store.getTenantMailboxLeaseV2(auth.payload.tenant_id, leaseId);
+        if (!lease?.mailbox_id) {
+          return jsonResponse(404, { error: "not_found", message: "Lease not found" }, requestId);
+        }
+
+        const result = await mailboxService.releaseLease({
+          tenantId: auth.payload.tenant_id,
+          mailboxId: lease.mailbox_id,
+        });
+        if (!result) {
+          return jsonResponse(404, { error: "not_found", message: "Lease not found" }, requestId);
+        }
+
+        await store.recordUsage({
+          tenantId: auth.payload.tenant_id,
+          agentId: auth.payload.agent_id,
+          endpoint: "POST /v2/mailboxes/leases/{lease_id}/release",
+          quantity: 1,
+          requestId,
+        });
+
+        return jsonResponse(
+          202,
+          {
+            lease_id: leaseId,
+            mailbox_id: lease.mailbox_id,
+            mailbox_account_id: lease.mailbox_account_id,
+            lease_status: "released",
+            job_id: result.jobId,
+            job_status: result.jobStatus,
+          },
+          requestId,
+        );
+      }
+
       if (method === "GET" && path === "/v1/messages/latest") {
         const auth = await requireAuth(request, requestId);
         if (!auth.ok) return auth.response;
