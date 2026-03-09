@@ -3,13 +3,11 @@ import { createConfig } from "./config.js";
 import { chargeRequiredResponse, jsonResponse, parsePaging, readJsonBody } from "./http-helpers.js";
 import { createMailBackendAdapter } from "./mail-backend/index.js";
 import { createPaymentVerifier } from "./payment.js";
+import { createPublicRouteHandler } from "./public-routes.js";
 import { createInternalRouteHandler } from "./internal/index.js";
 import { createRequestAuth } from "./request-auth.js";
 import { createRuntimeSettingsManager } from "./runtime-settings.js";
 import { createSiweService } from "./siwe.js";
-import { renderAdminDashboardHtml } from "./admin-ui.js";
-import { renderAgentsGuideHtml } from "./agents-guide-ui.js";
-import { renderUserAppHtml } from "./user-ui.js";
 import { getDefaultStore } from "./store.js";
 import { createRequestId } from "./utils.js";
 import { createV1RouteHandler } from "./v1/index.js";
@@ -69,6 +67,12 @@ export function createFetchApp(deps = {}) {
     getAgentAllocateHourlyLimit,
   });
   const { requireAuth, requireAdminAuth, requireInternalAuth, evaluateAccess } = requestAuth;
+  const handlePublicRoute = createPublicRouteHandler({
+    runtimeConfig,
+    jsonResponse,
+    getOverageChargeUsdc,
+    getAgentAllocateHourlyLimit,
+  });
   const handleInternalRoute = createInternalRouteHandler({
     store,
     requireInternalAuth,
@@ -134,62 +138,8 @@ export function createFetchApp(deps = {}) {
     try {
       await runtimeSettings.ensureLoaded();
 
-      if (method === "GET" && path === "/healthz") {
-        return jsonResponse(200, { status: "ok", service: "agent-mail-cloud" }, requestId);
-      }
-
-      if (method === "GET" && path === "/v1/meta/runtime") {
-        return jsonResponse(
-          200,
-          {
-            siwe_mode: runtimeConfig.siweMode,
-            payment_mode: runtimeConfig.paymentMode,
-            base_chain_id: runtimeConfig.baseChainId,
-            chain_name: runtimeConfig.chainName,
-            chain_hex: `0x${Number(runtimeConfig.baseChainId || 0).toString(16)}`,
-            chain_rpc_urls: runtimeConfig.chainRpcUrls,
-            chain_explorer_urls: runtimeConfig.chainExplorerUrls,
-            mailbox_domain: runtimeConfig.mailboxDomain,
-            overage_charge_usdc: getOverageChargeUsdc(),
-            agent_allocate_hourly_limit: getAgentAllocateHourlyLimit(),
-            webmail_url: runtimeConfig.mailuBaseUrl ? `${runtimeConfig.mailuBaseUrl.replace(/\/$/, "")}/webmail/` : null,
-            auth: {
-              browser_wallet_required: runtimeConfig.siweMode === "strict",
-            },
-          },
-          requestId,
-        );
-      }
-
-      if (method === "GET" && (path === "/admin" || path === "/admin/")) {
-        return new Response(renderAdminDashboardHtml({ adminTokenRequired: Boolean(runtimeConfig.adminApiToken) }), {
-          status: 200,
-          headers: {
-            "content-type": "text/html; charset=utf-8",
-            "cache-control": "no-store",
-          },
-        });
-      }
-
-      if (method === "GET" && (path === "/app" || path === "/app/")) {
-        return new Response(renderUserAppHtml(), {
-          status: 200,
-          headers: {
-            "content-type": "text/html; charset=utf-8",
-            "cache-control": "no-store",
-          },
-        });
-      }
-
-      if (method === "GET" && (path === "/agents-guide" || path === "/agents-guide/")) {
-        return new Response(renderAgentsGuideHtml(), {
-          status: 200,
-          headers: {
-            "content-type": "text/html; charset=utf-8",
-            "cache-control": "no-store",
-          },
-        });
-      }
+      const publicResponse = await handlePublicRoute({ method, path, requestId });
+      if (publicResponse) return publicResponse;
 
       const v2Response = await handleV2Route({ method, path, request, requestId, requestUrl });
       if (v2Response) return v2Response;
