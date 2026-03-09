@@ -7,13 +7,21 @@ import { getDefaultStore } from "../store.js";
 
 const store = getDefaultStore();
 const mailBackend = createMailBackendAdapter(config);
-const queue = createJobQueue({ mode: "manual" });
+const queue = createJobQueue({
+  backend: config.queueBackend,
+  redisUrl: config.queueRedisUrl,
+  prefix: config.queuePrefix,
+  mode: config.queueBackend === "redis" ? "worker" : "manual",
+});
 
 queue.register(MAILBOX_PROVISION_JOB, createMailboxProvisionJob({ store, mailBackend }));
 queue.register(SEND_SUBMIT_JOB, createSendSubmitJob({ mailBackend }));
 
 console.log("Mailagents job worker initialized");
+console.log(`queue_backend=${config.queueBackend}`);
 console.log(`queue_mode=${queue.mode}`);
 console.log(`registered_jobs=${[MAILBOX_PROVISION_JOB, SEND_SUBMIT_JOB].join(",")}`);
+
+await queue.startWorkers();
 
 setInterval(() => {}, 60_000);

@@ -94,7 +94,10 @@ export function createFetchApp(deps = {}) {
   const queue =
     deps.queue ||
     createJobQueue({
-      mode: deps.queueMode || "inline",
+      backend: runtimeConfig.queueBackend,
+      redisUrl: runtimeConfig.queueRedisUrl,
+      prefix: runtimeConfig.queuePrefix,
+      mode: deps.queueMode || (runtimeConfig.queueBackend === "redis" ? "producer" : "inline"),
     });
   queue.register(MAILBOX_PROVISION_JOB, createMailboxProvisionJob({ store, mailBackend }));
   queue.register(SEND_SUBMIT_JOB, createSendSubmitJob({ mailBackend }));

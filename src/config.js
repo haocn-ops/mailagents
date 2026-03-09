@@ -57,6 +57,9 @@ export function createConfig(source = {}) {
     webhookSecretEncryptionKey: String(source.WEBHOOK_SECRET_ENCRYPTION_KEY || source.JWT_SECRET || "dev-jwt-secret"),
     webhookTimeoutMs: asNumber(source.WEBHOOK_TIMEOUT_MS, 5000),
     webhookRetryAttempts: asNumber(source.WEBHOOK_RETRY_ATTEMPTS, 3),
+    queueBackend: asLower(source.QUEUE_BACKEND, "memory"),
+    queueRedisUrl: String(source.QUEUE_REDIS_URL || "redis://redis:6379"),
+    queuePrefix: String(source.QUEUE_PREFIX || "mailagents"),
   };
 }
 
