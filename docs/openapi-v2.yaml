@@ -1,0 +1,357 @@
+openapi: 3.1.0
+info:
+  title: Mailagents API V2
+  version: 0.1.0-alpha
+  summary: Proposed V2 public API for the Mailagents control plane
+servers:
+  - url: https://api.mailagents.net
+security:
+  - bearerAuth: []
+tags:
+  - name: Auth
+  - name: Mailbox Leases
+  - name: Mailbox Accounts
+  - name: Messages
+  - name: Send Attempts
+  - name: Webhooks
+  - name: Usage
+  - name: Billing
+paths:
+  /v2/auth/siwe/challenge:
+    post:
+      tags: [Auth]
+      summary: Create a SIWE challenge
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SiweChallengeRequest'
+      responses:
+        '200':
+          description: Challenge generated
+  /v2/auth/siwe/verify:
+    post:
+      tags: [Auth]
+      summary: Verify SIWE signature and issue an access token
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SiweVerifyRequest'
+      responses:
+        '200':
+          description: Authentication successful
+  /v2/mailboxes/leases:
+    get:
+      tags: [Mailbox Leases]
+      summary: List mailbox leases for the tenant
+      parameters:
+        - in: query
+          name: lease_status
+          schema:
+            type: string
+            enum: [pending, active, releasing, released, expired, frozen]
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: Mailbox leases listed
+    post:
+      tags: [Mailbox Leases]
+      summary: Request a mailbox lease
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateMailboxLeaseRequest'
+      responses:
+        '202':
+          description: Lease request accepted
+  /v2/mailboxes/leases/{lease_id}:
+    get:
+      tags: [Mailbox Leases]
+      summary: Get a mailbox lease detail
+      parameters:
+        - $ref: '#/components/parameters/LeaseId'
+      responses:
+        '200':
+          description: Mailbox lease detail
+  /v2/mailboxes/leases/{lease_id}/release:
+    post:
+      tags: [Mailbox Leases]
+      summary: Release a mailbox lease
+      parameters:
+        - $ref: '#/components/parameters/LeaseId'
+      responses:
+        '202':
+          description: Lease release accepted
+  /v2/mailboxes/accounts:
+    get:
+      tags: [Mailbox Accounts]
+      summary: List visible mailbox accounts for the tenant
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: Mailbox accounts listed
+  /v2/mailboxes/accounts/{account_id}/credentials/reset:
+    post:
+      tags: [Mailbox Accounts]
+      summary: Reset mailbox credentials
+      parameters:
+        - $ref: '#/components/parameters/AccountId'
+      responses:
+        '202':
+          description: Credential reset accepted
+  /v2/messages:
+    get:
+      tags: [Messages]
+      summary: List messages
+      parameters:
+        - in: query
+          name: mailbox_id
+          schema:
+            type: string
+            format: uuid
+        - in: query
+          name: message_status
+          schema:
+            type: string
+            enum: [received, parsed, parse_failed, archived]
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: Messages listed
+  /v2/messages/{message_id}:
+    get:
+      tags: [Messages]
+      summary: Get a message detail
+      parameters:
+        - $ref: '#/components/parameters/MessageId'
+      responses:
+        '200':
+          description: Message detail
+  /v2/messages/send:
+    post:
+      tags: [Messages]
+      summary: Queue an outbound message send attempt
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateSendAttemptRequest'
+      responses:
+        '202':
+          description: Send attempt queued
+  /v2/send-attempts:
+    get:
+      tags: [Send Attempts]
+      summary: List send attempts
+      parameters:
+        - in: query
+          name: mailbox_id
+          schema:
+            type: string
+            format: uuid
+        - in: query
+          name: submission_status
+          schema:
+            type: string
+            enum: [queued, submitting, accepted, failed]
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: Send attempts listed
+  /v2/send-attempts/{send_attempt_id}:
+    get:
+      tags: [Send Attempts]
+      summary: Get a send attempt
+      parameters:
+        - $ref: '#/components/parameters/SendAttemptId'
+      responses:
+        '200':
+          description: Send attempt detail
+  /v2/webhooks:
+    post:
+      tags: [Webhooks]
+      summary: Create a webhook
+      responses:
+        '201':
+          description: Webhook created
+    get:
+      tags: [Webhooks]
+      summary: List webhooks
+      responses:
+        '200':
+          description: Webhooks listed
+  /v2/webhooks/deliveries:
+    get:
+      tags: [Webhooks]
+      summary: List webhook delivery history for the tenant
+      parameters:
+        - in: query
+          name: webhook_id
+          schema:
+            type: string
+            format: uuid
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: Webhook deliveries listed
+  /v2/webhooks/{webhook_id}/rotate-secret:
+    post:
+      tags: [Webhooks]
+      summary: Rotate a webhook secret
+      parameters:
+        - $ref: '#/components/parameters/WebhookId'
+      responses:
+        '200':
+          description: Webhook secret rotated
+  /v2/usage/summary:
+    get:
+      tags: [Usage]
+      summary: Get tenant usage summary
+      responses:
+        '200':
+          description: Usage summary
+  /v2/billing/invoices:
+    get:
+      tags: [Billing]
+      summary: List tenant invoices
+      responses:
+        '200':
+          description: Invoices listed
+  /v2/billing/invoices/{invoice_id}:
+    get:
+      tags: [Billing]
+      summary: Get an invoice detail
+      parameters:
+        - $ref: '#/components/parameters/InvoiceId'
+      responses:
+        '200':
+          description: Invoice detail
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  parameters:
+    Page:
+      in: query
+      name: page
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        default: 1
+    PageSize:
+      in: query
+      name: page_size
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 200
+        default: 20
+    LeaseId:
+      in: path
+      name: lease_id
+      required: true
+      schema:
+        type: string
+        format: uuid
+    AccountId:
+      in: path
+      name: account_id
+      required: true
+      schema:
+        type: string
+        format: uuid
+    MessageId:
+      in: path
+      name: message_id
+      required: true
+      schema:
+        type: string
+        format: uuid
+    SendAttemptId:
+      in: path
+      name: send_attempt_id
+      required: true
+      schema:
+        type: string
+        format: uuid
+    WebhookId:
+      in: path
+      name: webhook_id
+      required: true
+      schema:
+        type: string
+        format: uuid
+    InvoiceId:
+      in: path
+      name: invoice_id
+      required: true
+      schema:
+        type: string
+        format: uuid
+  schemas:
+    SiweChallengeRequest:
+      type: object
+      required: [wallet_address]
+      properties:
+        wallet_address:
+          type: string
+    SiweVerifyRequest:
+      type: object
+      required: [message, signature]
+      properties:
+        message:
+          type: string
+        signature:
+          type: string
+    CreateMailboxLeaseRequest:
+      type: object
+      required: [agent_id, purpose, ttl_hours]
+      properties:
+        agent_id:
+          type: string
+          format: uuid
+        purpose:
+          type: string
+        ttl_hours:
+          type: integer
+          minimum: 1
+          maximum: 720
+    CreateSendAttemptRequest:
+      type: object
+      required: [mailbox_id, to, subject, mailbox_password]
+      properties:
+        mailbox_id:
+          type: string
+          format: uuid
+        to:
+          oneOf:
+            - type: string
+            - type: array
+              items:
+                type: string
+        subject:
+          type: string
+        text:
+          type: string
+        html:
+          type: string
+        mailbox_password:
+          type: string

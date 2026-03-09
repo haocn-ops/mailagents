@@ -1,0 +1,160 @@
+openapi: 3.1.0
+info:
+  title: Mailagents Admin API V2
+  version: 0.1.0-alpha
+  summary: Proposed V2 admin API for the Mailagents control plane
+servers:
+  - url: https://api.mailagents.net
+security:
+  - bearerAuth: []
+tags:
+  - name: Overview
+  - name: Settings
+  - name: Tenants
+  - name: Mailbox Accounts
+  - name: Mailbox Leases
+  - name: Messages
+  - name: Send Attempts
+  - name: Webhooks
+  - name: Billing
+  - name: Risk
+  - name: Audit
+  - name: Jobs
+paths:
+  /v2/admin/overview/metrics:
+    get:
+      tags: [Overview]
+      summary: Get admin overview metrics
+      responses:
+        '200':
+          description: Metrics returned
+  /v2/admin/settings/runtime:
+    get:
+      tags: [Settings]
+      summary: Get runtime settings
+      responses:
+        '200':
+          description: Runtime settings returned
+    patch:
+      tags: [Settings]
+      summary: Update runtime settings
+      responses:
+        '200':
+          description: Runtime settings updated
+  /v2/admin/tenants:
+    get:
+      tags: [Tenants]
+      summary: List tenants
+      responses:
+        '200':
+          description: Tenants returned
+  /v2/admin/tenants/{tenant_id}:
+    get:
+      tags: [Tenants]
+      summary: Get tenant detail
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+      responses:
+        '200':
+          description: Tenant returned
+    patch:
+      tags: [Tenants]
+      summary: Update tenant status and quotas
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+      responses:
+        '200':
+          description: Tenant updated
+  /v2/admin/mailboxes/accounts:
+    get:
+      tags: [Mailbox Accounts]
+      summary: List mailbox accounts
+      responses:
+        '200':
+          description: Mailbox accounts returned
+  /v2/admin/mailboxes/accounts/{account_id}:
+    get:
+      tags: [Mailbox Accounts]
+      summary: Get mailbox account detail
+      parameters:
+        - $ref: '#/components/parameters/AccountId'
+      responses:
+        '200':
+          description: Mailbox account returned
+  /v2/admin/mailboxes/leases:
+    get:
+      tags: [Mailbox Leases]
+      summary: List mailbox leases
+      responses:
+        '200':
+          description: Mailbox leases returned
+  /v2/admin/messages:
+    get:
+      tags: [Messages]
+      summary: List messages
+      responses:
+        '200':
+          description: Messages returned
+  /v2/admin/send-attempts:
+    get:
+      tags: [Send Attempts]
+      summary: List send attempts
+      responses:
+        '200':
+          description: Send attempts returned
+  /v2/admin/webhooks:
+    get:
+      tags: [Webhooks]
+      summary: List webhooks
+      responses:
+        '200':
+          description: Webhooks returned
+  /v2/admin/billing/invoices:
+    get:
+      tags: [Billing]
+      summary: List invoices
+      responses:
+        '200':
+          description: Invoices returned
+  /v2/admin/risk/events:
+    get:
+      tags: [Risk]
+      summary: List risk events
+      responses:
+        '200':
+          description: Risk events returned
+  /v2/admin/audit/logs:
+    get:
+      tags: [Audit]
+      summary: List audit logs
+      responses:
+        '200':
+          description: Audit logs returned
+  /v2/admin/jobs:
+    get:
+      tags: [Jobs]
+      summary: List job queue state
+      responses:
+        '200':
+          description: Job queue state returned
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  parameters:
+    TenantId:
+      in: path
+      name: tenant_id
+      required: true
+      schema:
+        type: string
+        format: uuid
+    AccountId:
+      in: path
+      name: account_id
+      required: true
+      schema:
+        type: string
+        format: uuid

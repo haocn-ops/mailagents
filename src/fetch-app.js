@@ -10,6 +10,18 @@ import { renderUserAppHtml } from "./user-ui.js";
 import { getDefaultStore } from "./store.js";
 import { createNonce, createRequestId, parseBearerToken, parsePeriod } from "./utils.js";
 import { createWebhookDispatcher } from "./webhook-dispatcher.js";
+import { createMailboxProvisionJob, MAILBOX_PROVISION_JOB } from "./jobs/mailbox-provision-job.js";
+import { createMailboxReleaseJob, MAILBOX_RELEASE_JOB } from "./jobs/mailbox-release-job.js";
+import {
+  createMailboxCredentialsResetJob,
+  MAILBOX_CREDENTIALS_RESET_JOB,
+} from "./jobs/mailbox-credentials-reset-job.js";
+import { createMessageParseJob, MESSAGE_PARSE_JOB } from "./jobs/message-parse-job.js";
+import { createJobQueue } from "./jobs/queue.js";
+import { createSendSubmitJob, SEND_SUBMIT_JOB } from "./jobs/send-submit-job.js";
+import { createWebhookDeliveryJob, WEBHOOK_DELIVERY_JOB } from "./jobs/webhook-delivery-job.js";
+import { createMailboxService } from "./services/mailbox-service.js";
+import { createSendService } from "./services/send-service.js";
 
 function jsonResponse(status, payload, requestId) {
   const headers = new Headers({
@@ -85,10 +97,32 @@ export function createFetchApp(deps = {}) {
       secretEncryptionKey: runtimeConfig.webhookSecretEncryptionKey,
       timeoutMs: runtimeConfig.webhookTimeoutMs,
       retryAttempts: runtimeConfig.webhookRetryAttempts,
+      retryBackoffMs: runtimeConfig.webhookRetryBackoffMs,
     });
+  const queue =
+    deps.queue ||
+    createJobQueue({
+      backend: runtimeConfig.queueBackend,
+      redisUrl: runtimeConfig.queueRedisUrl,
+      prefix: runtimeConfig.queuePrefix,
+      mode: deps.queueMode || (runtimeConfig.queueBackend === "redis" ? "producer" : "inline"),
+    });
+  queue.register(MAILBOX_PROVISION_JOB, createMailboxProvisionJob({ store, mailBackend }));
+  queue.register(MAILBOX_RELEASE_JOB, createMailboxReleaseJob({ store, mailBackend }));
+  queue.register(
+    MAILBOX_CREDENTIALS_RESET_JOB,
+    createMailboxCredentialsResetJob({ store, mailBackend }),
+  );
+  queue.register(SEND_SUBMIT_JOB, createSendSubmitJob({ mailBackend, store }));
+  queue.register(MESSAGE_PARSE_JOB, createMessageParseJob({ store, queue }));
+  queue.register(WEBHOOK_DELIVERY_JOB, createWebhookDeliveryJob({ store, webhookDispatcher }));
+  const mailboxService = deps.mailboxService || createMailboxService({ store, queue });
+  const sendService = deps.sendService || createSendService({ store, queue });
   const paidBypassTargets = new Set([
     "POST /v1/mailboxes/allocate",
+    "POST /v2/mailboxes/leases",
     "POST /v1/messages/send",
+    "POST /v2/messages/send",
     "GET /v1/messages/latest",
     "POST /v1/webhooks",
   ]);
@@ -217,7 +251,15 @@ export function createFetchApp(deps = {}) {
     return { ok: true };
   }
 
-  async function evaluateAccess({ request, requestId, tenantId, agentId, endpoint, checkAllocateHourly = false }) {
+  async function evaluateAccess({
+    request,
+    requestId,
+    tenantId,
+    agentId,
+    endpoint,
+    checkAllocateHourly = false,
+    allocateHourlyEndpoints = ["POST /v1/mailboxes/allocate"],
+  }) {
     const tenantPolicy = await store.getTenantPolicy(tenantId);
     if (!tenantPolicy) {
       return {
@@ -249,12 +291,13 @@ export function createFetchApp(deps = {}) {
 
     const hourlyAllocateLimit = getAgentAllocateHourlyLimit();
     if (checkAllocateHourly && hourlyAllocateLimit > 0) {
-      const recentAllocations = await store.countAgentEndpointUsageSince(
-        tenantId,
-        agentId,
-        "POST /v1/mailboxes/allocate",
-        new Date(now - 3600 * 1000),
+      const since = new Date(now - 3600 * 1000);
+      const usageByEndpoint = await Promise.all(
+        allocateHourlyEndpoints.map((candidate) =>
+          store.countAgentEndpointUsageSince(tenantId, agentId, candidate, since),
+        ),
       );
+      const recentAllocations = usageByEndpoint.reduce((sum, value) => sum + Number(value || 0), 0);
       if (recentAllocations >= hourlyAllocateLimit) {
         reasons.push({
           code: "agent_allocate_hourly",
@@ -565,36 +608,24 @@ export function createFetchApp(deps = {}) {
         });
         if (!access.ok) return access.response;
 
-        const result = await store.allocateMailbox({
-          tenantId: auth.payload.tenant_id,
-          agentId,
-          purpose,
-          ttlHours,
-        });
-
-        if (!result) {
-          return jsonResponse(409, { error: "no_available_mailbox", message: "No available mailbox for current tenant" }, requestId);
-        }
-
-        let provider = null;
+        let result;
         try {
-          provider = await mailBackend.provisionMailbox({
+          result = await mailboxService.requestLease({
             tenantId: auth.payload.tenant_id,
             agentId,
-            mailboxId: result.mailbox.id,
-            address: result.mailbox.address,
+            purpose,
             ttlHours,
           });
-          if (provider?.providerRef) {
-            await store.saveMailboxProviderRef(result.mailbox.id, provider.providerRef);
-          }
         } catch (err) {
-          await store.releaseMailbox({ tenantId: auth.payload.tenant_id, mailboxId: result.mailbox.id });
           return jsonResponse(
             502,
             { error: "mail_backend_error", message: err.message || "Mail backend provisioning failed" },
             requestId,
           );
+        }
+
+        if (!result) {
+          return jsonResponse(409, { error: "no_available_mailbox", message: "No available mailbox for current tenant" }, requestId);
         }
 
         await store.recordUsage({
@@ -621,9 +652,11 @@ export function createFetchApp(deps = {}) {
             mailbox_id: result.mailbox.id,
             address: result.mailbox.address,
             lease_expires_at: result.lease.expiresAt,
-            webmail_login: provider?.credentials?.login || null,
-            webmail_password: provider?.credentials?.password || null,
-            webmail_url: provider?.credentials?.webmailUrl || null,
+            webmail_login: result.provider?.credentials?.login || null,
+            webmail_password: result.provider?.credentials?.password || null,
+            webmail_url: result.provider?.credentials?.webmailUrl || null,
+            job_id: result.jobId,
+            job_status: result.jobStatus,
           },
           requestId,
         );
@@ -639,24 +672,9 @@ export function createFetchApp(deps = {}) {
           return jsonResponse(400, { error: "bad_request", message: "mailbox_id is required" }, requestId);
         }
 
-        const result = await store.releaseMailbox({ tenantId: auth.payload.tenant_id, mailboxId });
+        const result = await mailboxService.releaseLease({ tenantId: auth.payload.tenant_id, mailboxId });
         if (!result) {
           return jsonResponse(404, { error: "not_found", message: "Mailbox not found" }, requestId);
-        }
-
-        try {
-          await mailBackend.releaseMailbox({
-            tenantId: auth.payload.tenant_id,
-            mailboxId,
-            address: result.mailbox.address,
-            providerRef: result.mailbox.providerRef || null,
-          });
-        } catch (err) {
-          return jsonResponse(
-            502,
-            { error: "mail_backend_error", message: err.message || "Mail backend release failed" },
-            requestId,
-          );
         }
 
         await store.recordUsage({
@@ -667,7 +685,16 @@ export function createFetchApp(deps = {}) {
           requestId,
         });
 
-        return jsonResponse(200, { mailbox_id: mailboxId, status: "released" }, requestId);
+        return jsonResponse(
+          200,
+          {
+            mailbox_id: mailboxId,
+            status: "released",
+            job_id: result.jobId,
+            job_status: result.jobStatus,
+          },
+          requestId,
+        );
       }
 
       if (method === "POST" && path === "/v1/mailboxes/credentials/reset") {
@@ -680,18 +707,14 @@ export function createFetchApp(deps = {}) {
           return jsonResponse(400, { error: "bad_request", message: "mailbox_id is required" }, requestId);
         }
 
-        const mailbox = await store.getTenantMailbox(auth.payload.tenant_id, mailboxId);
-        if (!mailbox) {
-          return jsonResponse(404, { error: "not_found", message: "Mailbox not found" }, requestId);
-        }
-
-        const credentials = await mailBackend.issueMailboxCredentials({
+        const result = await mailboxService.resetCredentials({
           tenantId: auth.payload.tenant_id,
           agentId: auth.payload.agent_id,
           mailboxId,
-          address: mailbox.address,
-          providerRef: mailbox.providerRef || null,
         });
+        if (!result) {
+          return jsonResponse(404, { error: "not_found", message: "Mailbox not found" }, requestId);
+        }
 
         await store.recordUsage({
           tenantId: auth.payload.tenant_id,
@@ -704,11 +727,13 @@ export function createFetchApp(deps = {}) {
         return jsonResponse(
           200,
           {
-            mailbox_id: mailbox.id,
-            address: mailbox.address,
-            webmail_login: credentials?.login || mailbox.address,
-            webmail_password: credentials?.password || null,
-            webmail_url: credentials?.webmailUrl || null,
+            mailbox_id: result.mailbox.id,
+            address: result.mailbox.address,
+            webmail_login: result.credentials?.login || result.mailbox.address,
+            webmail_password: result.credentials?.password || null,
+            webmail_url: result.credentials?.webmailUrl || null,
+            job_id: result.jobId,
+            job_status: result.jobStatus,
           },
           requestId,
         );
@@ -720,6 +745,187 @@ export function createFetchApp(deps = {}) {
 
         const items = await store.listTenantMailboxes(auth.payload.tenant_id);
         return jsonResponse(200, { items }, requestId);
+      }
+
+      if (method === "GET" && path === "/v2/mailboxes/accounts") {
+        const auth = await requireAuth(request, requestId);
+        if (!auth.ok) return auth.response;
+        const paging = parsePaging(requestUrl);
+        if (!paging.ok) return jsonResponse(400, { error: "bad_request", message: paging.message }, requestId);
+
+        const result = await store.listTenantMailboxAccountsV2({
+          tenantId: auth.payload.tenant_id,
+          page: paging.page,
+          pageSize: paging.pageSize,
+        });
+        await store.recordUsage({
+          tenantId: auth.payload.tenant_id,
+          agentId: auth.payload.agent_id,
+          endpoint: "GET /v2/mailboxes/accounts",
+          quantity: 1,
+          requestId,
+        });
+        return jsonResponse(200, result, requestId);
+      }
+
+      if (method === "GET" && path === "/v2/mailboxes/leases") {
+        const auth = await requireAuth(request, requestId);
+        if (!auth.ok) return auth.response;
+        const paging = parsePaging(requestUrl);
+        if (!paging.ok) return jsonResponse(400, { error: "bad_request", message: paging.message }, requestId);
+
+        const result = await store.listTenantMailboxLeasesV2({
+          tenantId: auth.payload.tenant_id,
+          leaseStatus: requestUrl.searchParams.get("lease_status"),
+          page: paging.page,
+          pageSize: paging.pageSize,
+        });
+        await store.recordUsage({
+          tenantId: auth.payload.tenant_id,
+          agentId: auth.payload.agent_id,
+          endpoint: "GET /v2/mailboxes/leases",
+          quantity: 1,
+          requestId,
+        });
+        return jsonResponse(200, result, requestId);
+      }
+
+      if (method === "POST" && path === "/v2/mailboxes/leases") {
+        const auth = await requireAuth(request, requestId);
+        if (!auth.ok) return auth.response;
+
+        const body = await readJsonBody(request);
+        const purpose = String(body.purpose || "").trim();
+        const ttlHours = Number(body.ttl_hours);
+        const agentId = String(body.agent_id || "");
+
+        if (!agentId || !purpose || !Number.isFinite(ttlHours)) {
+          return jsonResponse(400, { error: "bad_request", message: "agent_id, purpose, ttl_hours are required" }, requestId);
+        }
+        if (auth.payload.agent_id !== agentId) {
+          return jsonResponse(403, { error: "forbidden", message: "agent_id does not match token" }, requestId);
+        }
+        if (ttlHours < 1 || ttlHours > 720) {
+          return jsonResponse(400, { error: "bad_request", message: "ttl_hours must be 1..720" }, requestId);
+        }
+
+        const access = await evaluateAccess({
+          request,
+          requestId,
+          tenantId: auth.payload.tenant_id,
+          agentId,
+          endpoint: "POST /v2/mailboxes/leases",
+          checkAllocateHourly: true,
+          allocateHourlyEndpoints: ["POST /v1/mailboxes/allocate", "POST /v2/mailboxes/leases"],
+        });
+        if (!access.ok) return access.response;
+
+        const result = await mailboxService.requestLease({
+          tenantId: auth.payload.tenant_id,
+          agentId,
+          purpose,
+          ttlHours,
+        });
+        if (!result) {
+          return jsonResponse(409, { error: "no_available_mailbox", message: "No available mailbox for current tenant" }, requestId);
+        }
+
+        await store.recordUsage({
+          tenantId: auth.payload.tenant_id,
+          agentId: auth.payload.agent_id,
+          endpoint: "POST /v2/mailboxes/leases",
+          quantity: 1,
+          requestId,
+        });
+        if (access.requiresCharge) {
+          await store.recordOverageCharge({
+            tenantId: auth.payload.tenant_id,
+            agentId: auth.payload.agent_id,
+            endpoint: "POST /v2/mailboxes/leases",
+            reasons: access.reasons,
+            amountUsdc: getOverageChargeUsdc(),
+            requestId,
+          });
+        }
+
+        return jsonResponse(
+          202,
+          {
+            lease_id: result.leaseV2?.id || null,
+            mailbox_id: result.mailbox.id,
+            mailbox_account_id: result.mailboxAccount?.id || null,
+            address: result.mailbox.address,
+            lease_status: result.leaseV2?.status || "pending",
+            started_at: result.leaseV2?.startedAt || null,
+            ends_at: result.leaseV2?.endsAt || result.lease.expiresAt,
+            released_at: result.leaseV2?.releasedAt || null,
+            job_id: result.jobId,
+            job_status: result.jobStatus,
+          },
+          requestId,
+        );
+      }
+
+      if (method === "GET" && path.startsWith("/v2/mailboxes/leases/")) {
+        const auth = await requireAuth(request, requestId);
+        if (!auth.ok) return auth.response;
+
+        const leaseId = path.replace("/v2/mailboxes/leases/", "").trim();
+        if (!leaseId) {
+          return jsonResponse(400, { error: "bad_request", message: "lease_id is required" }, requestId);
+        }
+        const lease = await store.getTenantMailboxLeaseV2(auth.payload.tenant_id, leaseId);
+        if (!lease) {
+          return jsonResponse(404, { error: "not_found", message: "Lease not found" }, requestId);
+        }
+        await store.recordUsage({
+          tenantId: auth.payload.tenant_id,
+          agentId: auth.payload.agent_id,
+          endpoint: "GET /v2/mailboxes/leases/{lease_id}",
+          quantity: 1,
+          requestId,
+        });
+        return jsonResponse(200, lease, requestId);
+      }
+
+      if (method === "POST" && path.startsWith("/v2/mailboxes/leases/") && path.endsWith("/release")) {
+        const auth = await requireAuth(request, requestId);
+        if (!auth.ok) return auth.response;
+
+        const leaseId = path.slice("/v2/mailboxes/leases/".length, -"/release".length);
+        const lease = await store.getTenantMailboxLeaseV2(auth.payload.tenant_id, leaseId);
+        if (!lease?.mailbox_id) {
+          return jsonResponse(404, { error: "not_found", message: "Lease not found" }, requestId);
+        }
+
+        const result = await mailboxService.releaseLease({
+          tenantId: auth.payload.tenant_id,
+          mailboxId: lease.mailbox_id,
+        });
+        if (!result) {
+          return jsonResponse(404, { error: "not_found", message: "Lease not found" }, requestId);
+        }
+
+        await store.recordUsage({
+          tenantId: auth.payload.tenant_id,
+          agentId: auth.payload.agent_id,
+          endpoint: "POST /v2/mailboxes/leases/{lease_id}/release",
+          quantity: 1,
+          requestId,
+        });
+
+        return jsonResponse(
+          202,
+          {
+            lease_id: leaseId,
+            mailbox_id: lease.mailbox_id,
+            mailbox_account_id: lease.mailbox_account_id,
+            lease_status: result.leaseV2?.status || "releasing",
+            job_id: result.jobId,
+            job_status: result.jobStatus,
+          },
+          requestId,
+        );
       }
 
       if (method === "GET" && path === "/v1/messages/latest") {
@@ -777,6 +983,52 @@ export function createFetchApp(deps = {}) {
         return jsonResponse(200, { messages }, requestId);
       }
 
+      if (method === "GET" && path === "/v2/messages") {
+        const auth = await requireAuth(request, requestId);
+        if (!auth.ok) return auth.response;
+        const paging = parsePaging(requestUrl);
+        if (!paging.ok) return jsonResponse(400, { error: "bad_request", message: paging.message }, requestId);
+
+        const result = await store.listTenantMessagesV2({
+          tenantId: auth.payload.tenant_id,
+          mailboxId: requestUrl.searchParams.get("mailbox_id"),
+          messageStatus: requestUrl.searchParams.get("message_status"),
+          page: paging.page,
+          pageSize: paging.pageSize,
+        });
+        await store.recordUsage({
+          tenantId: auth.payload.tenant_id,
+          agentId: auth.payload.agent_id,
+          endpoint: "GET /v2/messages",
+          quantity: 1,
+          requestId,
+        });
+        return jsonResponse(200, result, requestId);
+      }
+
+      if (method === "GET" && path.startsWith("/v2/messages/")) {
+        const auth = await requireAuth(request, requestId);
+        if (!auth.ok) return auth.response;
+
+        const messageId = path.replace("/v2/messages/", "").trim();
+        if (!messageId) {
+          return jsonResponse(400, { error: "bad_request", message: "message_id is required" }, requestId);
+        }
+
+        const message = await store.getTenantMessageDetailV2(auth.payload.tenant_id, messageId);
+        if (!message) {
+          return jsonResponse(404, { error: "not_found", message: "Message not found" }, requestId);
+        }
+        await store.recordUsage({
+          tenantId: auth.payload.tenant_id,
+          agentId: auth.payload.agent_id,
+          endpoint: "GET /v2/messages/{message_id}",
+          quantity: 1,
+          requestId,
+        });
+        return jsonResponse(200, message, requestId);
+      }
+
       if (method === "POST" && path === "/v1/messages/send") {
         const auth = await requireAuth(request, requestId);
         if (!auth.ok) return auth.response;
@@ -809,23 +1061,17 @@ export function createFetchApp(deps = {}) {
           );
         }
 
-        const mailbox = await store.getTenantMailbox(auth.payload.tenant_id, mailboxId);
-        if (!mailbox) {
-          return jsonResponse(404, { error: "not_found", message: "Mailbox not found" }, requestId);
-        }
-
-        let delivery;
+        let result;
         try {
-          delivery = await mailBackend.sendMailboxMessage({
+          result = await sendService.queueSend({
             tenantId: auth.payload.tenant_id,
             agentId: auth.payload.agent_id,
             mailboxId,
-            address: mailbox.address,
-            password: mailboxPassword,
-            to: recipients,
+            recipients,
             subject,
             text,
             html,
+            mailboxPassword,
           });
         } catch (err) {
           return jsonResponse(
@@ -833,6 +1079,10 @@ export function createFetchApp(deps = {}) {
             { error: "mail_backend_error", message: err.message || "Mail backend send failed" },
             requestId,
           );
+        }
+
+        if (!result) {
+          return jsonResponse(404, { error: "not_found", message: "Mailbox not found" }, requestId);
         }
 
         await store.recordUsage({
@@ -856,16 +1106,157 @@ export function createFetchApp(deps = {}) {
         return jsonResponse(
           200,
           {
-            mailbox_id: mailbox.id,
-            from: mailbox.address,
-            accepted: delivery?.accepted || [],
-            rejected: delivery?.rejected || [],
-            message_id: delivery?.messageId || null,
-            envelope: delivery?.envelope || null,
-            response: delivery?.response || null,
+            mailbox_id: result.mailbox.id,
+            from: result.mailbox.address,
+            accepted: result.delivery?.accepted || [],
+            rejected: result.delivery?.rejected || [],
+            message_id: result.delivery?.messageId || null,
+            envelope: result.delivery?.envelope || null,
+            response: result.delivery?.response || null,
+            send_attempt_id: result.sendAttemptId,
+            job_id: result.jobId,
+            job_status: result.jobStatus,
           },
           requestId,
         );
+      }
+
+      if (method === "POST" && path === "/v2/messages/send") {
+        const auth = await requireAuth(request, requestId);
+        if (!auth.ok) return auth.response;
+        const access = await evaluateAccess({
+          request,
+          requestId,
+          tenantId: auth.payload.tenant_id,
+          agentId: auth.payload.agent_id,
+          endpoint: "POST /v2/messages/send",
+        });
+        if (!access.ok) return access.response;
+
+        const body = await readJsonBody(request);
+        const mailboxId = String(body.mailbox_id || "").trim();
+        const recipients = Array.isArray(body.to)
+          ? body.to.map((item) => String(item || "").trim()).filter(Boolean)
+          : String(body.to || "").trim()
+            ? [String(body.to || "").trim()]
+            : [];
+        const subject = String(body.subject || "").trim();
+        const text = String(body.text || "");
+        const html = String(body.html || "");
+        const mailboxPassword = String(body.mailbox_password || "").trim();
+
+        if (!mailboxId || !recipients.length || !subject || !mailboxPassword || (!text && !html)) {
+          return jsonResponse(
+            400,
+            { error: "bad_request", message: "mailbox_id, to, subject, mailbox_password, and text or html are required" },
+            requestId,
+          );
+        }
+
+        let result;
+        try {
+          result = await sendService.queueSend({
+            tenantId: auth.payload.tenant_id,
+            agentId: auth.payload.agent_id,
+            mailboxId,
+            recipients,
+            subject,
+            text,
+            html,
+            mailboxPassword,
+          });
+        } catch (err) {
+          return jsonResponse(
+            502,
+            { error: "mail_backend_error", message: err.message || "Mail backend send failed" },
+            requestId,
+          );
+        }
+
+        if (!result) {
+          return jsonResponse(404, { error: "not_found", message: "Mailbox not found" }, requestId);
+        }
+
+        await store.recordUsage({
+          tenantId: auth.payload.tenant_id,
+          agentId: auth.payload.agent_id,
+          endpoint: "POST /v2/messages/send",
+          quantity: 1,
+          requestId,
+        });
+        if (access.requiresCharge) {
+          await store.recordOverageCharge({
+            tenantId: auth.payload.tenant_id,
+            agentId: auth.payload.agent_id,
+            endpoint: "POST /v2/messages/send",
+            reasons: access.reasons,
+            amountUsdc: getOverageChargeUsdc(),
+            requestId,
+          });
+        }
+
+        return jsonResponse(
+          202,
+          {
+            send_attempt_id: result.sendAttemptId,
+            mailbox_id: result.mailbox.id,
+            mailbox_account_id: result.mailboxAccount?.id || null,
+            from_address: result.mailbox.address,
+            submission_status: result.delivery ? "accepted" : "queued",
+            accepted: result.delivery?.accepted || [],
+            rejected: result.delivery?.rejected || [],
+            provider_message_id: result.delivery?.messageId || null,
+            job_id: result.jobId,
+            job_status: result.jobStatus,
+          },
+          requestId,
+        );
+      }
+
+      if (method === "GET" && path === "/v2/send-attempts") {
+        const auth = await requireAuth(request, requestId);
+        if (!auth.ok) return auth.response;
+        const paging = parsePaging(requestUrl);
+        if (!paging.ok) return jsonResponse(400, { error: "bad_request", message: paging.message }, requestId);
+
+        const result = await store.listTenantSendAttemptsV2({
+          tenantId: auth.payload.tenant_id,
+          mailboxId: requestUrl.searchParams.get("mailbox_id"),
+          submissionStatus: requestUrl.searchParams.get("submission_status"),
+          page: paging.page,
+          pageSize: paging.pageSize,
+        });
+        await store.recordUsage({
+          tenantId: auth.payload.tenant_id,
+          agentId: auth.payload.agent_id,
+          endpoint: "GET /v2/send-attempts",
+          quantity: 1,
+          requestId,
+        });
+        return jsonResponse(200, result, requestId);
+      }
+
+      if (method === "GET" && path.startsWith("/v2/send-attempts/")) {
+        const auth = await requireAuth(request, requestId);
+        if (!auth.ok) return auth.response;
+
+        const sendAttemptId = path.replace("/v2/send-attempts/", "").trim();
+        if (!sendAttemptId) {
+          return jsonResponse(400, { error: "bad_request", message: "send_attempt_id is required" }, requestId);
+        }
+
+        const attempt = await store.getTenantSendAttemptV2(auth.payload.tenant_id, sendAttemptId);
+        if (!attempt) {
+          return jsonResponse(404, { error: "not_found", message: "Send attempt not found" }, requestId);
+        }
+        await store.recordUsage({
+          tenantId: auth.payload.tenant_id,
+          agentId: auth.payload.agent_id,
+          endpoint: "GET /v2/send-attempts/{send_attempt_id}",
+          quantity: 1,
+          requestId,
+        });
+        return jsonResponse(200, attempt, requestId);
       }
 
       if (method === "GET" && path.startsWith("/v1/messages/")) {
@@ -956,6 +1347,28 @@ export function createFetchApp(deps = {}) {
 
         const items = await store.listTenantWebhooks(auth.payload.tenant_id);
         return jsonResponse(200, { items }, requestId);
+      }
+
+      if (method === "GET" && path === "/v2/webhooks/deliveries") {
+        const auth = await requireAuth(request, requestId);
+        if (!auth.ok) return auth.response;
+        const paging = parsePaging(requestUrl);
+        if (!paging.ok) return jsonResponse(400, { error: "bad_request", message: paging.message }, requestId);
+
+        const result = await store.listTenantWebhookDeliveries({
+          tenantId: auth.payload.tenant_id,
+          webhookId: requestUrl.searchParams.get("webhook_id"),
+          page: paging.page,
+          pageSize: paging.pageSize,
+        });
+        await store.recordUsage({
+          tenantId: auth.payload.tenant_id,
+          agentId: auth.payload.agent_id,
+          endpoint: "GET /v2/webhooks/deliveries",
+          quantity: 1,
+          requestId,
+        });
+        return jsonResponse(200, result, requestId);
       }
 
       if (method === "GET" && path === "/v1/usage/summary") {
@@ -1069,55 +1482,20 @@ export function createFetchApp(deps = {}) {
           requestId,
         });
 
-        const parsed = parseInboundContent({
+        const parseJob = await queue.enqueue(MESSAGE_PARSE_JOB, {
+          tenantId: mailbox.tenantId,
+          mailboxId: mailbox.id,
+          messageId: ingested.messageId,
+          sender,
+          senderDomain,
           subject,
+          receivedAt,
           textExcerpt,
           htmlExcerpt,
           htmlBody,
-        });
-        await store.applyMessageParseResult({
-          messageId: ingested.messageId,
-          otpCode: parsed.otpCode,
-          verificationLink: parsed.verificationLink,
-          payload: {
-            parser: "builtin",
-            source: "mailu-internal-event",
-            parser_status: parsed.parserStatus,
-          },
+          source: "mailu-internal-event",
           requestId,
         });
-
-        const eventType = parsed.parsed ? "otp.extracted" : "mail.received";
-        const message = await store.getMessage(ingested.messageId);
-        const webhooks = await store.listActiveWebhooksByEvent(mailbox.tenantId, eventType);
-        for (const webhook of webhooks) {
-          const delivery = await webhookDispatcher.dispatch({
-            webhook,
-            payload: {
-              event_type: eventType,
-              tenant_id: mailbox.tenantId,
-              mailbox_id: mailbox.id,
-              message_id: ingested.messageId,
-              sender,
-              sender_domain: senderDomain,
-              subject,
-              received_at: receivedAt,
-              otp_code: parsed.otpCode,
-              verification_link: parsed.verificationLink,
-              message,
-            },
-          });
-          await store.recordWebhookDelivery(webhook.id, {
-            statusCode: delivery.statusCode,
-            requestId,
-            metadata: {
-              event_type: eventType,
-              delivery_id: delivery.deliveryId,
-              attempts: delivery.attempts,
-              ok: delivery.ok,
-            },
-          });
-        }
 
         return jsonResponse(
           202,
@@ -1126,6 +1504,8 @@ export function createFetchApp(deps = {}) {
             tenant_id: ingested.tenantId,
             mailbox_id: ingested.mailboxId,
             message_id: ingested.messageId,
+            parse_job_id: parseJob.id,
+            parse_job_status: parseJob.status,
           },
           requestId,
         );
@@ -1381,6 +1761,17 @@ export function createFetchApp(deps = {}) {
           return jsonResponse(200, result, requestId);
         }
 
+        if (method === "GET" && path === "/v1/admin/send-attempts") {
+          if (!paging.ok) return jsonResponse(400, { error: "bad_request", message: paging.message }, requestId);
+          const result = await store.adminListSendAttempts({
+            page: paging.page,
+            pageSize: paging.pageSize,
+            tenantId: requestUrl.searchParams.get("tenant_id"),
+            submissionStatus: requestUrl.searchParams.get("submission_status"),
+          });
+          return jsonResponse(200, result, requestId);
+        }
+
         if (path.startsWith("/v1/admin/messages/") && path.endsWith("/reparse") && method === "POST") {
           const messageId = path.slice("/v1/admin/messages/".length, -"/reparse".length);
           const result = await store.adminReparseMessage(messageId, { actorDid, requestId });
@@ -1402,6 +1793,17 @@ export function createFetchApp(deps = {}) {
         if (method === "GET" && path === "/v1/admin/webhooks") {
           if (!paging.ok) return jsonResponse(400, { error: "bad_request", message: paging.message }, requestId);
           const result = await store.adminListWebhooks({ page: paging.page, pageSize: paging.pageSize });
+          return jsonResponse(200, result, requestId);
+        }
+
+        if (method === "GET" && path === "/v1/admin/webhook-deliveries") {
+          if (!paging.ok) return jsonResponse(400, { error: "bad_request", message: paging.message }, requestId);
+          const result = await store.adminListWebhookDeliveries({
+            page: paging.page,
+            pageSize: paging.pageSize,
+            tenantId: requestUrl.searchParams.get("tenant_id"),
+            webhookId: requestUrl.searchParams.get("webhook_id"),
+          });
           return jsonResponse(200, result, requestId);
         }
 

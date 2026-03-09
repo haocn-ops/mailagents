@@ -15,6 +15,16 @@ services:
       timeout: 5s
       retries: 12
 
+  redis:
+    image: redis:7-alpine
+    container_name: mailagents-redis-prod
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
   api:
     build:
       context: .
@@ -23,6 +33,8 @@ services:
     restart: unless-stopped
     depends_on:
       db:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     env_file:
       - .env.production
@@ -33,6 +45,8 @@ services:
       PORT: 3000
       STORAGE_BACKEND: postgres
       DATABASE_URL: postgres://postgres:postgres@db:5432/mailcloud
+      QUEUE_BACKEND: redis
+      QUEUE_REDIS_URL: redis://redis:6379
       MAIL_SMTP_HOST: inbox.mailagents.net
       MAIL_SMTP_PORT: 465
       MAIL_SMTP_SECURE: "true"
@@ -46,6 +60,30 @@ services:
     command: >-
       sh -lc "npm run db:bootstrap && npm run db:upgrade && npm run start:prod"
 
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: mailagents-worker-prod
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    env_file:
+      - .env.production
+    environment:
+      STORAGE_BACKEND: postgres
+      DATABASE_URL: postgres://postgres:postgres@db:5432/mailcloud
+      QUEUE_BACKEND: redis
+      QUEUE_REDIS_URL: redis://redis:6379
+      MAIL_SMTP_HOST: inbox.mailagents.net
+      MAIL_SMTP_PORT: 465
+      MAIL_SMTP_SECURE: "true"
+    command: >-
+      sh -lc "npm run worker:start"
+
   mailu-sync:
     build:
       context: .
@@ -55,6 +93,8 @@ services:
     depends_on:
       api:
         condition: service_started
+      redis:
+        condition: service_healthy
     env_file:
       - .env.production
     environment:

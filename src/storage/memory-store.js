@@ -26,6 +26,13 @@ export class MemoryStore {
         overage_charge_usdc: null,
         agent_allocate_hourly_limit: null,
       },
+      mailboxAccountsV2: new Map(),
+      mailboxLeasesV2: new Map(),
+      rawMessagesV2: new Map(),
+      messagesV2: new Map(),
+      messageParseResultsV2: new Map(),
+      sendAttempts: new Map(),
+      sendAttemptEvents: new Map(),
     };
   }
 
@@ -361,6 +368,240 @@ export class MemoryStore {
     };
   }
 
+  async listTenantMailboxAccountsV2({ tenantId, page, pageSize }) {
+    const items = [...this.state.mailboxes.values()]
+      .filter((mailbox) => mailbox.tenantId === tenantId)
+      .map((mailbox) => {
+        const account = [...this.state.mailboxAccountsV2.values()].find((item) => item.legacyMailboxId === mailbox.id) || null;
+        return {
+          mailbox_id: mailbox.id,
+          mailbox_account_id: account?.id || null,
+          address: mailbox.address,
+          domain: account?.domain || String(mailbox.address).split("@")[1] || this.mailboxDomain,
+          mailbox_type: account?.mailboxType || "pooled",
+          backend_ref: account?.backendRef || mailbox.providerRef || null,
+          backend_status: account?.backendStatus || (mailbox.status === "leased" ? "active" : "disabled"),
+          last_password_reset_at: account?.lastPasswordResetAt || null,
+          updated_at: account?.updatedAt || mailbox.updatedAt || mailbox.createdAt || null,
+        };
+      })
+      .sort((a, b) => String(b.updated_at || "").localeCompare(String(a.updated_at || "")));
+    return this._paginate(items, page, pageSize);
+  }
+
+  async listTenantMailboxLeasesV2({ tenantId, page, pageSize, leaseStatus = null }) {
+    let items = [...this.state.mailboxLeasesV2.values()]
+      .filter((lease) => lease.tenantId === tenantId)
+      .map((lease) => {
+        const account = this.state.mailboxAccountsV2.get(lease.mailboxAccountId) || null;
+        return {
+          lease_id: lease.id,
+          mailbox_id: account?.legacyMailboxId || null,
+          mailbox_account_id: lease.mailboxAccountId,
+          agent_id: lease.agentId,
+          purpose: lease.purpose,
+          lease_status: lease.status,
+          started_at: lease.startedAt,
+          ends_at: lease.endsAt,
+          released_at: lease.releasedAt,
+          address: account?.address || null,
+          created_at: lease.createdAt,
+          updated_at: lease.updatedAt,
+        };
+      });
+    if (leaseStatus) {
+      items = items.filter((lease) => lease.lease_status === leaseStatus);
+    }
+    items.sort((a, b) => String(b.created_at || "").localeCompare(String(a.created_at || "")));
+    return this._paginate(items, page, pageSize);
+  }
+
+  async getTenantMailboxLeaseV2(tenantId, leaseId) {
+    const lease = this.state.mailboxLeasesV2.get(leaseId);
+    if (!lease || lease.tenantId !== tenantId) return null;
+    const account = this.state.mailboxAccountsV2.get(lease.mailboxAccountId) || null;
+    return {
+      lease_id: lease.id,
+      mailbox_id: account?.legacyMailboxId || null,
+      mailbox_account_id: lease.mailboxAccountId,
+      agent_id: lease.agentId,
+      purpose: lease.purpose,
+      lease_status: lease.status,
+      started_at: lease.startedAt,
+      ends_at: lease.endsAt,
+      released_at: lease.releasedAt,
+      address: account?.address || null,
+      created_at: lease.createdAt,
+      updated_at: lease.updatedAt,
+    };
+  }
+
+  async upsertMailboxAccountFromLegacyMailbox(mailbox) {
+    const existing = [...this.state.mailboxAccountsV2.values()].find((item) => item.address === mailbox.address);
+    if (existing) {
+      existing.backendStatus = mailbox.status === "leased" ? "active" : "disabled";
+      existing.backendRef = mailbox.providerRef || existing.backendRef || null;
+      existing.updatedAt = new Date().toISOString();
+      return existing;
+    }
+
+    const account = {
+      id: randomUUID(),
+      legacyMailboxId: mailbox.id,
+      address: mailbox.address,
+      domain: String(mailbox.address).split("@")[1] || this.mailboxDomain,
+      backendRef: mailbox.providerRef || null,
+      backendStatus: mailbox.status === "leased" ? "active" : "disabled",
+      mailboxType: "pooled",
+      lastPasswordResetAt: null,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    this.state.mailboxAccountsV2.set(account.id, account);
+    return account;
+  }
+
+  async createMailboxLeaseV2({ mailboxAccountId, tenantId, agentId, purpose, endsAt }) {
+    const lease = {
+      id: randomUUID(),
+      mailboxAccountId,
+      tenantId,
+      agentId,
+      purpose,
+      status: "pending",
+      startedAt: null,
+      endsAt,
+      releasedAt: null,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    this.state.mailboxLeasesV2.set(lease.id, lease);
+    return lease;
+  }
+
+  async markMailboxAccountProvisioned({ mailboxAccountId, providerRef = null }) {
+    const account = this.state.mailboxAccountsV2.get(mailboxAccountId);
+    if (!account) return null;
+    account.backendStatus = "active";
+    if (providerRef) account.backendRef = providerRef;
+    account.updatedAt = new Date().toISOString();
+    return account;
+  }
+
+  async markMailboxLeaseV2Active(leaseId) {
+    const lease = this.state.mailboxLeasesV2.get(leaseId);
+    if (!lease) return null;
+    lease.status = "active";
+    lease.startedAt = lease.startedAt || new Date().toISOString();
+    lease.updatedAt = new Date().toISOString();
+    return lease;
+  }
+
+  async markMailboxLeaseV2Releasing(leaseId) {
+    const lease = this.state.mailboxLeasesV2.get(leaseId);
+    if (!lease) return null;
+    lease.status = "releasing";
+    lease.updatedAt = new Date().toISOString();
+    return lease;
+  }
+
+  async getActiveMailboxLeaseV2ByLegacyMailboxId(legacyMailboxId) {
+    const account = [...this.state.mailboxAccountsV2.values()].find((item) => item.legacyMailboxId === legacyMailboxId);
+    if (!account) return null;
+    return (
+      [...this.state.mailboxLeasesV2.values()].find(
+        (lease) => lease.mailboxAccountId === account.id && lease.status === "active",
+      ) || null
+    );
+  }
+
+  async markMailboxAccountReleased(mailboxAccountId) {
+    const account = this.state.mailboxAccountsV2.get(mailboxAccountId);
+    if (!account) return null;
+    account.backendStatus = "disabled";
+    account.updatedAt = new Date().toISOString();
+    return account;
+  }
+
+  async markMailboxLeaseV2Released(leaseId) {
+    const lease = this.state.mailboxLeasesV2.get(leaseId);
+    if (!lease) return null;
+    lease.status = "released";
+    lease.releasedAt = new Date().toISOString();
+    lease.updatedAt = lease.releasedAt;
+    return lease;
+  }
+
+  async markMailboxAccountCredentialsReset(mailboxAccountId) {
+    const account = this.state.mailboxAccountsV2.get(mailboxAccountId);
+    if (!account) return null;
+    account.lastPasswordResetAt = new Date().toISOString();
+    account.updatedAt = account.lastPasswordResetAt;
+    return account;
+  }
+
+  async createSendAttempt({ tenantId, agentId, mailboxAccountId, legacyMailboxId, fromAddress, to, subject }) {
+    const attempt = {
+      id: randomUUID(),
+      tenantId,
+      agentId,
+      mailboxAccountId,
+      legacyMailboxId,
+      fromAddress,
+      to,
+      subject,
+      status: "queued",
+      backendQueueId: null,
+      smtpResponse: null,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      submittedAt: null,
+    };
+    this.state.sendAttempts.set(attempt.id, attempt);
+    this.state.sendAttemptEvents.set(attempt.id, [
+      {
+        eventType: "queued",
+        payload: {},
+        createdAt: attempt.createdAt,
+      },
+    ]);
+    return attempt;
+  }
+
+  async completeSendAttempt({ sendAttemptId, backendQueueId = null, smtpResponse = null }) {
+    const attempt = this.state.sendAttempts.get(sendAttemptId);
+    if (!attempt) return null;
+    attempt.status = "accepted";
+    attempt.backendQueueId = backendQueueId;
+    attempt.smtpResponse = smtpResponse;
+    attempt.submittedAt = new Date().toISOString();
+    attempt.updatedAt = attempt.submittedAt;
+    const events = this.state.sendAttemptEvents.get(sendAttemptId) || [];
+    events.push({
+      eventType: "accepted",
+      payload: { backend_queue_id: backendQueueId, smtp_response: smtpResponse },
+      createdAt: attempt.submittedAt,
+    });
+    this.state.sendAttemptEvents.set(sendAttemptId, events);
+    return attempt;
+  }
+
+  async failSendAttempt({ sendAttemptId, errorMessage }) {
+    const attempt = this.state.sendAttempts.get(sendAttemptId);
+    if (!attempt) return null;
+    attempt.status = "failed";
+    attempt.smtpResponse = errorMessage;
+    attempt.updatedAt = new Date().toISOString();
+    const events = this.state.sendAttemptEvents.get(sendAttemptId) || [];
+    events.push({
+      eventType: "failed",
+      payload: { error: errorMessage },
+      createdAt: attempt.updatedAt,
+    });
+    this.state.sendAttemptEvents.set(sendAttemptId, events);
+    return attempt;
+  }
+
   async getActiveLeaseByMailboxId(mailboxId) {
     const lease = this._currentLeaseByMailbox(mailboxId);
     if (!lease) return null;
@@ -431,6 +672,35 @@ export class MemoryStore {
       metadata: { mailbox_id: mailboxId, sender_domain: senderDomain },
     });
 
+    const mailboxAccount = await this.upsertMailboxAccountFromLegacyMailbox(mailbox);
+    const activeLease = await this.getActiveLeaseByMailboxId(mailboxId);
+    const rawMessageId = randomUUID();
+    this.state.rawMessagesV2.set(rawMessageId, {
+      id: rawMessageId,
+      mailboxAccountId: mailboxAccount?.id || mailboxId,
+      backendMessageId: providerMessageId || null,
+      rawRef: rawRef || null,
+      headersJson: payload.headers || {},
+      sender,
+      senderDomain,
+      subject,
+      receivedAt,
+      ingestedAt: new Date().toISOString(),
+    });
+    this.state.messagesV2.set(messageId, {
+      id: messageId,
+      rawMessageId,
+      tenantId,
+      agentId: activeLease?.agentId || null,
+      mailboxAccountId: mailboxAccount?.id || mailboxId,
+      mailboxLeaseId: activeLease?.id || null,
+      fromAddress: sender,
+      subject,
+      receivedAt,
+      messageStatus: "received",
+      createdAt: new Date().toISOString(),
+    });
+
     return { tenantId, mailboxId, messageId };
   }
 
@@ -492,6 +762,67 @@ export class MemoryStore {
     };
   }
 
+  async listTenantMessagesV2({ tenantId, mailboxId = null, page, pageSize, messageStatus = null }) {
+    const mailboxAccount =
+      mailboxId
+        ? [...this.state.mailboxAccountsV2.values()].find((item) => item.legacyMailboxId === mailboxId) || null
+        : null;
+
+    let items = [...this.state.messagesV2.values()]
+      .filter((message) => message.tenantId === tenantId)
+      .filter((message) => !mailboxId || message.mailboxAccountId === (mailboxAccount?.id || mailboxId))
+      .map((message) => {
+        const parseResults = this.state.messageParseResultsV2.get(message.id) || [];
+        const latestParse = parseResults.at(-1) || null;
+        const account = this.state.mailboxAccountsV2.get(message.mailboxAccountId) || null;
+        return {
+          message_id: message.id,
+          mailbox_id: account?.legacyMailboxId || null,
+          mailbox_account_id: message.mailboxAccountId,
+          mailbox_lease_id: message.mailboxLeaseId,
+          from_address: message.fromAddress,
+          subject: message.subject,
+          received_at: message.receivedAt,
+          message_status: message.messageStatus,
+          otp_code: latestParse?.otpCode || null,
+          verification_link: latestParse?.verificationLink || null,
+          parser_version: latestParse?.parserVersion || null,
+        };
+      });
+
+    if (messageStatus) {
+      items = items.filter((item) => item.message_status === messageStatus);
+    }
+
+    items.sort((a, b) => new Date(b.received_at) - new Date(a.received_at));
+    return this._paginate(items, page, pageSize);
+  }
+
+  async getTenantMessageDetailV2(tenantId, messageId) {
+    const message = this.state.messagesV2.get(messageId);
+    if (!message || message.tenantId !== tenantId) return null;
+    const parseResults = this.state.messageParseResultsV2.get(messageId) || [];
+    const latestParse = parseResults.at(-1) || null;
+    const account = this.state.mailboxAccountsV2.get(message.mailboxAccountId) || null;
+    return {
+      message_id: message.id,
+      mailbox_id: account?.legacyMailboxId || null,
+      mailbox_account_id: message.mailboxAccountId,
+      mailbox_lease_id: message.mailboxLeaseId,
+      from_address: message.fromAddress,
+      subject: message.subject,
+      received_at: message.receivedAt,
+      message_status: message.messageStatus,
+      otp_code: latestParse?.otpCode || null,
+      verification_link: latestParse?.verificationLink || null,
+      parser_version: latestParse?.parserVersion || null,
+      parse_status: latestParse?.parseStatus || null,
+      text_excerpt: latestParse?.textExcerpt || null,
+      confidence: latestParse?.confidence ?? null,
+      error_code: latestParse?.errorCode || null,
+    };
+  }
+
   async applyMessageParseResult({ messageId, otpCode, verificationLink, payload = {}, requestId = null }) {
     const message = this.state.messages.get(messageId);
     if (!message) return null;
@@ -513,6 +844,26 @@ export class MemoryStore {
       requestId,
       metadata: { otp_extracted: Boolean(otpCode), verification_link: Boolean(verificationLink) },
     });
+
+    const messageV2 = this.state.messagesV2.get(messageId);
+    if (messageV2) {
+      messageV2.messageStatus = otpCode || verificationLink ? "parsed" : "parse_failed";
+      const results = this.state.messageParseResultsV2.get(messageId) || [];
+      results.push({
+        id: randomUUID(),
+        messageId,
+        parserVersion: String(payload.parser || "builtin"),
+        parseStatus: otpCode || verificationLink ? "parsed" : "failed",
+        otpCode: otpCode || null,
+        verificationLink: verificationLink || null,
+        textExcerpt: payload.text_excerpt || null,
+        confidence: otpCode || verificationLink ? 0.9 : 0.0,
+        errorCode: otpCode || verificationLink ? null : "NO_MATCH",
+        createdAt: new Date().toISOString(),
+      });
+      this.state.messageParseResultsV2.set(messageId, results);
+    }
+
     return { messageId };
   }
 
@@ -541,6 +892,11 @@ export class MemoryStore {
       metadata: { status_code: statusCode, ...metadata },
     });
     return webhook;
+  }
+
+  async getWebhook(webhookId) {
+    const webhook = this.state.webhooks.get(webhookId);
+    return webhook ? { ...webhook } : null;
   }
 
   async getLatestMessages({ tenantId, mailboxId, since, limit }) {
@@ -608,6 +964,31 @@ export class MemoryStore {
         last_status_code: webhook.lastStatusCode,
       }))
       .sort((a, b) => String(a.target_url).localeCompare(String(b.target_url)));
+  }
+
+  async listTenantWebhookDeliveries({ tenantId, page, pageSize, webhookId = null }) {
+    let items = this.state.auditLogs
+      .filter((entry) => entry.tenantId === tenantId && entry.action === "webhook.deliver" && entry.resourceType === "webhook")
+      .map((entry) => {
+        const webhook = this.state.webhooks.get(entry.resourceId);
+        return {
+          delivery_log_id: entry.id,
+          webhook_id: entry.resourceId,
+          target_url: webhook?.targetUrl || null,
+          event_type: entry.metadata?.event_type || null,
+          status_code: entry.metadata?.status_code ?? null,
+          attempts: entry.metadata?.attempts ?? null,
+          ok: entry.metadata?.ok ?? null,
+          delivery_id: entry.metadata?.delivery_id || null,
+          error_message: entry.metadata?.error_message || null,
+          response_excerpt: entry.metadata?.response_excerpt || null,
+          request_id: entry.requestId,
+          delivered_at: entry.createdAt,
+        };
+      });
+    if (webhookId) items = items.filter((item) => item.webhook_id === webhookId);
+    items.sort((a, b) => String(b.delivered_at).localeCompare(String(a.delivered_at)));
+    return this._paginate(items, page, pageSize);
   }
 
   async getInvoice(invoiceId, tenantId) {
@@ -847,6 +1228,12 @@ export class MemoryStore {
   async adminListMailboxes({ page, pageSize, status, tenantId }) {
     let items = [...this.state.mailboxes.values()].map((mailbox) => {
       const lease = this._currentLeaseByMailbox(mailbox.id);
+      const mailboxAccount = [...this.state.mailboxAccountsV2.values()].find((item) => item.legacyMailboxId === mailbox.id) || null;
+      const leaseV2 = mailboxAccount
+        ? [...this.state.mailboxLeasesV2.values()].find(
+            (item) => item.mailboxAccountId === mailboxAccount.id && ["pending", "active", "releasing"].includes(item.status),
+          ) || null
+        : null;
       return {
         mailbox_id: mailbox.id,
         address: mailbox.address,
@@ -855,6 +1242,10 @@ export class MemoryStore {
         tenant_id: mailbox.tenantId,
         agent_id: lease?.agentId || null,
         lease_expires_at: lease?.expiresAt || null,
+        mailbox_account_id: mailboxAccount?.id || null,
+        mailbox_account_backend_status: mailboxAccount?.backendStatus || null,
+        mailbox_lease_v2_id: leaseV2?.id || null,
+        lease_v2_status: leaseV2?.status || null,
       };
     });
     if (status) items = items.filter((mailbox) => mailbox.status === status);
@@ -932,6 +1323,14 @@ export class MemoryStore {
   async adminListMessages({ page, pageSize, mailboxId, parsedStatus }) {
     let items = [...this.state.messages.values()].map((message) => {
       const event = this.state.messageEvents.get(message.id);
+      const fallbackMailboxAccount =
+        [...this.state.mailboxAccountsV2.values()].find((item) => item.legacyMailboxId === message.mailboxId) || null;
+      const fallbackLeaseV2 = fallbackMailboxAccount
+        ? [...this.state.mailboxLeasesV2.values()].find(
+            (item) => item.mailboxAccountId === fallbackMailboxAccount.id && ["pending", "active", "releasing"].includes(item.status),
+          ) || null
+        : null;
+      const messageV2 = this.state.messagesV2.get(message.id) || null;
       const status = !event
         ? "pending"
         : event.eventType === "otp.extracted"
@@ -947,12 +1346,84 @@ export class MemoryStore {
         received_at: message.receivedAt,
         parsed_status: status,
         otp_extracted: Boolean(event?.otpCode),
+        mailbox_account_id: messageV2?.mailboxAccountId || fallbackMailboxAccount?.id || null,
+        mailbox_lease_v2_id: messageV2?.mailboxLeaseId || fallbackLeaseV2?.id || null,
+        message_v2_status: messageV2?.messageStatus || (status === "parsed" ? "parsed" : status === "failed" ? "parse_failed" : "received"),
       };
     });
     if (mailboxId) items = items.filter((message) => message.mailbox_id === mailboxId);
     if (parsedStatus) items = items.filter((message) => message.parsed_status === parsedStatus);
     items.sort((a, b) => new Date(b.received_at) - new Date(a.received_at));
     return this._paginate(items, page, pageSize);
+  }
+
+  async adminListSendAttempts({ page, pageSize, tenantId, submissionStatus }) {
+    let items = [...this.state.sendAttempts.values()].map((attempt) => ({
+      send_attempt_id: attempt.id,
+      tenant_id: attempt.tenantId,
+      agent_id: attempt.agentId,
+      mailbox_id: attempt.legacyMailboxId || null,
+      mailbox_account_id: attempt.mailboxAccountId,
+      from_address: attempt.fromAddress,
+      recipient_count: Array.isArray(attempt.to) ? attempt.to.length : 0,
+      subject: attempt.subject,
+      submission_status: attempt.status,
+      backend_queue_id: attempt.backendQueueId,
+      smtp_response: attempt.smtpResponse,
+      submitted_at: attempt.submittedAt,
+      created_at: attempt.createdAt,
+      updated_at: attempt.updatedAt,
+    }));
+    if (tenantId) items = items.filter((attempt) => attempt.tenant_id === tenantId);
+    if (submissionStatus) items = items.filter((attempt) => attempt.submission_status === submissionStatus);
+    items.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+    return this._paginate(items, page, pageSize);
+  }
+
+  async listTenantSendAttemptsV2({ tenantId, mailboxId = null, page, pageSize, submissionStatus = null }) {
+    let items = [...this.state.sendAttempts.values()]
+      .filter((attempt) => attempt.tenantId === tenantId)
+      .filter((attempt) => !mailboxId || attempt.legacyMailboxId === mailboxId)
+      .map((attempt) => ({
+        send_attempt_id: attempt.id,
+        mailbox_id: attempt.legacyMailboxId || null,
+        mailbox_account_id: attempt.mailboxAccountId,
+        agent_id: attempt.agentId,
+        from_address: attempt.fromAddress,
+        recipient_count: Array.isArray(attempt.to) ? attempt.to.length : 0,
+        subject: attempt.subject,
+        submission_status: attempt.status,
+        backend_queue_id: attempt.backendQueueId,
+        smtp_response: attempt.smtpResponse,
+        submitted_at: attempt.submittedAt,
+        created_at: attempt.createdAt,
+        updated_at: attempt.updatedAt,
+      }));
+    if (submissionStatus) {
+      items = items.filter((attempt) => attempt.submission_status === submissionStatus);
+    }
+    items.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+    return this._paginate(items, page, pageSize);
+  }
+
+  async getTenantSendAttemptV2(tenantId, sendAttemptId) {
+    const attempt = this.state.sendAttempts.get(sendAttemptId);
+    if (!attempt || attempt.tenantId !== tenantId) return null;
+    return {
+      send_attempt_id: attempt.id,
+      mailbox_id: attempt.legacyMailboxId || null,
+      mailbox_account_id: attempt.mailboxAccountId,
+      agent_id: attempt.agentId,
+      from_address: attempt.fromAddress,
+      recipients: attempt.to,
+      subject: attempt.subject,
+      submission_status: attempt.status,
+      backend_queue_id: attempt.backendQueueId,
+      smtp_response: attempt.smtpResponse,
+      submitted_at: attempt.submittedAt,
+      created_at: attempt.createdAt,
+      updated_at: attempt.updatedAt,
+    };
   }
 
   async adminReparseMessage(messageId, { actorDid, requestId }) {
@@ -1009,6 +1480,33 @@ export class MemoryStore {
         last_status_code: webhook.lastStatusCode,
       }))
       .sort((a, b) => String(a.target_url).localeCompare(String(b.target_url)));
+    return this._paginate(items, page, pageSize);
+  }
+
+  async adminListWebhookDeliveries({ page, pageSize, tenantId = null, webhookId = null }) {
+    let items = this.state.auditLogs
+      .filter((entry) => entry.action === "webhook.deliver" && entry.resourceType === "webhook")
+      .map((entry) => {
+        const webhook = this.state.webhooks.get(entry.resourceId);
+        return {
+          delivery_log_id: entry.id,
+          tenant_id: entry.tenantId,
+          webhook_id: entry.resourceId,
+          target_url: webhook?.targetUrl || null,
+          event_type: entry.metadata?.event_type || null,
+          status_code: entry.metadata?.status_code ?? null,
+          attempts: entry.metadata?.attempts ?? null,
+          ok: entry.metadata?.ok ?? null,
+          delivery_id: entry.metadata?.delivery_id || null,
+          error_message: entry.metadata?.error_message || null,
+          response_excerpt: entry.metadata?.response_excerpt || null,
+          request_id: entry.requestId,
+          delivered_at: entry.createdAt,
+        };
+      });
+    if (tenantId) items = items.filter((item) => item.tenant_id === tenantId);
+    if (webhookId) items = items.filter((item) => item.webhook_id === webhookId);
+    items.sort((a, b) => String(b.delivered_at).localeCompare(String(a.delivered_at)));
     return this._paginate(items, page, pageSize);
   }
 

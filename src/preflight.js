@@ -50,6 +50,9 @@ export function validateProductionReadiness(config) {
   if (config.webhookTimeoutMs < 1000) {
     warnings.push("WEBHOOK_TIMEOUT_MS is unusually low");
   }
+  if (config.webhookRetryBackoffMs < 100) {
+    warnings.push("WEBHOOK_RETRY_BACKOFF_MS is unusually low");
+  }
 
   return { ok: errors.length === 0, errors, warnings };
 }

@@ -16,6 +16,17 @@ services:
       timeout: 5s
       retries: 20
 
+  redis:
+    image: redis:7-alpine
+    container_name: mailagents-redis
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
   mailu-dev:
     build:
       context: .
@@ -47,6 +58,8 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      redis:
+        condition: service_healthy
       mailu-dev:
         condition: service_healthy
     env_file:
@@ -55,6 +68,8 @@ services:
       PORT: 3000
       STORAGE_BACKEND: postgres
       DATABASE_URL: postgres://postgres:postgres@db:5432/mailcloud
+      QUEUE_BACKEND: redis
+      QUEUE_REDIS_URL: redis://redis:6379
     ports:
       - "3000:3000"
     healthcheck:
@@ -64,6 +79,28 @@ services:
       retries: 20
     command: >-
       sh -lc "npm run db:migrate && npm run db:seed && npm start"
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: mailagents-worker
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      mailu-dev:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      STORAGE_BACKEND: postgres
+      DATABASE_URL: postgres://postgres:postgres@db:5432/mailcloud
+      QUEUE_BACKEND: redis
+      QUEUE_REDIS_URL: redis://redis:6379
+    command: >-
+      sh -lc "npm run worker:start"
 
 volumes:
   pgdata:
