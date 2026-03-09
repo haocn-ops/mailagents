@@ -497,6 +497,14 @@ export class MemoryStore {
     return lease;
   }
 
+  async markMailboxLeaseV2Releasing(leaseId) {
+    const lease = this.state.mailboxLeasesV2.get(leaseId);
+    if (!lease) return null;
+    lease.status = "releasing";
+    lease.updatedAt = new Date().toISOString();
+    return lease;
+  }
+
   async getActiveMailboxLeaseV2ByLegacyMailboxId(legacyMailboxId) {
     const account = [...this.state.mailboxAccountsV2.values()].find((item) => item.legacyMailboxId === legacyMailboxId);
     if (!account) return null;

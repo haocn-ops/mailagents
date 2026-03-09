@@ -920,7 +920,7 @@ export function createFetchApp(deps = {}) {
             lease_id: leaseId,
             mailbox_id: lease.mailbox_id,
             mailbox_account_id: lease.mailbox_account_id,
-            lease_status: "released",
+            lease_status: result.leaseV2?.status || "releasing",
             job_id: result.jobId,
             job_status: result.jobStatus,
           },

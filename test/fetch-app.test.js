@@ -865,7 +865,7 @@ test("fetch app exposes v2 mailbox accounts and leases endpoints", async () => {
   assert.equal(releaseRes.status, 202);
   const released = await releaseRes.json();
   assert.equal(released.lease_id, createdLease.lease_id);
-  assert.equal(released.lease_status, "released");
+  assert.equal(released.lease_status, "releasing");
 });
 
 test("fetch app requires dedicated admin token when configured", async () => {
