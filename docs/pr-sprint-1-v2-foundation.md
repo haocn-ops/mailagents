@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This PR moves `mailagents` from V1-only extension work into a V2 migration path without breaking the existing V1 API.
+This PR started as the V2 foundation branch and now also includes the first implemented V2 runtime endpoints.
 
 The branch does not deliver the full V2 architecture. It establishes the minimum foundation required to keep building:
 - V2 design and API documents live in the main repo
@@ -12,6 +12,7 @@ The branch does not deliver the full V2 architecture. It establishes the minimum
 - optional Redis-backed queue runtime
 - V2 mirror writes for mailbox, inbound message, parse result, and send attempt data
 - initial admin read model support for V2 state
+- first `/v2` mailbox, message, and send-attempt endpoints
 
 ## What Changed
 
@@ -98,6 +99,21 @@ New admin response fields include:
 - `message_v2_status`
 - `submission_status`
 
+### 6. Initial V2 endpoints are now implemented
+
+Added:
+- `GET /v2/mailboxes/accounts`
+- `GET /v2/mailboxes/leases`
+- `GET /v2/mailboxes/leases/{lease_id}`
+- `POST /v2/mailboxes/leases`
+- `POST /v2/mailboxes/leases/{lease_id}/release`
+- `GET /v2/messages`
+- `GET /v2/messages/{message_id}`
+- `GET /v2/send-attempts`
+- `GET /v2/send-attempts/{send_attempt_id}`
+
+These endpoints currently read from the V2 mirror data that was introduced earlier in the branch.
+
 ## Compatibility Rules
 
 This PR intentionally keeps V1 compatibility in place.
@@ -109,8 +125,10 @@ Current behavior:
 - Redis is optional
 - admin V2 state is exposed through extra fields, not a new breaking admin API
 
-Known intentional limitation:
+Known intentional limitations:
 - `POST /v1/messages/send` still returns the existing V1 synchronous response shape even though it now records a V2 `send_attempt`
+- `POST /v2/messages/send` is still documented, but not implemented yet
+- `POST /v2/mailboxes/leases` currently reuses the existing mailbox allocation path under the hood
 
 ## Not Included
 
@@ -142,7 +160,7 @@ node --test \
 ```
 
 Expected result on this branch:
-- `44/44` passing
+- `48/48` passing
 
 ## Reviewer Guide
 
@@ -162,4 +180,4 @@ Suggested review order:
 ## Follow-up
 
 Recommended next step after this PR:
-- start Sprint 2 by splitting inbound parse and webhook delivery into explicit worker-driven flows and exposing the first `/v2/*` read endpoints
+- add webhook retry/backoff semantics and finish the remaining `/v2` write paths, especially `POST /v2/messages/send`

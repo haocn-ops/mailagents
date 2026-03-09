@@ -46,12 +46,41 @@ paths:
         '200':
           description: Authentication successful
   /v2/mailboxes/leases:
+    get:
+      tags: [Mailbox Leases]
+      summary: List mailbox leases for the tenant
+      parameters:
+        - in: query
+          name: lease_status
+          schema:
+            type: string
+            enum: [pending, active, releasing, released, expired, frozen]
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: Mailbox leases listed
     post:
       tags: [Mailbox Leases]
       summary: Request a mailbox lease
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateMailboxLeaseRequest'
       responses:
         '202':
           description: Lease request accepted
+  /v2/mailboxes/leases/{lease_id}:
+    get:
+      tags: [Mailbox Leases]
+      summary: Get a mailbox lease detail
+      parameters:
+        - $ref: '#/components/parameters/LeaseId'
+      responses:
+        '200':
+          description: Mailbox lease detail
   /v2/mailboxes/leases/{lease_id}/release:
     post:
       tags: [Mailbox Leases]
@@ -65,6 +94,9 @@ paths:
     get:
       tags: [Mailbox Accounts]
       summary: List visible mailbox accounts for the tenant
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
       responses:
         '200':
           description: Mailbox accounts listed
@@ -81,6 +113,19 @@ paths:
     get:
       tags: [Messages]
       summary: List messages
+      parameters:
+        - in: query
+          name: mailbox_id
+          schema:
+            type: string
+            format: uuid
+        - in: query
+          name: message_status
+          schema:
+            type: string
+            enum: [received, parsed, parse_failed, archived]
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
       responses:
         '200':
           description: Messages listed
@@ -104,6 +149,19 @@ paths:
     get:
       tags: [Send Attempts]
       summary: List send attempts
+      parameters:
+        - in: query
+          name: mailbox_id
+          schema:
+            type: string
+            format: uuid
+        - in: query
+          name: submission_status
+          schema:
+            type: string
+            enum: [queued, submitting, accepted, failed]
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
       responses:
         '200':
           description: Send attempts listed
@@ -168,6 +226,23 @@ components:
       scheme: bearer
       bearerFormat: JWT
   parameters:
+    Page:
+      in: query
+      name: page
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        default: 1
+    PageSize:
+      in: query
+      name: page_size
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 200
+        default: 20
     LeaseId:
       in: path
       name: lease_id
@@ -225,3 +300,16 @@ components:
           type: string
         signature:
           type: string
+    CreateMailboxLeaseRequest:
+      type: object
+      required: [agent_id, purpose, ttl_hours]
+      properties:
+        agent_id:
+          type: string
+          format: uuid
+        purpose:
+          type: string
+        ttl_hours:
+          type: integer
+          minimum: 1
+          maximum: 720
