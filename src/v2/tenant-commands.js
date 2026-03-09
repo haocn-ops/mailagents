@@ -1,18 +1,19 @@
-import { createV2TenantRepository } from "./tenant-repository.js";
+import { createV2MailboxRepository } from "./mailbox-repository.js";
+import { createV2MessageRepository } from "./message-repository.js";
 import {
   toV2AllocatedLease,
   toV2MailboxCredentials,
   toV2ReleasedLease,
   toV2SendResult,
-  toV2Webhook,
 } from "./presenters.js";
 
 export function createV2TenantCommands({ store, mailBackend }) {
-  const repository = createV2TenantRepository({ store });
+  const mailboxRepository = createV2MailboxRepository({ store });
+  const messageRepository = createV2MessageRepository({ store });
 
   return {
     async allocateLease({ tenantId, agentId, purpose, ttlHours }) {
-      const result = await repository.allocateMailbox({ tenantId, agentId, purpose, ttlHours });
+      const result = await mailboxRepository.allocateMailbox({ tenantId, agentId, purpose, ttlHours });
       if (!result) return null;
 
       let provider = null;
@@ -25,10 +26,10 @@ export function createV2TenantCommands({ store, mailBackend }) {
           ttlHours,
         });
         if (provider?.providerRef) {
-          await repository.saveMailboxProviderRef(result.mailbox.id, provider.providerRef);
+          await mailboxRepository.saveMailboxProviderRef(result.mailbox.id, provider.providerRef);
         }
       } catch (err) {
-        await repository.releaseMailbox({ tenantId, mailboxId: result.mailbox.id });
+        await mailboxRepository.releaseMailbox({ tenantId, mailboxId: result.mailbox.id });
         throw err;
       }
 
@@ -40,10 +41,10 @@ export function createV2TenantCommands({ store, mailBackend }) {
     },
 
     async releaseLease({ tenantId, leaseId }) {
-      const lease = await repository.getTenantLeaseById(tenantId, leaseId);
+      const lease = await mailboxRepository.getTenantLeaseById(tenantId, leaseId);
       if (!lease) return null;
 
-      const result = await repository.releaseMailbox({ tenantId, mailboxId: lease.mailboxId });
+      const result = await mailboxRepository.releaseMailbox({ tenantId, mailboxId: lease.mailboxId });
       if (!result) return null;
 
       await mailBackend.releaseMailbox({
@@ -57,7 +58,7 @@ export function createV2TenantCommands({ store, mailBackend }) {
     },
 
     async resetMailboxCredentials({ tenantId, agentId, accountId }) {
-      const mailbox = await repository.getTenantMailbox(tenantId, accountId);
+      const mailbox = await mailboxRepository.getTenantMailbox(tenantId, accountId);
       if (!mailbox) return null;
 
       const credentials = await mailBackend.issueMailboxCredentials({
@@ -72,10 +73,10 @@ export function createV2TenantCommands({ store, mailBackend }) {
     },
 
     async sendMessage({ tenantId, agentId, mailboxId, mailboxPassword, recipients, subject, text, html, requestId }) {
-      const mailbox = await repository.getTenantMailbox(tenantId, mailboxId);
+      const mailbox = await messageRepository.getTenantMailbox(tenantId, mailboxId);
       if (!mailbox) return null;
 
-      const attempt = await repository.createSendAttempt({
+      const attempt = await messageRepository.createSendAttempt({
         tenantId,
         agentId,
         mailboxId,
@@ -98,29 +99,20 @@ export function createV2TenantCommands({ store, mailBackend }) {
           text,
           html,
         });
-        await repository.completeSendAttempt(attempt.send_attempt_id, delivery, { requestId });
+        await messageRepository.completeSendAttempt(attempt.send_attempt_id, delivery, { requestId });
       } catch (err) {
-        await repository.failSendAttempt(attempt.send_attempt_id, err.message || "Mail backend send failed", { requestId });
+        await messageRepository.failSendAttempt(attempt.send_attempt_id, err.message || "Mail backend send failed", {
+          requestId,
+        });
         err.sendAttemptId = attempt.send_attempt_id;
         throw err;
       }
 
-      const completedAttempt = await repository.getTenantSendAttempt(tenantId, attempt.send_attempt_id);
+      const completedAttempt = await messageRepository.getTenantSendAttempt(tenantId, attempt.send_attempt_id);
       return toV2SendResult({
         attemptId: attempt.send_attempt_id,
         completedAttempt,
       });
-    },
-
-    async createWebhook({ tenantId, eventTypes, targetUrl, secret }) {
-      const webhook = await repository.createWebhook({ tenantId, eventTypes, targetUrl, secret });
-      return toV2Webhook(webhook);
-    },
-
-    async rotateWebhookSecret({ tenantId, webhookId, actorDid, requestId }) {
-      const webhook = await repository.getTenantWebhook(tenantId, webhookId);
-      if (!webhook) return null;
-      return repository.rotateTenantWebhookSecret(tenantId, webhookId, { actorDid, requestId });
     },
   };
 }

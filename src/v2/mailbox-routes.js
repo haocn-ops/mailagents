@@ -1,7 +1,8 @@
 import { createV2MailboxService } from "../services/v2-mailbox-service.js";
 import { createV2Authz } from "./authz.js";
 import { createV2Metering } from "./metering.js";
-import { parseIntegerInRange, parseRequiredPathParam } from "./validation.js";
+import { createV2Responses } from "./responses.js";
+import { parseLeaseCreateBody, parseRequiredPathParam } from "./validation.js";
 
 export function createV2MailboxRouteHandler({
   store,
@@ -15,6 +16,7 @@ export function createV2MailboxRouteHandler({
   const mailboxService = createV2MailboxService({ store, mailBackend });
   const authz = createV2Authz({ requireAuth, evaluateAccess });
   const metering = createV2Metering({ store, getOverageChargeUsdc });
+  const responses = createV2Responses({ jsonResponse });
 
   return async function handleV2MailboxRoute({ method, path, request, requestId }) {
     if (!path.startsWith("/v2/mailboxes/")) return null;
@@ -23,14 +25,14 @@ export function createV2MailboxRouteHandler({
       const auth = await authz.requireTenantAuth(request, requestId);
       if (!auth.ok) return auth.response;
       const items = await mailboxService.listAccounts(auth.payload.tenant_id);
-      return jsonResponse(200, { items }, requestId);
+      return responses.okItems(requestId, items);
     }
 
     if (method === "GET" && path === "/v2/mailboxes/leases") {
       const auth = await authz.requireTenantAuth(request, requestId);
       if (!auth.ok) return auth.response;
       const items = await mailboxService.listLeases(auth.payload.tenant_id);
-      return jsonResponse(200, { items }, requestId);
+      return responses.okItems(requestId, items);
     }
 
     if (method === "POST" && path === "/v2/mailboxes/leases") {
@@ -38,26 +40,18 @@ export function createV2MailboxRouteHandler({
       if (!auth.ok) return auth.response;
 
       const body = await readJsonBody(request);
-      const purpose = String(body.purpose || "").trim();
-      const ttlHoursResult = parseIntegerInRange(body.ttl_hours, { name: "ttl_hours", min: 1, max: 720 });
-      const agentId = String(body.agent_id || "");
-
-      if (!agentId || !purpose || body.ttl_hours == null || body.ttl_hours === "") {
-        return jsonResponse(400, { error: "bad_request", message: "agent_id, purpose, ttl_hours are required" }, requestId);
+      const parsed = parseLeaseCreateBody(body, auth.payload.agent_id);
+      if (!parsed.ok) {
+        return parsed.status === 403
+          ? responses.forbidden(requestId, parsed.message)
+          : responses.badRequest(requestId, parsed.message);
       }
-      if (!ttlHoursResult.ok) {
-        return jsonResponse(400, { error: "bad_request", message: ttlHoursResult.error }, requestId);
-      }
-      if (auth.payload.agent_id !== agentId) {
-        return jsonResponse(403, { error: "forbidden", message: "agent_id does not match token" }, requestId);
-      }
-      const ttlHours = ttlHoursResult.value;
 
       const access = await authz.requireTenantAccess({
         request,
         requestId,
         tenantId: auth.payload.tenant_id,
-        agentId,
+        agentId: parsed.agentId,
         endpoint: "POST /v2/mailboxes/leases",
         checkAllocateHourly: true,
         allocateHourlyEndpoints: ["POST /v1/mailboxes/allocate", "POST /v2/mailboxes/leases"],
@@ -68,15 +62,15 @@ export function createV2MailboxRouteHandler({
       try {
         result = await mailboxService.allocateLease({
           tenantId: auth.payload.tenant_id,
-          agentId,
-          purpose,
-          ttlHours,
+          agentId: parsed.agentId,
+          purpose: parsed.purpose,
+          ttlHours: parsed.ttlHours,
         });
       } catch (err) {
-        return jsonResponse(502, { error: "mail_backend_error", message: err.message || "Mail backend provisioning failed" }, requestId);
+        return responses.mailBackendError(requestId, err.message || "Mail backend provisioning failed");
       }
       if (!result) {
-        return jsonResponse(409, { error: "no_available_mailbox", message: "No available mailbox for current tenant" }, requestId);
+        return responses.conflict(requestId, "no_available_mailbox", "No available mailbox for current tenant");
       }
 
       await metering.recordUsageAndCharge({
@@ -87,7 +81,7 @@ export function createV2MailboxRouteHandler({
         access,
       });
 
-      return jsonResponse(201, result, requestId);
+      return responses.created(requestId, result);
     }
 
     if (method === "POST" && path.startsWith("/v2/mailboxes/leases/") && path.endsWith("/release")) {
@@ -100,17 +94,17 @@ export function createV2MailboxRouteHandler({
         name: "lease_id",
       });
       if (!leaseIdResult.ok) {
-        return jsonResponse(400, { error: "bad_request", message: leaseIdResult.error }, requestId);
+        return responses.badRequest(requestId, leaseIdResult.error);
       }
       const leaseId = leaseIdResult.value;
       let result;
       try {
         result = await mailboxService.releaseLease({ tenantId: auth.payload.tenant_id, leaseId });
       } catch (err) {
-        return jsonResponse(502, { error: "mail_backend_error", message: err.message || "Mail backend release failed" }, requestId);
+        return responses.mailBackendError(requestId, err.message || "Mail backend release failed");
       }
       if (!result) {
-        return jsonResponse(404, { error: "not_found", message: "Lease not found" }, requestId);
+        return responses.notFound(requestId, "Lease not found");
       }
 
       await metering.recordUsage({
@@ -120,7 +114,7 @@ export function createV2MailboxRouteHandler({
         requestId,
       });
 
-      return jsonResponse(202, result, requestId);
+      return responses.accepted(requestId, result);
     }
 
     if (method === "POST" && path.startsWith("/v2/mailboxes/accounts/") && path.endsWith("/credentials/reset")) {
@@ -133,7 +127,7 @@ export function createV2MailboxRouteHandler({
         name: "account_id",
       });
       if (!accountIdResult.ok) {
-        return jsonResponse(400, { error: "bad_request", message: accountIdResult.error }, requestId);
+        return responses.badRequest(requestId, accountIdResult.error);
       }
       const accountId = accountIdResult.value;
       const credentials = await mailboxService.resetCredentials({
@@ -142,7 +136,7 @@ export function createV2MailboxRouteHandler({
         accountId,
       });
       if (!credentials) {
-        return jsonResponse(404, { error: "not_found", message: "Mailbox not found" }, requestId);
+        return responses.notFound(requestId, "Mailbox not found");
       }
 
       await metering.recordUsage({
@@ -152,7 +146,7 @@ export function createV2MailboxRouteHandler({
         requestId,
       });
 
-      return jsonResponse(200, credentials, requestId);
+      return responses.ok(requestId, credentials);
     }
 
     return null;
