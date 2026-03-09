@@ -605,6 +605,124 @@ test("fetch app exposes v2 webhook rotate-secret and delivery history endpoints"
   assert.ok(rotated.secret.length >= 16);
 });
 
+test("fetch app scopes v2 webhook deliveries list to current tenant without webhook filter", async () => {
+  const app = makeApp();
+  const tenantA = await issueToken(app, "0xabc0000000000000000000000000000000000b01");
+  const tenantB = await issueToken(app, "0xabc0000000000000000000000000000000000b02");
+
+  const allocateARes = await app(
+    new Request("http://localhost/v1/mailboxes/allocate", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${tenantA.access_token}`,
+      },
+      body: JSON.stringify({ agent_id: tenantA.agent_id, purpose: "tenant-a-webhook-history", ttl_hours: 1 }),
+    }),
+  );
+  assert.equal(allocateARes.status, 200);
+  const allocationA = await allocateARes.json();
+
+  const allocateBRes = await app(
+    new Request("http://localhost/v1/mailboxes/allocate", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${tenantB.access_token}`,
+      },
+      body: JSON.stringify({ agent_id: tenantB.agent_id, purpose: "tenant-b-webhook-history", ttl_hours: 1 }),
+    }),
+  );
+  assert.equal(allocateBRes.status, 200);
+  const allocationB = await allocateBRes.json();
+
+  const webhookARes = await app(
+    new Request("http://localhost/v2/webhooks", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${tenantA.access_token}`,
+      },
+      body: JSON.stringify({
+        event_types: ["otp.extracted"],
+        target_url: "https://example.com/v2-webhook-history-a",
+        secret: "1234567890abcdef",
+      }),
+    }),
+  );
+  assert.equal(webhookARes.status, 201);
+  const webhookA = await webhookARes.json();
+
+  const webhookBRes = await app(
+    new Request("http://localhost/v2/webhooks", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${tenantB.access_token}`,
+      },
+      body: JSON.stringify({
+        event_types: ["otp.extracted"],
+        target_url: "https://example.com/v2-webhook-history-b",
+        secret: "1234567890abcdef",
+      }),
+    }),
+  );
+  assert.equal(webhookBRes.status, 201);
+  const webhookB = await webhookBRes.json();
+
+  const inboundARes = await app(
+    new Request("http://localhost/internal/inbound/events", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-internal-token": "internal-secret",
+      },
+      body: JSON.stringify({
+        address: allocationA.address,
+        sender: "service-a@example.com",
+        sender_domain: "example.com",
+        subject: "Tenant A code",
+        provider_message_id: "provider-v2-webhook-tenant-a",
+        received_at: "2026-03-09T01:00:00.000Z",
+        text_excerpt: "Verification code is 111111",
+      }),
+    }),
+  );
+  assert.equal(inboundARes.status, 202);
+
+  const inboundBRes = await app(
+    new Request("http://localhost/internal/inbound/events", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-internal-token": "internal-secret",
+      },
+      body: JSON.stringify({
+        address: allocationB.address,
+        sender: "service-b@example.com",
+        sender_domain: "example.com",
+        subject: "Tenant B code",
+        provider_message_id: "provider-v2-webhook-tenant-b",
+        received_at: "2026-03-09T01:01:00.000Z",
+        text_excerpt: "Verification code is 222222",
+      }),
+    }),
+  );
+  assert.equal(inboundBRes.status, 202);
+
+  const tenantADeliveriesRes = await app(
+    new Request("http://localhost/v2/webhooks/deliveries", {
+      method: "GET",
+      headers: { authorization: `Bearer ${tenantA.access_token}` },
+    }),
+  );
+  assert.equal(tenantADeliveriesRes.status, 200);
+  const tenantADeliveries = await tenantADeliveriesRes.json();
+  assert.ok(tenantADeliveries.items.length >= 1);
+  assert.ok(tenantADeliveries.items.some((item) => item.webhook_id === webhookA.webhook_id));
+  assert.ok(tenantADeliveries.items.every((item) => item.webhook_id !== webhookB.webhook_id));
+});
+
 test("fetch app exposes v2 mailbox accounts and leases endpoints", async () => {
   const app = makeApp({ AGENT_ALLOCATE_HOURLY_LIMIT: "1" });
   const verify = await issueToken(app, "0xabc0000000000000000000000000000000000a12");
