@@ -6,6 +6,7 @@ Current baseline documents:
 - `docs/development.md`
 - `docs/mailu-fork-architecture.md`
 - `docs/openapi.yaml`
+- `docs/openapi-v2.yaml`
 - `docs/db/schema.sql`
 
 Recommended redesign documents:

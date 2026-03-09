@@ -22,6 +22,7 @@
 - [Single-Host Deployment](./single-host-deployment.md)
 - [Admin Dashboard Design](./admin-dashboard.md)
 - [Business API Contract](./openapi.yaml)
+- [V2 Preview API Contract](./openapi-v2.yaml)
 - [Admin API Contract](./openapi-admin.yaml)
 - [V2 Technical Design](./mailagents-v2-technical-design.md)
 - [V2 Business API Draft](./openapi-v2.yaml)
@@ -52,10 +53,10 @@
 17. `current-production-state.md` - live capabilities, runtime mode, and current deployment caveats
 18. `agent-api-example.md` - minimal agent workflow for sign-in, allocate, read, send, and release
 19. `openapi.yaml` - business API contract
-20. `admin-dashboard.md` - dashboard IA and operation flows
-21. `openapi-admin.yaml` - admin API contract
-22. `mailagents-v2-technical-design.md` - integrated V2 technical design and migration target
-23. `openapi-v2.yaml` - proposed V2 public API contract
+20. `openapi-v2.yaml` - current V2 preview contract implemented on top of the main control plane
+21. `admin-dashboard.md` - dashboard IA and operation flows
+22. `openapi-admin.yaml` - admin API contract
+23. `mailagents-v2-technical-design.md` - integrated V2 technical design and migration target
 24. `openapi-admin-v2.yaml` - proposed V2 admin API contract
 25. `db-migration-v2.sql` - additive V2 schema migration draft
 26. `sprint-1-implementation-plan.md` - first implementation sprint breakdown
