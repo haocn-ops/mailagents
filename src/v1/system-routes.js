@@ -1,4 +1,6 @@
 import { createV1SystemService } from "../services/v1-system-service.js";
+import { createV1SystemResponses } from "./system-responses.js";
+import { parsePaymentProofBody, parseSiweChallengeBody, parseSiweVerifyBody } from "./system-validation.js";
 
 export function createV1SystemRouteHandler({
   store,
@@ -16,6 +18,7 @@ export function createV1SystemRouteHandler({
     siweService,
     getOverageChargeUsdc,
   });
+  const responses = createV1SystemResponses({ jsonResponse });
 
   return async function handleV1SystemRoute({ method, path, request, requestId }) {
     if (!path.startsWith("/v1/")) return null;
@@ -25,32 +28,30 @@ export function createV1SystemRouteHandler({
       if (!auth.ok) return auth.response;
 
       const body = await readJsonBody(request);
-      const proofMethod = String(body.method || "").trim().toUpperCase();
-      const proofPath = String(body.path || "").trim();
-      if (!proofMethod || !proofPath) {
-        return jsonResponse(400, { error: "bad_request", message: "method and path are required" }, requestId);
+      const parsed = parsePaymentProofBody(body, paidBypassTargets);
+      if (!parsed.ok) {
+        return responses.badRequest(requestId, parsed.message);
       }
 
-      if (!paidBypassTargets.has(`${proofMethod} ${proofPath}`)) {
-        return jsonResponse(400, { error: "bad_request", message: "unsupported payment proof target" }, requestId);
-      }
-
-      return jsonResponse(200, systemService.createPaymentProof({ proofMethod, proofPath }), requestId);
+      return responses.ok(
+        requestId,
+        systemService.createPaymentProof({ proofMethod: parsed.proofMethod, proofPath: parsed.proofPath }),
+      );
     }
 
     if (method === "POST" && path === "/v1/auth/siwe/challenge") {
       const body = await readJsonBody(request);
-      const walletAddress = String(body.wallet_address || "").trim();
-      if (!walletAddress) {
-        return jsonResponse(400, { error: "bad_request", message: "wallet_address is required" }, requestId);
+      const parsed = parseSiweChallengeBody(body);
+      if (!parsed.ok) {
+        return responses.badRequest(requestId, parsed.message);
       }
 
       try {
-        const challenge = await systemService.createSiweChallenge(walletAddress);
-        return jsonResponse(200, challenge, requestId);
+        const challenge = await systemService.createSiweChallenge(parsed.walletAddress);
+        return responses.ok(requestId, challenge);
       } catch (err) {
         if (err.code === "INVALID_SIWE_MESSAGE") {
-          return jsonResponse(400, { error: "bad_request", message: err.message }, requestId);
+          return responses.badRequest(requestId, err.message);
         }
         throw err;
       }
@@ -58,21 +59,20 @@ export function createV1SystemRouteHandler({
 
     if (method === "POST" && path === "/v1/auth/siwe/verify") {
       const body = await readJsonBody(request);
-      const message = String(body.message || "");
-      const signature = String(body.signature || "");
-      if (!message || !signature) {
-        return jsonResponse(400, { error: "bad_request", message: "message and signature are required" }, requestId);
+      const parsed = parseSiweVerifyBody(body);
+      if (!parsed.ok) {
+        return responses.badRequest(requestId, parsed.message);
       }
 
       try {
-        const result = await systemService.verifySiwe({ message, signature });
+        const result = await systemService.verifySiwe({ message: parsed.message, signature: parsed.signature });
         if (!result.ok) {
-          return jsonResponse(401, { error: "unauthorized", message: result.message }, requestId);
+          return responses.unauthorized(requestId, result.message);
         }
-        return jsonResponse(200, result.payload, requestId);
+        return responses.ok(requestId, result.payload);
       } catch (err) {
         if (err.code === "INVALID_SIWE_MESSAGE") {
-          return jsonResponse(400, { error: "bad_request", message: err.message }, requestId);
+          return responses.badRequest(requestId, err.message);
         }
         throw err;
       }
