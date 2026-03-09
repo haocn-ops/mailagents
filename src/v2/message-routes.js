@@ -29,7 +29,7 @@ export function createV2MessageRouteHandler({
         requestId,
         tenantId: auth.payload.tenant_id,
         agentId: auth.payload.agent_id,
-        endpoint: "GET /v1/messages/latest",
+        endpoint: "GET /v2/messages",
       });
       if (!access.ok) return access.response;
 
@@ -51,7 +51,7 @@ export function createV2MessageRouteHandler({
       await metering.recordUsageAndCharge({
         tenantId: auth.payload.tenant_id,
         agentId: auth.payload.agent_id,
-        endpoint: "GET /v1/messages/latest",
+        endpoint: "GET /v2/messages",
         requestId,
         access,
       });

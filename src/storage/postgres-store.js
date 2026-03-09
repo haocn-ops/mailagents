@@ -1307,7 +1307,7 @@ export class PostgresStore {
          from usage_records
         where tenant_id = $1
           and occurred_at >= $2 and occurred_at < $3
-          and endpoint = 'GET /v1/messages/latest'`,
+          and endpoint in ('GET /v1/messages/latest', 'GET /v2/messages')`,
       [tenantId, start.toISOString(), end.toISOString()],
     );
 

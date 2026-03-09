@@ -100,11 +100,45 @@ export function toV2SendResult({ attemptId, completedAttempt }) {
   };
 }
 
+export function toV2SendAttempt(attempt) {
+  return {
+    send_attempt_id: attempt.send_attempt_id,
+    mailbox_id: attempt.mailbox_id,
+    to: Array.isArray(attempt.to) ? attempt.to : [],
+    subject: attempt.subject || "",
+    submission_status: attempt.submission_status || "queued",
+    accepted: Array.isArray(attempt.accepted) ? attempt.accepted : [],
+    rejected: Array.isArray(attempt.rejected) ? attempt.rejected : [],
+    message_id: attempt.message_id || null,
+    response: attempt.response || null,
+    envelope: attempt.envelope ?? null,
+    error: attempt.error || null,
+    created_at: attempt.created_at || null,
+    updated_at: attempt.updated_at || null,
+  };
+}
+
 export function toV2Webhook(webhook) {
   return {
     webhook_id: webhook.webhook_id || webhook.id,
     event_types: webhook.event_types || webhook.eventTypes,
     target_url: webhook.target_url || webhook.targetUrl,
     status: webhook.status,
+    last_delivery_at: webhook.last_delivery_at || webhook.lastDeliveryAt || null,
+    last_status_code: webhook.last_status_code ?? webhook.lastStatusCode ?? null,
+  };
+}
+
+export function toV2WebhookDelivery(delivery) {
+  return {
+    webhook_id: delivery.webhook_id,
+    delivery_id: delivery.delivery_id,
+    status_code: delivery.status_code ?? null,
+    attempts: delivery.attempts ?? null,
+    ok: delivery.ok ?? null,
+    error_message: delivery.error_message || null,
+    response_excerpt: delivery.response_excerpt || null,
+    request_id: delivery.request_id || null,
+    delivered_at: delivery.delivered_at || null,
   };
 }

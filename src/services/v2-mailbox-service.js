@@ -14,6 +14,10 @@ export function createV2MailboxService({ store, mailBackend }) {
       return readModels.listMailboxLeases(tenantId);
     },
 
+    async getLease(tenantId, leaseId) {
+      return readModels.getMailboxLease(tenantId, leaseId);
+    },
+
     async allocateLease({ tenantId, agentId, purpose, ttlHours }) {
       return commands.allocateLease({ tenantId, agentId, purpose, ttlHours });
     },

@@ -63,6 +63,31 @@ export function createV2WebhookRouteHandler({
       return responses.okItems(requestId, items);
     }
 
+    if (
+      method === "GET" &&
+      path.startsWith("/v2/webhooks/") &&
+      path !== "/v2/webhooks/deliveries" &&
+      !path.endsWith("/rotate-secret")
+    ) {
+      const auth = await authz.requireTenantAuth(request, requestId);
+      if (!auth.ok) return auth.response;
+
+      const webhookIdResult = parseRequiredPathParam(path, {
+        prefix: "/v2/webhooks/",
+        name: "webhook_id",
+      });
+      if (!webhookIdResult.ok) {
+        return responses.badRequest(requestId, webhookIdResult.error);
+      }
+
+      const webhook = await webhookService.getWebhook(auth.payload.tenant_id, webhookIdResult.value);
+      if (!webhook) {
+        return responses.notFound(requestId, "Webhook not found");
+      }
+
+      return responses.ok(requestId, webhook);
+    }
+
     if (method === "POST" && path.startsWith("/v2/webhooks/") && path.endsWith("/rotate-secret")) {
       const auth = await authz.requireTenantAuth(request, requestId);
       if (!auth.ok) return auth.response;
