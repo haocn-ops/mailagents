@@ -1,18 +1,4 @@
-function toV2Message(message) {
-  const parsedStatus = message.parsed_status || (message.otp_code || message.verification_link ? "parsed" : "pending");
-  return {
-    message_id: message.message_id,
-    mailbox_id: message.mailbox_id,
-    sender: message.sender,
-    sender_domain: message.sender_domain,
-    subject: message.subject,
-    raw_ref: message.raw_ref || null,
-    received_at: message.received_at,
-    otp_code: message.otp_code || null,
-    verification_link: message.verification_link || null,
-    parsed_status: parsedStatus,
-  };
-}
+import { createMessageService } from "../services/message-service.js";
 
 export function createV2MessageRouteHandler({
   store,
@@ -23,6 +9,8 @@ export function createV2MessageRouteHandler({
   readJsonBody,
   getOverageChargeUsdc,
 }) {
+  const messageService = createMessageService({ store, mailBackend });
+
   return async function handleV2MessageRoute({ method, path, request, requestId, requestUrl }) {
     if (!path.startsWith("/v2/messages") && !path.startsWith("/v2/send-attempts")) return null;
 
@@ -49,7 +37,7 @@ export function createV2MessageRouteHandler({
         return jsonResponse(400, { error: "bad_request", message: "limit must be 1..100" }, requestId);
       }
 
-      const messages = await store.getLatestMessages({
+      const messages = await messageService.listMessages({
         tenantId: auth.payload.tenant_id,
         mailboxId,
         since,
@@ -77,7 +65,7 @@ export function createV2MessageRouteHandler({
         });
       }
 
-      return jsonResponse(200, { items: messages.map(toV2Message) }, requestId);
+      return jsonResponse(200, { items: messages }, requestId);
     }
 
     if (method === "POST" && path === "/v2/messages/send") {
@@ -112,86 +100,71 @@ export function createV2MessageRouteHandler({
         );
       }
 
-      const mailbox = await store.getTenantMailbox(auth.payload.tenant_id, mailboxId);
-      if (!mailbox) {
-        return jsonResponse(404, { error: "not_found", message: "Mailbox not found" }, requestId);
-      }
-
-      const attempt = await store.createSendAttempt({
-        tenantId: auth.payload.tenant_id,
-        agentId: auth.payload.agent_id,
-        mailboxId,
-        to: recipients,
-        subject,
-        text,
-        html,
-        requestId,
-      });
-
-      let delivery;
       try {
-        delivery = await mailBackend.sendMailboxMessage({
+        const result = await messageService.sendMessage({
           tenantId: auth.payload.tenant_id,
           agentId: auth.payload.agent_id,
           mailboxId,
-          address: mailbox.address,
-          password: mailboxPassword,
-          to: recipients,
+          mailboxPassword,
+          recipients,
           subject,
           text,
           html,
+          requestId,
         });
-        await store.completeSendAttempt(attempt.send_attempt_id, delivery, { requestId });
+        if (!result) {
+          return jsonResponse(404, { error: "not_found", message: "Mailbox not found" }, requestId);
+        }
+
+        await store.recordUsage({
+          tenantId: auth.payload.tenant_id,
+          agentId: auth.payload.agent_id,
+          endpoint: "POST /v2/messages/send",
+          quantity: 1,
+          requestId,
+        });
+        if (access.requiresCharge) {
+          await store.recordOverageCharge({
+            tenantId: auth.payload.tenant_id,
+            agentId: auth.payload.agent_id,
+            endpoint: "POST /v2/messages/send",
+            reasons: access.reasons,
+            amountUsdc: getOverageChargeUsdc(),
+            requestId,
+          });
+        }
+
+        return jsonResponse(202, result, requestId);
       } catch (err) {
-        await store.failSendAttempt(attempt.send_attempt_id, err.message || "Mail backend send failed", { requestId });
+        if (err.sendAttemptId) {
+          return jsonResponse(
+            502,
+            {
+              error: "mail_backend_error",
+              message: err.message || "Mail backend send failed",
+              send_attempt_id: err.sendAttemptId,
+            },
+            requestId,
+          );
+        }
+        if (err.message === "Mailbox not found") {
+          return jsonResponse(404, { error: "not_found", message: "Mailbox not found" }, requestId);
+        }
         return jsonResponse(
           502,
           {
             error: "mail_backend_error",
             message: err.message || "Mail backend send failed",
-            send_attempt_id: attempt.send_attempt_id,
           },
           requestId,
         );
       }
-
-      await store.recordUsage({
-        tenantId: auth.payload.tenant_id,
-        agentId: auth.payload.agent_id,
-        endpoint: "POST /v2/messages/send",
-        quantity: 1,
-        requestId,
-      });
-      if (access.requiresCharge) {
-        await store.recordOverageCharge({
-          tenantId: auth.payload.tenant_id,
-          agentId: auth.payload.agent_id,
-          endpoint: "POST /v2/messages/send",
-          reasons: access.reasons,
-          amountUsdc: getOverageChargeUsdc(),
-          requestId,
-        });
-      }
-
-      const completedAttempt = await store.getTenantSendAttempt(auth.payload.tenant_id, attempt.send_attempt_id);
-      return jsonResponse(
-        202,
-        {
-          send_attempt_id: completedAttempt?.send_attempt_id || attempt.send_attempt_id,
-          submission_status: completedAttempt?.submission_status || "accepted",
-          accepted: completedAttempt?.accepted || [],
-          rejected: completedAttempt?.rejected || [],
-          message_id: completedAttempt?.message_id || null,
-          response: completedAttempt?.response || null,
-        },
-        requestId,
-      );
     }
 
     if (method === "GET" && path === "/v2/send-attempts") {
       const auth = await requireAuth(request, requestId);
       if (!auth.ok) return auth.response;
-      const items = await store.listTenantSendAttempts(auth.payload.tenant_id);
+      const items = await messageService.listSendAttempts(auth.payload.tenant_id);
       return jsonResponse(200, { items }, requestId);
     }
 
@@ -204,7 +177,7 @@ export function createV2MessageRouteHandler({
         return jsonResponse(400, { error: "bad_request", message: "send_attempt_id is required" }, requestId);
       }
 
-      const sendAttempt = await store.getTenantSendAttempt(auth.payload.tenant_id, sendAttemptId);
+      const sendAttempt = await messageService.getSendAttempt(auth.payload.tenant_id, sendAttemptId);
       if (!sendAttempt) {
         return jsonResponse(404, { error: "not_found", message: "Send attempt not found" }, requestId);
       }
@@ -220,11 +193,11 @@ export function createV2MessageRouteHandler({
         return jsonResponse(400, { error: "bad_request", message: "message_id is required" }, requestId);
       }
 
-      const message = await store.getTenantMessageDetail(auth.payload.tenant_id, messageId);
+      const message = await messageService.getMessage(auth.payload.tenant_id, messageId);
       if (!message) {
         return jsonResponse(404, { error: "not_found", message: "Message not found" }, requestId);
       }
-      return jsonResponse(200, toV2Message(message), requestId);
+      return jsonResponse(200, message, requestId);
     }
 
     return null;
