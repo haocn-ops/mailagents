@@ -1,4 +1,5 @@
 import { parseInboundContent } from "../parser.js";
+import { createInternalRepository } from "../internal/repository.js";
 
 function toInternalMailbox(mailbox, lease) {
   return {
@@ -35,6 +36,8 @@ function toInternalMessage(message) {
 }
 
 export function createInternalService({ store, webhookDispatcher }) {
+  const repository = createInternalRepository({ store });
+
   return {
     async ingestInboundEvent({
       mailboxAddress,
@@ -50,10 +53,10 @@ export function createInternalService({ store, webhookDispatcher }) {
       headers,
       requestId,
     }) {
-      const mailbox = await store.findMailboxByAddress(mailboxAddress);
+      const mailbox = await repository.findMailboxByAddress(mailboxAddress);
       if (!mailbox) return null;
 
-      const ingested = await store.ingestInboundMessage({
+      const ingested = await repository.ingestInboundMessage({
         tenantId: mailbox.tenantId,
         mailboxId: mailbox.id,
         providerMessageId,
@@ -77,7 +80,7 @@ export function createInternalService({ store, webhookDispatcher }) {
         htmlExcerpt,
         htmlBody,
       });
-      await store.applyMessageParseResult({
+      await repository.applyMessageParseResult({
         messageId: ingested.messageId,
         otpCode: parsed.otpCode,
         verificationLink: parsed.verificationLink,
@@ -90,8 +93,8 @@ export function createInternalService({ store, webhookDispatcher }) {
       });
 
       const eventType = parsed.parsed ? "otp.extracted" : "mail.received";
-      const message = await store.getMessage(ingested.messageId);
-      const webhooks = await store.listActiveWebhooksByEvent(mailbox.tenantId, eventType);
+      const message = await repository.getMessage(ingested.messageId);
+      const webhooks = await repository.listActiveWebhooksByEvent(mailbox.tenantId, eventType);
       for (const webhook of webhooks) {
         const delivery = await webhookDispatcher.dispatch({
           webhook,
@@ -109,7 +112,7 @@ export function createInternalService({ store, webhookDispatcher }) {
             message,
           },
         });
-        await store.recordWebhookDelivery(webhook.id, {
+        await repository.recordWebhookDelivery(webhook.id, {
           statusCode: delivery.statusCode,
           requestId,
           metadata: {
@@ -130,13 +133,13 @@ export function createInternalService({ store, webhookDispatcher }) {
     },
 
     async recordMailboxProvision({ mailboxAddress, providerRef, requestId }) {
-      const mailbox = await store.findMailboxByAddress(mailboxAddress);
+      const mailbox = await repository.findMailboxByAddress(mailboxAddress);
       if (!mailbox) return null;
 
       if (providerRef) {
-        await store.saveMailboxProviderRef(mailbox.id, providerRef);
+        await repository.saveMailboxProviderRef(mailbox.id, providerRef);
       }
-      await store.recordMailboxBackendEvent({
+      await repository.recordMailboxBackendEvent({
         tenantId: mailbox.tenantId,
         mailboxId: mailbox.id,
         action: "mailbox.backend_provisioned",
@@ -153,13 +156,13 @@ export function createInternalService({ store, webhookDispatcher }) {
     },
 
     async recordMailboxRelease({ mailboxAddress, providerRef, requestId }) {
-      const mailbox = await store.findMailboxByAddress(mailboxAddress);
+      const mailbox = await repository.findMailboxByAddress(mailboxAddress);
       if (!mailbox) return null;
 
       if (providerRef) {
-        await store.saveMailboxProviderRef(mailbox.id, providerRef);
+        await repository.saveMailboxProviderRef(mailbox.id, providerRef);
       }
-      await store.recordMailboxBackendEvent({
+      await repository.recordMailboxBackendEvent({
         tenantId: mailbox.tenantId,
         mailboxId: mailbox.id,
         action: "mailbox.backend_released",
@@ -176,15 +179,15 @@ export function createInternalService({ store, webhookDispatcher }) {
     },
 
     async getMailboxByAddress(mailboxAddress) {
-      const mailbox = await store.findMailboxByAddress(mailboxAddress);
+      const mailbox = await repository.findMailboxByAddress(mailboxAddress);
       if (!mailbox) return null;
 
-      const lease = await store.getActiveLeaseByMailboxId(mailbox.id);
+      const lease = await repository.getActiveLeaseByMailboxId(mailbox.id);
       return toInternalMailbox(mailbox, lease);
     },
 
     async getMessageById(messageId) {
-      const message = await store.getMessage(messageId);
+      const message = await repository.getMessage(messageId);
       if (!message) return null;
       return toInternalMessage(message);
     },
