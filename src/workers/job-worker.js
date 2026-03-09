@@ -19,6 +19,7 @@ const webhookDispatcher = createWebhookDispatcher({
   secretEncryptionKey: config.webhookSecretEncryptionKey,
   timeoutMs: config.webhookTimeoutMs,
   retryAttempts: config.webhookRetryAttempts,
+  retryBackoffMs: config.webhookRetryBackoffMs,
 });
 const queue = createJobQueue({
   backend: config.queueBackend,

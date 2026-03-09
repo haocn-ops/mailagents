@@ -97,6 +97,7 @@ export function createFetchApp(deps = {}) {
       secretEncryptionKey: runtimeConfig.webhookSecretEncryptionKey,
       timeoutMs: runtimeConfig.webhookTimeoutMs,
       retryAttempts: runtimeConfig.webhookRetryAttempts,
+      retryBackoffMs: runtimeConfig.webhookRetryBackoffMs,
     });
   const queue =
     deps.queue ||

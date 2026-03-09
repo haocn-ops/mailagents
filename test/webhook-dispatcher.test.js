@@ -11,6 +11,7 @@ test("webhook dispatcher signs payloads and retries failures", async () => {
     secretEncryptionKey: "enc-key",
     timeoutMs: 1000,
     retryAttempts: 3,
+    retryBackoffMs: 1,
   });
 
   const originalFetch = globalThis.fetch;
@@ -43,6 +44,34 @@ test("webhook dispatcher signs payloads and retries failures", async () => {
       finalHeaders["x-agent-mail-signature"],
       `t=${timestamp},v1=${signHmacSha256(secret, `${timestamp}.${JSON.stringify(payload)}`)}`,
     );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("webhook dispatcher returns failure context after retries are exhausted", async () => {
+  const dispatcher = createWebhookDispatcher({
+    timeoutMs: 1000,
+    retryAttempts: 2,
+    retryBackoffMs: 1,
+  });
+
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response("upstream down", { status: 503 });
+
+  try {
+    const result = await dispatcher.dispatch({
+      webhook: {
+        targetUrl: "https://example.com/hook",
+      },
+      payload: { event_type: "mail.received" },
+    });
+
+    assert.equal(result.ok, false);
+    assert.equal(result.statusCode, 503);
+    assert.equal(result.attempts, 2);
+    assert.equal(result.errorMessage, "Webhook returned HTTP 503");
+    assert.equal(result.responseExcerpt, "upstream down");
   } finally {
     globalThis.fetch = originalFetch;
   }

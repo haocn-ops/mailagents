@@ -24,6 +24,8 @@ export function createWebhookDeliveryJob({ store, webhookDispatcher }) {
         delivery_id: delivery.deliveryId,
         attempts: delivery.attempts,
         ok: delivery.ok,
+        error_message: delivery.errorMessage || null,
+        response_excerpt: delivery.responseExcerpt || null,
       },
     });
 

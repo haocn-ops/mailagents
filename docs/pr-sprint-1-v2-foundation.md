@@ -13,6 +13,7 @@ The branch does not deliver the full V2 architecture. It establishes the minimum
 - V2 mirror writes for mailbox, inbound message, parse result, and send attempt data
 - initial admin read model support for V2 state
 - first `/v2` mailbox, message, and send-attempt endpoints
+- webhook retry backoff and richer delivery failure context
 
 ## What Changed
 
@@ -115,6 +116,13 @@ Added:
 
 These endpoints currently read from the V2 mirror data that was introduced earlier in the branch.
 
+### 7. Webhook delivery is more production-oriented
+
+Updated:
+- webhook dispatcher now supports retry backoff between attempts
+- failed deliveries now return and record richer context, including response excerpts and error messages
+- failure context is written into webhook delivery audit metadata for later inspection
+
 ## Compatibility Rules
 
 This PR intentionally keeps V1 compatibility in place.
@@ -161,7 +169,7 @@ node --test \
 ```
 
 Expected result on this branch:
-- `49/49` passing
+- `54/54` passing
 
 ## Reviewer Guide
 
@@ -181,4 +189,4 @@ Suggested review order:
 ## Follow-up
 
 Recommended next step after this PR:
-- add webhook retry/backoff semantics and continue separating the V2 write paths from V1 compatibility behavior
+- expose webhook delivery history more directly in admin and tenant APIs instead of relying mainly on audit logs
