@@ -1,4 +1,4 @@
-import { createWebhookService } from "../services/webhook-service.js";
+import { createV2WebhookService } from "../services/v2-webhook-service.js";
 import { createV2Authz } from "./authz.js";
 import { createV2Metering } from "./metering.js";
 import { parseRequiredPathParam } from "./validation.js";
@@ -11,7 +11,7 @@ export function createV2WebhookRouteHandler({
   readJsonBody,
   getOverageChargeUsdc,
 }) {
-  const webhookService = createWebhookService({ store });
+  const webhookService = createV2WebhookService({ store });
   const authz = createV2Authz({ requireAuth, evaluateAccess });
   const metering = createV2Metering({ store, getOverageChargeUsdc });
 

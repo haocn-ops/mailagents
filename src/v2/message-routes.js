@@ -1,4 +1,4 @@
-import { createMessageService } from "../services/message-service.js";
+import { createV2MessageService } from "../services/v2-message-service.js";
 import { createV2Authz } from "./authz.js";
 import { createV2Metering } from "./metering.js";
 import { parseIntegerInRange, parseRecipients, parseRequiredPathParam } from "./validation.js";
@@ -12,7 +12,7 @@ export function createV2MessageRouteHandler({
   readJsonBody,
   getOverageChargeUsdc,
 }) {
-  const messageService = createMessageService({ store, mailBackend });
+  const messageService = createV2MessageService({ store, mailBackend });
   const authz = createV2Authz({ requireAuth, evaluateAccess });
   const metering = createV2Metering({ store, getOverageChargeUsdc });
 

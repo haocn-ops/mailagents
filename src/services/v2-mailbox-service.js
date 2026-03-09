@@ -1,52 +1,15 @@
-function toV2MailboxAccount(mailbox, lease = null) {
-  return {
-    account_id: mailbox.mailbox_id,
-    mailbox_id: mailbox.mailbox_id,
-    address: mailbox.address,
-    account_status: mailbox.status === "leased" ? "active" : mailbox.status,
-    lease_status: lease?.status || null,
-    lease_id: lease?.id || null,
-    lease_expires_at: mailbox.lease_expires_at || lease?.expiresAt || null,
-    provider_ref: mailbox.provider_ref || null,
-    updated_at: mailbox.updated_at || null,
-  };
-}
-
-function toV2MailboxLease(mailbox, lease) {
-  return {
-    lease_id: lease.id,
-    mailbox_id: mailbox.mailbox_id,
-    account_id: mailbox.mailbox_id,
-    address: mailbox.address,
-    agent_id: lease.agentId,
-    purpose: lease.purpose,
-    lease_status: lease.status,
-    started_at: lease.startedAt,
-    expires_at: lease.expiresAt,
-    released_at: lease.releasedAt || null,
-  };
-}
+import { createV2TenantReadModels } from "../v2/tenant-read-models.js";
 
 export function createV2MailboxService({ store, mailBackend }) {
+  const readModels = createV2TenantReadModels({ store });
+
   return {
     async listAccounts(tenantId) {
-      const mailboxes = await store.listTenantMailboxes(tenantId);
-      const items = [];
-      for (const mailbox of mailboxes) {
-        const lease = await store.getActiveLeaseByMailboxId(mailbox.mailbox_id);
-        items.push(toV2MailboxAccount(mailbox, lease));
-      }
-      return items;
+      return readModels.listMailboxAccounts(tenantId);
     },
 
     async listLeases(tenantId) {
-      const mailboxes = await store.listTenantMailboxes(tenantId);
-      const items = [];
-      for (const mailbox of mailboxes) {
-        const lease = await store.getActiveLeaseByMailboxId(mailbox.mailbox_id);
-        if (lease) items.push(toV2MailboxLease(mailbox, lease));
-      }
-      return items;
+      return readModels.listMailboxLeases(tenantId);
     },
 
     async allocateLease({ tenantId, agentId, purpose, ttlHours }) {

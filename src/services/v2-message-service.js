@@ -1,31 +1,15 @@
-function toV2Message(message) {
-  const parsedStatus = message.parsed_status || (message.otp_code || message.verification_link ? "parsed" : "pending");
-  return {
-    message_id: message.message_id,
-    mailbox_id: message.mailbox_id,
-    sender: message.sender,
-    sender_domain: message.sender_domain,
-    subject: message.subject,
-    raw_ref: message.raw_ref || null,
-    received_at: message.received_at,
-    otp_code: message.otp_code || null,
-    verification_link: message.verification_link || null,
-    parsed_status: parsedStatus,
-  };
-}
+import { createV2TenantReadModels } from "../v2/tenant-read-models.js";
 
-export function createMessageService({ store, mailBackend }) {
+export function createV2MessageService({ store, mailBackend }) {
+  const readModels = createV2TenantReadModels({ store });
+
   return {
     async listMessages({ tenantId, mailboxId, since, limit }) {
-      const messages = await store.getLatestMessages({ tenantId, mailboxId, since, limit });
-      if (messages === null) return null;
-      return messages.map(toV2Message);
+      return readModels.listMessages({ tenantId, mailboxId, since, limit });
     },
 
     async getMessage(tenantId, messageId) {
-      const message = await store.getTenantMessageDetail(tenantId, messageId);
-      if (!message) return null;
-      return toV2Message(message);
+      return readModels.getMessage(tenantId, messageId);
     },
 
     async sendMessage({ tenantId, agentId, mailboxId, mailboxPassword, recipients, subject, text, html, requestId }) {
@@ -74,11 +58,11 @@ export function createMessageService({ store, mailBackend }) {
     },
 
     async listSendAttempts(tenantId) {
-      return store.listTenantSendAttempts(tenantId);
+      return readModels.listSendAttempts(tenantId);
     },
 
     async getSendAttempt(tenantId, sendAttemptId) {
-      return store.getTenantSendAttempt(tenantId, sendAttemptId);
+      return readModels.getSendAttempt(tenantId, sendAttemptId);
     },
   };
 }
