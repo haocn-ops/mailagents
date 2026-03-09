@@ -63,7 +63,8 @@ export class PostgresStore {
          to_regclass('public.messages_v2') as messages_v2,
          to_regclass('public.message_parse_results') as message_parse_results,
          to_regclass('public.send_attempts') as send_attempts,
-         to_regclass('public.send_attempt_events') as send_attempt_events`
+         to_regclass('public.send_attempt_events') as send_attempt_events,
+         to_regclass('public.webhook_deliveries') as webhook_deliveries`
     );
     this.v2Tables = {
       mailbox_accounts: Boolean(result.rows[0]?.mailbox_accounts),
@@ -73,6 +74,7 @@ export class PostgresStore {
       message_parse_results: Boolean(result.rows[0]?.message_parse_results),
       send_attempts: Boolean(result.rows[0]?.send_attempts),
       send_attempt_events: Boolean(result.rows[0]?.send_attempt_events),
+      webhook_deliveries: Boolean(result.rows[0]?.webhook_deliveries),
     };
     return this.v2Tables;
   }
@@ -1423,6 +1425,7 @@ export class PostgresStore {
 
   async recordWebhookDelivery(webhookId, { statusCode, requestId = null, metadata = {} }) {
     return this._withTx(async (client) => {
+      const tables = await this._loadV2TableAvailability();
       const result = await this._query(
         `update webhooks
             set last_delivery_at = now(),
@@ -1433,6 +1436,25 @@ export class PostgresStore {
         client,
       );
       if (result.rowCount === 0) return null;
+      if (tables.webhook_deliveries) {
+        await this._query(
+          `insert into webhook_deliveries
+            (webhook_id, event_type, resource_id, attempt_number, delivery_status, response_code, response_excerpt, error_message, request_id, delivered_at, created_at)
+           values ($1, $2, $3, $4, $5, $6, $7, $8, $9, now(), now())`,
+          [
+            webhookId,
+            metadata.event_type || "unknown",
+            metadata.resource_id || webhookId,
+            Number(metadata.attempts || 1),
+            metadata.ok ? "delivered" : "failed",
+            statusCode,
+            metadata.response_excerpt || null,
+            metadata.error_message || null,
+            requestId,
+          ],
+          client,
+        );
+      }
       await this._recordAudit(
         {
           tenantId: result.rows[0].tenant_id,
@@ -1572,35 +1594,54 @@ export class PostgresStore {
   }
 
   async listTenantWebhookDeliveries({ tenantId, page, pageSize, webhookId = null }) {
+    const tables = await this._loadV2TableAvailability();
     const values = [tenantId];
     let webhookFilter = "";
     if (webhookId) {
       values.push(webhookId);
-      webhookFilter = `and al.resource_id = $${values.length}`;
+      webhookFilter = tables.webhook_deliveries ? `and wd.webhook_id = $${values.length}` : `and al.resource_id = $${values.length}`;
     }
     const result = await this._query(
-      `select al.id as delivery_log_id,
-              al.resource_id as webhook_id,
-              w.target_url,
-              al.metadata->>'event_type' as event_type,
-              nullif(al.metadata->>'status_code', '')::int as status_code,
-              nullif(al.metadata->>'attempts', '')::int as attempts,
-              case
-                when al.metadata ? 'ok' then (al.metadata->>'ok')::boolean
-                else null
-              end as ok,
-              al.metadata->>'delivery_id' as delivery_id,
-              al.metadata->>'error_message' as error_message,
-              al.metadata->>'response_excerpt' as response_excerpt,
-              al.request_id,
-              al.created_at as delivered_at
-         from audit_logs al
-         left join webhooks w on w.id = al.resource_id
-        where al.tenant_id = $1
-          and al.action = 'webhook.deliver'
-          and al.resource_type = 'webhook'
-          ${webhookFilter}
-        order by al.created_at desc`,
+      tables.webhook_deliveries
+        ? `select wd.id as delivery_log_id,
+                  wd.webhook_id,
+                  w.target_url,
+                  wd.event_type,
+                  wd.response_code as status_code,
+                  wd.attempt_number as attempts,
+                  wd.delivery_status = 'delivered' as ok,
+                  null::text as delivery_id,
+                  wd.error_message,
+                  wd.response_excerpt,
+                  wd.request_id,
+                  wd.delivered_at
+             from webhook_deliveries wd
+             join webhooks w on w.id = wd.webhook_id
+            where w.tenant_id = $1
+              ${webhookFilter}
+            order by wd.created_at desc`
+        : `select al.id as delivery_log_id,
+                  al.resource_id as webhook_id,
+                  w.target_url,
+                  al.metadata->>'event_type' as event_type,
+                  nullif(al.metadata->>'status_code', '')::int as status_code,
+                  nullif(al.metadata->>'attempts', '')::int as attempts,
+                  case
+                    when al.metadata ? 'ok' then (al.metadata->>'ok')::boolean
+                    else null
+                  end as ok,
+                  al.metadata->>'delivery_id' as delivery_id,
+                  al.metadata->>'error_message' as error_message,
+                  al.metadata->>'response_excerpt' as response_excerpt,
+                  al.request_id,
+                  al.created_at as delivered_at
+             from audit_logs al
+             left join webhooks w on w.id = al.resource_id
+            where al.tenant_id = $1
+              and al.action = 'webhook.deliver'
+              and al.resource_type = 'webhook'
+              ${webhookFilter}
+            order by al.created_at desc`,
       values,
     );
     return this._paginate(
@@ -2410,38 +2451,59 @@ export class PostgresStore {
   }
 
   async adminListWebhookDeliveries({ page, pageSize, tenantId = null, webhookId = null }) {
+    const tables = await this._loadV2TableAvailability();
     const values = [];
-    const filters = [`al.action = 'webhook.deliver'`, `al.resource_type = 'webhook'`];
+    const filters = tables.webhook_deliveries
+      ? []
+      : [`al.action = 'webhook.deliver'`, `al.resource_type = 'webhook'`];
     if (tenantId) {
       values.push(tenantId);
-      filters.push(`al.tenant_id = $${values.length}`);
+      filters.push(tables.webhook_deliveries ? `w.tenant_id = $${values.length}` : `al.tenant_id = $${values.length}`);
     }
     if (webhookId) {
       values.push(webhookId);
-      filters.push(`al.resource_id = $${values.length}`);
+      filters.push(tables.webhook_deliveries ? `wd.webhook_id = $${values.length}` : `al.resource_id = $${values.length}`);
     }
-    const where = `where ${filters.join(" and ")}`;
+    const where = filters.length ? `where ${filters.join(" and ")}` : "";
     const result = await this._query(
-      `select al.id as delivery_log_id,
-              al.tenant_id,
-              al.resource_id as webhook_id,
-              w.target_url,
-              al.metadata->>'event_type' as event_type,
-              nullif(al.metadata->>'status_code', '')::int as status_code,
-              nullif(al.metadata->>'attempts', '')::int as attempts,
-              case
-                when al.metadata ? 'ok' then (al.metadata->>'ok')::boolean
-                else null
-              end as ok,
-              al.metadata->>'delivery_id' as delivery_id,
-              al.metadata->>'error_message' as error_message,
-              al.metadata->>'response_excerpt' as response_excerpt,
-              al.request_id,
-              al.created_at as delivered_at
-         from audit_logs al
-         left join webhooks w on w.id = al.resource_id
-         ${where}
-        order by al.created_at desc`,
+      tables.webhook_deliveries
+        ? `select wd.id as delivery_log_id,
+                  w.tenant_id,
+                  wd.webhook_id,
+                  w.target_url,
+                  wd.event_type,
+                  wd.response_code as status_code,
+                  wd.attempt_number as attempts,
+                  wd.delivery_status = 'delivered' as ok,
+                  null::text as delivery_id,
+                  wd.error_message,
+                  wd.response_excerpt,
+                  wd.request_id,
+                  wd.delivered_at
+             from webhook_deliveries wd
+             join webhooks w on w.id = wd.webhook_id
+             ${where}
+            order by wd.created_at desc`
+        : `select al.id as delivery_log_id,
+                  al.tenant_id,
+                  al.resource_id as webhook_id,
+                  w.target_url,
+                  al.metadata->>'event_type' as event_type,
+                  nullif(al.metadata->>'status_code', '')::int as status_code,
+                  nullif(al.metadata->>'attempts', '')::int as attempts,
+                  case
+                    when al.metadata ? 'ok' then (al.metadata->>'ok')::boolean
+                    else null
+                  end as ok,
+                  al.metadata->>'delivery_id' as delivery_id,
+                  al.metadata->>'error_message' as error_message,
+                  al.metadata->>'response_excerpt' as response_excerpt,
+                  al.request_id,
+                  al.created_at as delivered_at
+             from audit_logs al
+             left join webhooks w on w.id = al.resource_id
+             ${where}
+            order by al.created_at desc`,
       values,
     );
     return this._paginate(

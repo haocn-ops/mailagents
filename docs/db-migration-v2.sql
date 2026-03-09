@@ -115,6 +115,8 @@ create table if not exists webhook_deliveries (
   delivery_status text not null,
   response_code int,
   response_excerpt text,
+  error_message text,
+  request_id text,
   delivered_at timestamptz,
   created_at timestamptz not null default now()
 );
