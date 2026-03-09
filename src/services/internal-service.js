@@ -1,4 +1,4 @@
-import { parseInboundContent } from "../parser.js";
+import { MESSAGE_PARSE_JOB } from "../jobs/message-parse-job.js";
 import { createInternalRepository } from "../internal/repository.js";
 
 function toInternalMailbox(mailbox, lease) {
@@ -35,7 +35,7 @@ function toInternalMessage(message) {
   };
 }
 
-export function createInternalService({ store, webhookDispatcher }) {
+export function createInternalService({ store, queue }) {
   const repository = createInternalRepository({ store });
 
   return {
@@ -74,61 +74,30 @@ export function createInternalService({ store, webhookDispatcher }) {
         requestId,
       });
 
-      const parsed = parseInboundContent({
+      const job = await queue.enqueue(MESSAGE_PARSE_JOB, {
+        tenantId: mailbox.tenantId,
+        mailboxId: mailbox.id,
+        messageId: ingested.messageId,
+        sender,
+        senderDomain,
         subject,
+        receivedAt,
         textExcerpt,
         htmlExcerpt,
         htmlBody,
-      });
-      await repository.applyMessageParseResult({
-        messageId: ingested.messageId,
-        otpCode: parsed.otpCode,
-        verificationLink: parsed.verificationLink,
-        payload: {
-          parser: "builtin",
-          source: "mailu-internal-event",
-          parser_status: parsed.parserStatus,
-        },
+        source: "mailu-internal-event",
         requestId,
       });
-
-      const eventType = parsed.parsed ? "otp.extracted" : "mail.received";
-      const message = await repository.getMessage(ingested.messageId);
-      const webhooks = await repository.listActiveWebhooksByEvent(mailbox.tenantId, eventType);
-      for (const webhook of webhooks) {
-        const delivery = await webhookDispatcher.dispatch({
-          webhook,
-          payload: {
-            event_type: eventType,
-            tenant_id: mailbox.tenantId,
-            mailbox_id: mailbox.id,
-            message_id: ingested.messageId,
-            sender,
-            sender_domain: senderDomain,
-            subject,
-            received_at: receivedAt,
-            otp_code: parsed.otpCode,
-            verification_link: parsed.verificationLink,
-            message,
-          },
-        });
-        await repository.recordWebhookDelivery(webhook.id, {
-          statusCode: delivery.statusCode,
-          requestId,
-          metadata: {
-            event_type: eventType,
-            delivery_id: delivery.deliveryId,
-            attempts: delivery.attempts,
-            ok: delivery.ok,
-          },
-        });
-      }
 
       return {
         status: "accepted",
         tenant_id: ingested.tenantId,
         mailbox_id: ingested.mailboxId,
         message_id: ingested.messageId,
+        parse_job: {
+          job_id: job.id,
+          status: job.status,
+        },
       };
     },
 

@@ -6,6 +6,9 @@ import { createMailBackendAdapter } from "./mail-backend/index.js";
 import { createPaymentVerifier } from "./payment.js";
 import { createPublicRouteHandler } from "./public-routes.js";
 import { createInternalRouteHandler } from "./internal/index.js";
+import { createJobQueue } from "./jobs/queue.js";
+import { createMessageParseJob, MESSAGE_PARSE_JOB } from "./jobs/message-parse-job.js";
+import { createWebhookDeliveryJob, WEBHOOK_DELIVERY_JOB } from "./jobs/webhook-delivery-job.js";
 import { createRequestAuth } from "./request-auth.js";
 import { createRuntimeSettingsManager } from "./runtime-settings.js";
 import { createSiweService } from "./siwe.js";
@@ -47,6 +50,18 @@ export function createFetchApp(deps = {}) {
       timeoutMs: runtimeConfig.webhookTimeoutMs,
       retryAttempts: runtimeConfig.webhookRetryAttempts,
     });
+  const queue =
+    deps.queue ||
+    createJobQueue({
+      backend: runtimeConfig.queueBackend,
+      redisUrl: runtimeConfig.queueRedisUrl,
+      prefix: runtimeConfig.queuePrefix,
+      mode: runtimeConfig.queueBackend === "redis" ? "producer" : "inline",
+    });
+
+  queue.register(MESSAGE_PARSE_JOB, createMessageParseJob({ store, queue }));
+  queue.register(WEBHOOK_DELIVERY_JOB, createWebhookDeliveryJob({ store, webhookDispatcher }));
+
   const paidBypassTargets = new Set([
     "POST /v1/mailboxes/allocate",
     "POST /v1/messages/send",
@@ -76,10 +91,10 @@ export function createFetchApp(deps = {}) {
   });
   const handleInternalRoute = createInternalRouteHandler({
     store,
+    queue,
     requireInternalAuth,
     jsonResponse,
     readJsonBody,
-    webhookDispatcher,
   });
   const handleV2Route = createV2RouteHandler({
     store,

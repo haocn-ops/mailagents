@@ -699,6 +699,23 @@ export class MemoryStore {
     };
   }
 
+  async getWebhook(webhookId) {
+    const webhook = this.state.webhooks.get(webhookId);
+    if (!webhook) return null;
+    return {
+      id: webhook.id,
+      tenantId: webhook.tenantId,
+      targetUrl: webhook.targetUrl,
+      eventTypes: webhook.eventTypes,
+      status: webhook.status,
+      secretHash: webhook.secretHash,
+      secretEnc: webhook.secretEnc,
+      createdAt: webhook.createdAt,
+      lastDeliveryAt: webhook.lastDeliveryAt,
+      lastStatusCode: webhook.lastStatusCode,
+    };
+  }
+
   async rotateTenantWebhookSecret(tenantId, webhookId, { actorDid, requestId } = {}) {
     const webhook = this.state.webhooks.get(webhookId);
     if (!webhook || webhook.tenantId !== tenantId) return null;
