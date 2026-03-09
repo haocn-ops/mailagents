@@ -76,3 +76,39 @@ test("webhook delivery job records failure context", async () => {
   assert.equal(recorded.payload.metadata.error_message, "Webhook returned HTTP 503");
   assert.equal(recorded.payload.metadata.response_excerpt, "upstream down");
 });
+
+test("webhook delivery job records thrown dispatcher error and rethrows", async () => {
+  let recorded = null;
+  const store = {
+    async getWebhook() {
+      return {
+        id: "webhook-3",
+        targetUrl: "https://example.com/hook",
+      };
+    },
+    async recordWebhookDelivery(webhookId, payload) {
+      recorded = { webhookId, payload };
+    },
+  };
+  const webhookDispatcher = {
+    async dispatch() {
+      throw new Error("network timeout");
+    },
+  };
+
+  const job = createWebhookDeliveryJob({ store, webhookDispatcher });
+  await assert.rejects(
+    () =>
+      job({
+        webhookId: "webhook-3",
+        requestId: "req-3",
+        eventPayload: { event_type: "otp.extracted", message_id: "message-3" },
+      }),
+    /network timeout/,
+  );
+
+  assert.equal(recorded.webhookId, "webhook-3");
+  assert.equal(recorded.payload.statusCode, null);
+  assert.equal(recorded.payload.metadata.ok, false);
+  assert.equal(recorded.payload.metadata.error_message, "network timeout");
+});

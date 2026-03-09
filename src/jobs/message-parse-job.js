@@ -26,6 +26,17 @@ export function createMessageParseJob({ store, queue }) {
 
     const eventType = parsed.parsed ? "otp.extracted" : "mail.received";
     const message = await store.getMessage(payload.messageId);
+    if (!message) {
+      return {
+        messageId: payload.messageId,
+        eventType,
+        parsed: parsed.parsed,
+        skipped: true,
+        reason: "message_not_found",
+        deliveryJobs: [],
+      };
+    }
+
     const webhooks = await store.listActiveWebhooksByEvent(payload.tenantId, eventType);
     const deliveryJobs = [];
 
