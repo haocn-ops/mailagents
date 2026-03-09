@@ -1,4 +1,9 @@
 import { createV2TenantReadModels } from "../v2/tenant-read-models.js";
+import {
+  toV2AllocatedLease,
+  toV2MailboxCredentials,
+  toV2ReleasedLease,
+} from "../v2/presenters.js";
 
 export function createV2MailboxService({ store, mailBackend }) {
   const readModels = createV2TenantReadModels({ store });
@@ -33,17 +38,11 @@ export function createV2MailboxService({ store, mailBackend }) {
         throw err;
       }
 
-      return {
-        lease_id: result.lease.id,
-        mailbox_id: result.mailbox.id,
-        account_id: result.mailbox.id,
-        address: result.mailbox.address,
-        lease_status: result.lease.status,
-        expires_at: result.lease.expiresAt,
-        webmail_login: provider?.credentials?.login || null,
-        webmail_password: provider?.credentials?.password || null,
-        webmail_url: provider?.credentials?.webmailUrl || null,
-      };
+      return toV2AllocatedLease({
+        lease: result.lease,
+        mailbox: result.mailbox,
+        provider,
+      });
     },
 
     async releaseLease({ tenantId, leaseId }) {
@@ -60,7 +59,7 @@ export function createV2MailboxService({ store, mailBackend }) {
         providerRef: result.mailbox.providerRef || null,
       });
 
-      return { lease_id: leaseId, mailbox_id: lease.mailboxId, lease_status: "released" };
+      return toV2ReleasedLease({ leaseId, mailboxId: lease.mailboxId });
     },
 
     async resetCredentials({ tenantId, agentId, accountId }) {
@@ -75,14 +74,7 @@ export function createV2MailboxService({ store, mailBackend }) {
         providerRef: mailbox.providerRef || null,
       });
 
-      return {
-        account_id: mailbox.id,
-        mailbox_id: mailbox.id,
-        address: mailbox.address,
-        webmail_login: credentials?.login || mailbox.address,
-        webmail_password: credentials?.password || null,
-        webmail_url: credentials?.webmailUrl || null,
-      };
+      return toV2MailboxCredentials({ mailbox, credentials });
     },
   };
 }

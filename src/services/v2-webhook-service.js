@@ -1,11 +1,13 @@
 import { createV2TenantReadModels } from "../v2/tenant-read-models.js";
+import { toV2Webhook } from "../v2/presenters.js";
 
 export function createV2WebhookService({ store }) {
   const readModels = createV2TenantReadModels({ store });
 
   return {
     async createWebhook({ tenantId, eventTypes, targetUrl, secret }) {
-      return store.createWebhook({ tenantId, eventTypes, targetUrl, secret });
+      const webhook = await store.createWebhook({ tenantId, eventTypes, targetUrl, secret });
+      return toV2Webhook(webhook);
     },
 
     async listWebhooks(tenantId) {

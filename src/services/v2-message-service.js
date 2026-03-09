@@ -1,4 +1,5 @@
 import { createV2TenantReadModels } from "../v2/tenant-read-models.js";
+import { toV2SendResult } from "../v2/presenters.js";
 
 export function createV2MessageService({ store, mailBackend }) {
   const readModels = createV2TenantReadModels({ store });
@@ -47,14 +48,10 @@ export function createV2MessageService({ store, mailBackend }) {
       }
 
       const completedAttempt = await store.getTenantSendAttempt(tenantId, attempt.send_attempt_id);
-      return {
-        send_attempt_id: completedAttempt?.send_attempt_id || attempt.send_attempt_id,
-        submission_status: completedAttempt?.submission_status || "accepted",
-        accepted: completedAttempt?.accepted || [],
-        rejected: completedAttempt?.rejected || [],
-        message_id: completedAttempt?.message_id || null,
-        response: completedAttempt?.response || null,
-      };
+      return toV2SendResult({
+        attemptId: attempt.send_attempt_id,
+        completedAttempt,
+      });
     },
 
     async listSendAttempts(tenantId) {
