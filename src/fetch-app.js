@@ -1391,6 +1391,17 @@ export function createFetchApp(deps = {}) {
           return jsonResponse(200, result, requestId);
         }
 
+        if (method === "GET" && path === "/v1/admin/send-attempts") {
+          if (!paging.ok) return jsonResponse(400, { error: "bad_request", message: paging.message }, requestId);
+          const result = await store.adminListSendAttempts({
+            page: paging.page,
+            pageSize: paging.pageSize,
+            tenantId: requestUrl.searchParams.get("tenant_id"),
+            submissionStatus: requestUrl.searchParams.get("submission_status"),
+          });
+          return jsonResponse(200, result, requestId);
+        }
+
         if (path.startsWith("/v1/admin/messages/") && path.endsWith("/reparse") && method === "POST") {
           const messageId = path.slice("/v1/admin/messages/".length, -"/reparse".length);
           const result = await store.adminReparseMessage(messageId, { actorDid, requestId });

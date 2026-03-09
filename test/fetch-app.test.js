@@ -768,6 +768,40 @@ test("fetch app admin API exposes live overview and lists", async () => {
   const mailboxes = await mailboxesRes.json();
   assert.equal(mailboxes.items.find((item) => item.mailbox_id === allocation.mailbox_id).status, "leased");
   assert.match(mailboxes.items[0].address, /@inbox\.example\.com$/);
+  assert.ok(mailboxes.items[0].mailbox_account_id);
+  assert.equal(mailboxes.items[0].lease_v2_status, "active");
+
+  const sendRes = await app(
+    new Request("http://localhost/v1/messages/send", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${verify.access_token}`,
+        "x-payment-proof": "mock-proof",
+      },
+      body: JSON.stringify({
+        mailbox_id: allocation.mailbox_id,
+        to: ["ops@example.com"],
+        subject: "Admin visible send",
+        text: "body",
+        mailbox_password: allocation.webmail_password,
+      }),
+    }),
+  );
+  assert.equal(sendRes.status, 200);
+
+  const sendAttemptsRes = await app(
+    new Request("http://localhost/v1/admin/send-attempts?tenant_id=" + verify.tenant_id, {
+      method: "GET",
+      headers: { authorization: `Bearer ${verify.access_token}` },
+    }),
+  );
+  assert.equal(sendAttemptsRes.status, 200);
+  const sendAttempts = await sendAttemptsRes.json();
+  assert.equal(sendAttempts.total, 1);
+  assert.equal(sendAttempts.items[0].mailbox_id, allocation.mailbox_id);
+  assert.ok(sendAttempts.items[0].mailbox_account_id);
+  assert.equal(sendAttempts.items[0].submission_status, "accepted");
 });
 
 test("fetch app admin actions mutate live resources", async () => {
@@ -807,6 +841,9 @@ test("fetch app admin actions mutate live resources", async () => {
   );
   const messages = await messagesRes.json();
   assert.ok(messages.items[0].message_id);
+  const parsedMessage = messages.items.find((item) => item.parsed_status === "parsed");
+  assert.ok(parsedMessage?.mailbox_account_id);
+  assert.equal(parsedMessage?.message_v2_status, "parsed");
 
   const reparseRes = await app(
     new Request(`http://localhost/v1/admin/messages/${messages.items[0].message_id}/reparse`, {
@@ -1358,6 +1395,8 @@ test("fetch app marks message as failed when parser finds no otp or link", async
   const failed = messages.items.find((item) => item.subject === "Welcome");
   assert.equal(failed.parsed_status, "failed");
   assert.equal(failed.otp_extracted, false);
+  assert.ok(failed.mailbox_account_id);
+  assert.equal(failed.message_v2_status, "parse_failed");
 
   const state = app.store.getStateForTests();
   const failedMessage = [...state.messagesV2.values()].find((item) => item.subject === "Welcome");

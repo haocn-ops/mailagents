@@ -1629,9 +1629,17 @@ export class PostgresStore {
               m.status,
               m.tenant_id,
               l.agent_id,
-              l.expires_at as lease_expires_at
+              l.expires_at as lease_expires_at,
+              a.id as mailbox_account_id,
+              a.backend_status as mailbox_account_backend_status,
+              lv2.id as mailbox_lease_v2_id,
+              lv2.lease_status as lease_v2_status
          from mailboxes m
          left join mailbox_leases l on l.mailbox_id = m.id and l.status = 'active'
+         left join mailbox_accounts a on a.address = m.address
+         left join mailbox_leases_v2 lv2
+           on lv2.mailbox_account_id = a.id
+          and lv2.lease_status in ('pending', 'active', 'releasing')
          ${where}
          order by m.created_at desc`,
       values,
@@ -1645,6 +1653,10 @@ export class PostgresStore {
         tenant_id: row.tenant_id,
         agent_id: row.agent_id,
         lease_expires_at: row.lease_expires_at ? row.lease_expires_at.toISOString() : null,
+        mailbox_account_id: row.mailbox_account_id,
+        mailbox_account_backend_status: row.mailbox_account_backend_status,
+        mailbox_lease_v2_id: row.mailbox_lease_v2_id,
+        lease_v2_status: row.lease_v2_status,
       })),
       page,
       pageSize,
@@ -1728,8 +1740,25 @@ export class PostgresStore {
               else 'pending' end as parsed_status,
               exists (
                 select 1 from message_events me where me.message_id = m.id and me.event_type = 'otp.extracted' and me.otp_code is not null
-              ) as otp_extracted
+              ) as otp_extracted,
+              coalesce(mv2.mailbox_account_id, a.id) as mailbox_account_id,
+              mv2.mailbox_lease_id as mailbox_lease_v2_id,
+              coalesce(
+                mv2.message_status,
+                case
+                  when exists (
+                    select 1 from message_events me where me.message_id = m.id and me.event_type = 'otp.extracted'
+                  ) then 'parsed'
+                  when exists (
+                    select 1 from message_events me where me.message_id = m.id and me.event_type = 'mail.parse_failed'
+                  ) then 'parse_failed'
+                  else 'received'
+                end
+              ) as message_v2_status
          from messages m
+         left join messages_v2 mv2 on mv2.id = m.id
+         left join mailboxes mb on mb.id = m.mailbox_id
+         left join mailbox_accounts a on a.address = mb.address
          ${where}
          order by m.received_at desc`,
       values,
@@ -1742,9 +1771,73 @@ export class PostgresStore {
       received_at: row.received_at.toISOString(),
       parsed_status: row.parsed_status,
       otp_extracted: row.otp_extracted,
+      mailbox_account_id: row.mailbox_account_id,
+      mailbox_lease_v2_id: row.mailbox_lease_v2_id,
+      message_v2_status: row.message_v2_status,
     }));
     if (parsedStatus) items = items.filter((item) => item.parsed_status === parsedStatus);
     return this._paginate(items, page, pageSize);
+  }
+
+  async adminListSendAttempts({ page, pageSize, tenantId, submissionStatus }) {
+    const tables = await this._loadV2TableAvailability();
+    if (!tables.send_attempts) {
+      return this._paginate([], page, pageSize);
+    }
+
+    const values = [];
+    const filters = [];
+    if (tenantId) {
+      values.push(tenantId);
+      filters.push(`sa.tenant_id = $${values.length}`);
+    }
+    if (submissionStatus) {
+      values.push(submissionStatus);
+      filters.push(`sa.submission_status = $${values.length}`);
+    }
+    const where = filters.length ? `where ${filters.join(" and ")}` : "";
+    const result = await this._query(
+      `select sa.id as send_attempt_id,
+              sa.tenant_id,
+              sa.agent_id,
+              m.id as mailbox_id,
+              sa.mailbox_account_id,
+              sa.from_address,
+              jsonb_array_length(sa.to_json) as recipient_count,
+              sa.subject,
+              sa.submission_status,
+              sa.backend_queue_id,
+              sa.smtp_response,
+              sa.submitted_at,
+              sa.created_at,
+              sa.updated_at
+         from send_attempts sa
+         left join mailbox_accounts a on a.id = sa.mailbox_account_id
+         left join mailboxes m on m.address = a.address
+         ${where}
+        order by sa.created_at desc`,
+      values,
+    );
+    return this._paginate(
+      result.rows.map((row) => ({
+        send_attempt_id: row.send_attempt_id,
+        tenant_id: row.tenant_id,
+        agent_id: row.agent_id,
+        mailbox_id: row.mailbox_id,
+        mailbox_account_id: row.mailbox_account_id,
+        from_address: row.from_address,
+        recipient_count: Number(row.recipient_count || 0),
+        subject: row.subject,
+        submission_status: row.submission_status,
+        backend_queue_id: row.backend_queue_id,
+        smtp_response: row.smtp_response,
+        submitted_at: row.submitted_at ? row.submitted_at.toISOString() : null,
+        created_at: row.created_at ? row.created_at.toISOString() : null,
+        updated_at: row.updated_at ? row.updated_at.toISOString() : null,
+      })),
+      page,
+      pageSize,
+    );
   }
 
   async adminReparseMessage(messageId, { actorDid, requestId }) {

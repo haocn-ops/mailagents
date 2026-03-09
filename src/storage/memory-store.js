@@ -1061,6 +1061,12 @@ export class MemoryStore {
   async adminListMailboxes({ page, pageSize, status, tenantId }) {
     let items = [...this.state.mailboxes.values()].map((mailbox) => {
       const lease = this._currentLeaseByMailbox(mailbox.id);
+      const mailboxAccount = [...this.state.mailboxAccountsV2.values()].find((item) => item.legacyMailboxId === mailbox.id) || null;
+      const leaseV2 = mailboxAccount
+        ? [...this.state.mailboxLeasesV2.values()].find(
+            (item) => item.mailboxAccountId === mailboxAccount.id && ["pending", "active", "releasing"].includes(item.status),
+          ) || null
+        : null;
       return {
         mailbox_id: mailbox.id,
         address: mailbox.address,
@@ -1069,6 +1075,10 @@ export class MemoryStore {
         tenant_id: mailbox.tenantId,
         agent_id: lease?.agentId || null,
         lease_expires_at: lease?.expiresAt || null,
+        mailbox_account_id: mailboxAccount?.id || null,
+        mailbox_account_backend_status: mailboxAccount?.backendStatus || null,
+        mailbox_lease_v2_id: leaseV2?.id || null,
+        lease_v2_status: leaseV2?.status || null,
       };
     });
     if (status) items = items.filter((mailbox) => mailbox.status === status);
@@ -1146,6 +1156,14 @@ export class MemoryStore {
   async adminListMessages({ page, pageSize, mailboxId, parsedStatus }) {
     let items = [...this.state.messages.values()].map((message) => {
       const event = this.state.messageEvents.get(message.id);
+      const fallbackMailboxAccount =
+        [...this.state.mailboxAccountsV2.values()].find((item) => item.legacyMailboxId === message.mailboxId) || null;
+      const fallbackLeaseV2 = fallbackMailboxAccount
+        ? [...this.state.mailboxLeasesV2.values()].find(
+            (item) => item.mailboxAccountId === fallbackMailboxAccount.id && ["pending", "active", "releasing"].includes(item.status),
+          ) || null
+        : null;
+      const messageV2 = this.state.messagesV2.get(message.id) || null;
       const status = !event
         ? "pending"
         : event.eventType === "otp.extracted"
@@ -1161,11 +1179,37 @@ export class MemoryStore {
         received_at: message.receivedAt,
         parsed_status: status,
         otp_extracted: Boolean(event?.otpCode),
+        mailbox_account_id: messageV2?.mailboxAccountId || fallbackMailboxAccount?.id || null,
+        mailbox_lease_v2_id: messageV2?.mailboxLeaseId || fallbackLeaseV2?.id || null,
+        message_v2_status: messageV2?.messageStatus || (status === "parsed" ? "parsed" : status === "failed" ? "parse_failed" : "received"),
       };
     });
     if (mailboxId) items = items.filter((message) => message.mailbox_id === mailboxId);
     if (parsedStatus) items = items.filter((message) => message.parsed_status === parsedStatus);
     items.sort((a, b) => new Date(b.received_at) - new Date(a.received_at));
+    return this._paginate(items, page, pageSize);
+  }
+
+  async adminListSendAttempts({ page, pageSize, tenantId, submissionStatus }) {
+    let items = [...this.state.sendAttempts.values()].map((attempt) => ({
+      send_attempt_id: attempt.id,
+      tenant_id: attempt.tenantId,
+      agent_id: attempt.agentId,
+      mailbox_id: attempt.legacyMailboxId || null,
+      mailbox_account_id: attempt.mailboxAccountId,
+      from_address: attempt.fromAddress,
+      recipient_count: Array.isArray(attempt.to) ? attempt.to.length : 0,
+      subject: attempt.subject,
+      submission_status: attempt.status,
+      backend_queue_id: attempt.backendQueueId,
+      smtp_response: attempt.smtpResponse,
+      submitted_at: attempt.submittedAt,
+      created_at: attempt.createdAt,
+      updated_at: attempt.updatedAt,
+    }));
+    if (tenantId) items = items.filter((attempt) => attempt.tenant_id === tenantId);
+    if (submissionStatus) items = items.filter((attempt) => attempt.submission_status === submissionStatus);
+    items.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
     return this._paginate(items, page, pageSize);
   }
 
