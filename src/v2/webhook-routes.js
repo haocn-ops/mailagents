@@ -1,4 +1,5 @@
 import { createWebhookService } from "../services/webhook-service.js";
+import { createV2Authz } from "./authz.js";
 import { createV2Metering } from "./metering.js";
 
 export function createV2WebhookRouteHandler({
@@ -10,15 +11,16 @@ export function createV2WebhookRouteHandler({
   getOverageChargeUsdc,
 }) {
   const webhookService = createWebhookService({ store });
+  const authz = createV2Authz({ requireAuth, evaluateAccess });
   const metering = createV2Metering({ store, getOverageChargeUsdc });
 
   return async function handleV2WebhookRoute({ method, path, request, requestId, requestUrl }) {
     if (!path.startsWith("/v2/webhooks") && !path.startsWith("/v2/usage") && !path.startsWith("/v2/billing")) return null;
 
     if (method === "POST" && path === "/v2/webhooks") {
-      const auth = await requireAuth(request, requestId);
+      const auth = await authz.requireTenantAuth(request, requestId);
       if (!auth.ok) return auth.response;
-      const access = await evaluateAccess({
+      const access = await authz.requireTenantAccess({
         request,
         requestId,
         tenantId: auth.payload.tenant_id,
@@ -72,14 +74,14 @@ export function createV2WebhookRouteHandler({
     }
 
     if (method === "GET" && path === "/v2/webhooks") {
-      const auth = await requireAuth(request, requestId);
+      const auth = await authz.requireTenantAuth(request, requestId);
       if (!auth.ok) return auth.response;
       const items = await webhookService.listWebhooks(auth.payload.tenant_id);
       return jsonResponse(200, { items }, requestId);
     }
 
     if (method === "POST" && path.startsWith("/v2/webhooks/") && path.endsWith("/rotate-secret")) {
-      const auth = await requireAuth(request, requestId);
+      const auth = await authz.requireTenantAuth(request, requestId);
       if (!auth.ok) return auth.response;
 
       const webhookId = path.slice("/v2/webhooks/".length, -"/rotate-secret".length);
@@ -97,7 +99,7 @@ export function createV2WebhookRouteHandler({
     }
 
     if (method === "GET" && path === "/v2/webhooks/deliveries") {
-      const auth = await requireAuth(request, requestId);
+      const auth = await authz.requireTenantAuth(request, requestId);
       if (!auth.ok) return auth.response;
 
       const webhookId = requestUrl.searchParams.get("webhook_id");
@@ -109,7 +111,7 @@ export function createV2WebhookRouteHandler({
     }
 
     if (method === "GET" && path === "/v2/usage/summary") {
-      const auth = await requireAuth(request, requestId);
+      const auth = await authz.requireTenantAuth(request, requestId);
       if (!auth.ok) return auth.response;
 
       const period = requestUrl.searchParams.get("period");
@@ -124,7 +126,7 @@ export function createV2WebhookRouteHandler({
     }
 
     if (method === "GET" && path.startsWith("/v2/billing/invoices/")) {
-      const auth = await requireAuth(request, requestId);
+      const auth = await authz.requireTenantAuth(request, requestId);
       if (!auth.ok) return auth.response;
 
       const invoiceId = path.replace("/v2/billing/invoices/", "").trim();
@@ -143,7 +145,7 @@ export function createV2WebhookRouteHandler({
     }
 
     if (method === "GET" && path === "/v2/billing/invoices") {
-      const auth = await requireAuth(request, requestId);
+      const auth = await authz.requireTenantAuth(request, requestId);
       if (!auth.ok) return auth.response;
 
       const period = requestUrl.searchParams.get("period");

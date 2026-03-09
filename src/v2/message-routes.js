@@ -1,4 +1,5 @@
 import { createMessageService } from "../services/message-service.js";
+import { createV2Authz } from "./authz.js";
 import { createV2Metering } from "./metering.js";
 
 export function createV2MessageRouteHandler({
@@ -11,15 +12,16 @@ export function createV2MessageRouteHandler({
   getOverageChargeUsdc,
 }) {
   const messageService = createMessageService({ store, mailBackend });
+  const authz = createV2Authz({ requireAuth, evaluateAccess });
   const metering = createV2Metering({ store, getOverageChargeUsdc });
 
   return async function handleV2MessageRoute({ method, path, request, requestId, requestUrl }) {
     if (!path.startsWith("/v2/messages") && !path.startsWith("/v2/send-attempts")) return null;
 
     if (method === "GET" && path === "/v2/messages") {
-      const auth = await requireAuth(request, requestId);
+      const auth = await authz.requireTenantAuth(request, requestId);
       if (!auth.ok) return auth.response;
-      const access = await evaluateAccess({
+      const access = await authz.requireTenantAccess({
         request,
         requestId,
         tenantId: auth.payload.tenant_id,
@@ -61,9 +63,9 @@ export function createV2MessageRouteHandler({
     }
 
     if (method === "POST" && path === "/v2/messages/send") {
-      const auth = await requireAuth(request, requestId);
+      const auth = await authz.requireTenantAuth(request, requestId);
       if (!auth.ok) return auth.response;
-      const access = await evaluateAccess({
+      const access = await authz.requireTenantAccess({
         request,
         requestId,
         tenantId: auth.payload.tenant_id,
@@ -144,14 +146,14 @@ export function createV2MessageRouteHandler({
     }
 
     if (method === "GET" && path === "/v2/send-attempts") {
-      const auth = await requireAuth(request, requestId);
+      const auth = await authz.requireTenantAuth(request, requestId);
       if (!auth.ok) return auth.response;
       const items = await messageService.listSendAttempts(auth.payload.tenant_id);
       return jsonResponse(200, { items }, requestId);
     }
 
     if (method === "GET" && path.startsWith("/v2/send-attempts/")) {
-      const auth = await requireAuth(request, requestId);
+      const auth = await authz.requireTenantAuth(request, requestId);
       if (!auth.ok) return auth.response;
 
       const sendAttemptId = path.replace("/v2/send-attempts/", "").trim();
@@ -167,7 +169,7 @@ export function createV2MessageRouteHandler({
     }
 
     if (method === "GET" && path.startsWith("/v2/messages/")) {
-      const auth = await requireAuth(request, requestId);
+      const auth = await authz.requireTenantAuth(request, requestId);
       if (!auth.ok) return auth.response;
 
       const messageId = path.replace("/v2/messages/", "").trim();

@@ -1,4 +1,5 @@
 import { createMailboxService } from "../services/mailbox-service.js";
+import { createV2Authz } from "./authz.js";
 import { createV2Metering } from "./metering.js";
 
 export function createV2MailboxRouteHandler({
@@ -11,27 +12,28 @@ export function createV2MailboxRouteHandler({
   getOverageChargeUsdc,
 }) {
   const mailboxService = createMailboxService({ store, mailBackend });
+  const authz = createV2Authz({ requireAuth, evaluateAccess });
   const metering = createV2Metering({ store, getOverageChargeUsdc });
 
   return async function handleV2MailboxRoute({ method, path, request, requestId }) {
     if (!path.startsWith("/v2/mailboxes/")) return null;
 
     if (method === "GET" && path === "/v2/mailboxes/accounts") {
-      const auth = await requireAuth(request, requestId);
+      const auth = await authz.requireTenantAuth(request, requestId);
       if (!auth.ok) return auth.response;
       const items = await mailboxService.listAccounts(auth.payload.tenant_id);
       return jsonResponse(200, { items }, requestId);
     }
 
     if (method === "GET" && path === "/v2/mailboxes/leases") {
-      const auth = await requireAuth(request, requestId);
+      const auth = await authz.requireTenantAuth(request, requestId);
       if (!auth.ok) return auth.response;
       const items = await mailboxService.listLeases(auth.payload.tenant_id);
       return jsonResponse(200, { items }, requestId);
     }
 
     if (method === "POST" && path === "/v2/mailboxes/leases") {
-      const auth = await requireAuth(request, requestId);
+      const auth = await authz.requireTenantAuth(request, requestId);
       if (!auth.ok) return auth.response;
 
       const body = await readJsonBody(request);
@@ -49,7 +51,7 @@ export function createV2MailboxRouteHandler({
         return jsonResponse(400, { error: "bad_request", message: "ttl_hours must be 1..720" }, requestId);
       }
 
-      const access = await evaluateAccess({
+      const access = await authz.requireTenantAccess({
         request,
         requestId,
         tenantId: auth.payload.tenant_id,
@@ -87,7 +89,7 @@ export function createV2MailboxRouteHandler({
     }
 
     if (method === "POST" && path.startsWith("/v2/mailboxes/leases/") && path.endsWith("/release")) {
-      const auth = await requireAuth(request, requestId);
+      const auth = await authz.requireTenantAuth(request, requestId);
       if (!auth.ok) return auth.response;
 
       const leaseId = path.slice("/v2/mailboxes/leases/".length, -"/release".length);
@@ -112,7 +114,7 @@ export function createV2MailboxRouteHandler({
     }
 
     if (method === "POST" && path.startsWith("/v2/mailboxes/accounts/") && path.endsWith("/credentials/reset")) {
-      const auth = await requireAuth(request, requestId);
+      const auth = await authz.requireTenantAuth(request, requestId);
       if (!auth.ok) return auth.response;
 
       const accountId = path.slice("/v2/mailboxes/accounts/".length, -"/credentials/reset".length);
