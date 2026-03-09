@@ -1,4 +1,5 @@
 import { createJwt, verifyJwt } from "./auth.js";
+import { createAdminRouteHandler } from "./admin/index.js";
 import { createConfig } from "./config.js";
 import { createMailBackendAdapter } from "./mail-backend/index.js";
 import { createInternalRouteHandler } from "./internal/index.js";
@@ -111,6 +112,25 @@ export function createFetchApp(deps = {}) {
     jsonResponse,
     readJsonBody,
     getOverageChargeUsdc,
+  });
+  const handleAdminRoute = createAdminRouteHandler({
+    store,
+    requireAdminAuth,
+    jsonResponse,
+    readJsonBody,
+    parsePaging,
+    getOverageChargeUsdc,
+    getAgentAllocateHourlyLimit,
+    async updateRuntimeSettings({ overageChargeUsdc, agentAllocateHourlyLimit }) {
+      runtimeSettings.overageChargeUsdc = overageChargeUsdc;
+      runtimeSettings.agentAllocateHourlyLimit = agentAllocateHourlyLimit;
+      if (typeof store.updateRuntimeSettings === "function") {
+        await store.updateRuntimeSettings({
+          overage_charge_usdc: runtimeSettings.overageChargeUsdc,
+          agent_allocate_hourly_limit: runtimeSettings.agentAllocateHourlyLimit,
+        });
+      }
+    },
   });
 
   function getOverageChargeUsdc() {
@@ -360,57 +380,6 @@ export function createFetchApp(deps = {}) {
         );
       }
 
-      if (method === "GET" && path === "/v1/admin/settings/limits") {
-        const auth = await requireAdminAuth(request, requestId);
-        if (!auth.ok) return auth.response;
-        return jsonResponse(
-          200,
-          {
-            overage_charge_usdc: getOverageChargeUsdc(),
-            agent_allocate_hourly_limit: getAgentAllocateHourlyLimit(),
-          },
-          requestId,
-        );
-      }
-
-      if (method === "PATCH" && path === "/v1/admin/settings/limits") {
-        const auth = await requireAdminAuth(request, requestId);
-        if (!auth.ok) return auth.response;
-        const body = await readJsonBody(request);
-        const nextOverage =
-          body.overage_charge_usdc === undefined ? getOverageChargeUsdc() : Number(body.overage_charge_usdc);
-        const nextAgentAllocateHourlyLimit =
-          body.agent_allocate_hourly_limit === undefined
-            ? getAgentAllocateHourlyLimit()
-            : Number(body.agent_allocate_hourly_limit);
-
-        if (!Number.isFinite(nextOverage) || nextOverage < 0) {
-          return jsonResponse(400, { error: "bad_request", message: "overage_charge_usdc must be >= 0" }, requestId);
-        }
-        if (!Number.isInteger(nextAgentAllocateHourlyLimit) || nextAgentAllocateHourlyLimit < 0) {
-          return jsonResponse(400, { error: "bad_request", message: "agent_allocate_hourly_limit must be an integer >= 0" }, requestId);
-        }
-
-        runtimeSettings.overageChargeUsdc = Number(nextOverage.toFixed(6));
-        runtimeSettings.agentAllocateHourlyLimit = nextAgentAllocateHourlyLimit;
-        if (typeof store.updateRuntimeSettings === "function") {
-          await store.updateRuntimeSettings({
-            overage_charge_usdc: runtimeSettings.overageChargeUsdc,
-            agent_allocate_hourly_limit: runtimeSettings.agentAllocateHourlyLimit,
-          });
-        }
-
-        return jsonResponse(
-          200,
-          {
-            status: "updated",
-            overage_charge_usdc: getOverageChargeUsdc(),
-            agent_allocate_hourly_limit: getAgentAllocateHourlyLimit(),
-          },
-          requestId,
-        );
-      }
-
       if (method === "POST" && path === "/v1/payments/proof") {
         const auth = await requireAuth(request, requestId);
         if (!auth.ok) return auth.response;
@@ -570,6 +539,8 @@ export function createFetchApp(deps = {}) {
       const v2Response = await handleV2Route({ method, path, request, requestId, requestUrl });
       if (v2Response) return v2Response;
 
+      const adminResponse = await handleAdminRoute({ method, path, request, requestId, requestUrl });
+      if (adminResponse) return adminResponse;
       const internalResponse = await handleInternalRoute({ method, path, request, requestId, requestUrl });
       if (internalResponse) return internalResponse;
 
