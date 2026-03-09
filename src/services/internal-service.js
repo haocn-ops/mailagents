@@ -74,6 +74,17 @@ export function createInternalService({ store, queue }) {
         requestId,
       });
 
+      if (ingested?.deduped) {
+        return {
+          status: "accepted",
+          deduped: true,
+          tenant_id: ingested.tenantId,
+          mailbox_id: ingested.mailboxId,
+          message_id: ingested.messageId,
+          parse_job: null,
+        };
+      }
+
       const job = await queue.enqueue(MESSAGE_PARSE_JOB, {
         tenantId: mailbox.tenantId,
         mailboxId: mailbox.id,
