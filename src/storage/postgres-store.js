@@ -10,6 +10,7 @@ export class PostgresStore {
     this.webhookSecretEncryptionKey = webhookSecretEncryptionKey || "dev-jwt-secret";
     this.pool = null;
     this.challenges = new Map();
+    this.v2Tables = null;
   }
 
   async _ensurePool() {
@@ -50,6 +51,32 @@ export class PostgresStore {
     } finally {
       client.release();
     }
+  }
+
+  async _loadV2TableAvailability() {
+    if (this.v2Tables) return this.v2Tables;
+    const result = await this._query(
+      `select
+         to_regclass('public.mailbox_accounts') as mailbox_accounts,
+         to_regclass('public.mailbox_leases_v2') as mailbox_leases_v2,
+         to_regclass('public.raw_messages') as raw_messages,
+         to_regclass('public.messages_v2') as messages_v2,
+         to_regclass('public.message_parse_results') as message_parse_results,
+         to_regclass('public.send_attempts') as send_attempts,
+         to_regclass('public.send_attempt_events') as send_attempt_events,
+         to_regclass('public.webhook_deliveries') as webhook_deliveries`,
+    );
+    this.v2Tables = {
+      mailbox_accounts: Boolean(result.rows[0]?.mailbox_accounts),
+      mailbox_leases_v2: Boolean(result.rows[0]?.mailbox_leases_v2),
+      raw_messages: Boolean(result.rows[0]?.raw_messages),
+      messages_v2: Boolean(result.rows[0]?.messages_v2),
+      message_parse_results: Boolean(result.rows[0]?.message_parse_results),
+      send_attempts: Boolean(result.rows[0]?.send_attempts),
+      send_attempt_events: Boolean(result.rows[0]?.send_attempt_events),
+      webhook_deliveries: Boolean(result.rows[0]?.webhook_deliveries),
+    };
+    return this.v2Tables;
   }
 
   _paginate(items, page, pageSize) {
@@ -770,6 +797,7 @@ export class PostgresStore {
   }
 
   async recordWebhookDelivery(webhookId, { statusCode, requestId = null, metadata = {} }) {
+    const tables = await this._loadV2TableAvailability();
     return this._withTx(async (client) => {
       const result = await this._query(
         `update webhooks
@@ -781,6 +809,25 @@ export class PostgresStore {
         client,
       );
       if (result.rowCount === 0) return null;
+      if (tables.webhook_deliveries) {
+        await this._query(
+          `insert into webhook_deliveries
+            (webhook_id, event_type, resource_id, attempt_number, delivery_status, response_code, response_excerpt, error_message, request_id, delivered_at)
+           values ($1, $2, $3, $4, $5, $6, $7, $8, $9, now())`,
+          [
+            webhookId,
+            metadata.event_type || "unknown",
+            metadata.resource_id || webhookId,
+            Number(metadata.attempts || 1),
+            metadata.ok ? "delivered" : "failed",
+            statusCode ?? null,
+            metadata.response_excerpt || null,
+            metadata.error_message || null,
+            requestId,
+          ],
+          client,
+        );
+      }
       await this._recordAudit(
         {
           tenantId: result.rows[0].tenant_id,
@@ -962,32 +1009,59 @@ export class PostgresStore {
   }
 
   async listTenantWebhookDeliveries(tenantId, { webhookId = null } = {}) {
+    const tables = await this._loadV2TableAvailability();
     const values = [tenantId];
     let webhookFilter = "";
     if (webhookId) {
       values.push(webhookId);
-      webhookFilter = `and resource_id = $${values.length}`;
+      webhookFilter = tables.webhook_deliveries ? `and wd.webhook_id = $${values.length}` : `and al.resource_id = $${values.length}`;
     }
     const result = await this._query(
-      `select id, resource_id, request_id, metadata, created_at
-         from audit_logs
-        where tenant_id = $1
-          and action = 'webhook.deliver'
-          and resource_type = 'webhook'
-          ${webhookFilter}
-        order by created_at desc`,
+      tables.webhook_deliveries
+        ? `select wd.webhook_id,
+                  wd.id as delivery_id,
+                  wd.response_code as status_code,
+                  wd.attempt_number as attempts,
+                  wd.delivery_status = 'delivered' as ok,
+                  wd.error_message,
+                  wd.response_excerpt,
+                  wd.request_id,
+                  wd.delivered_at
+             from webhook_deliveries wd
+             join webhooks w on w.id = wd.webhook_id
+            where w.tenant_id = $1
+              ${webhookFilter}
+            order by wd.created_at desc`
+        : `select al.resource_id as webhook_id,
+                  al.id as delivery_id,
+                  nullif(al.metadata->>'status_code', '')::int as status_code,
+                  nullif(al.metadata->>'attempts', '')::int as attempts,
+                  case
+                    when al.metadata ? 'ok' then (al.metadata->>'ok')::boolean
+                    else null
+                  end as ok,
+                  al.metadata->>'error_message' as error_message,
+                  al.metadata->>'response_excerpt' as response_excerpt,
+                  coalesce(al.request_id, al.metadata->>'request_id') as request_id,
+                  al.created_at as delivered_at
+             from audit_logs al
+            where al.tenant_id = $1
+              and al.action = 'webhook.deliver'
+              and al.resource_type = 'webhook'
+              ${webhookFilter}
+            order by al.created_at desc`,
       values,
     );
     return result.rows.map((row) => ({
-      webhook_id: row.resource_id,
-      delivery_id: row.id,
-      status_code: row.metadata?.status_code ?? null,
-      attempts: row.metadata?.attempts ?? null,
-      ok: row.metadata?.ok ?? null,
-      error_message: row.metadata?.error_message ?? null,
-      response_excerpt: row.metadata?.response_excerpt ?? null,
-      request_id: row.request_id || row.metadata?.request_id || null,
-      delivered_at: row.created_at ? row.created_at.toISOString() : null,
+      webhook_id: row.webhook_id,
+      delivery_id: row.delivery_id,
+      status_code: row.status_code ?? null,
+      attempts: row.attempts ?? null,
+      ok: row.ok ?? null,
+      error_message: row.error_message || null,
+      response_excerpt: row.response_excerpt || null,
+      request_id: row.request_id || null,
+      delivered_at: row.delivered_at ? row.delivered_at.toISOString() : null,
     }));
   }
 

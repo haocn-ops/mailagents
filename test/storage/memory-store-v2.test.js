@@ -120,4 +120,13 @@ test("memory store persists webhook deliveries in first-class V2 state", async (
   assert.equal(deliveries[0].resourceId, "message-1");
   assert.equal(deliveries[0].deliveryStatus, "failed");
   assert.equal(deliveries[0].errorMessage, "Webhook returned HTTP 503");
+
+  const listed = await store.listTenantWebhookDeliveries(identity.tenantId, { webhookId: webhook.id });
+  assert.equal(listed.length, 1);
+  assert.equal(listed[0].webhook_id, webhook.id);
+  assert.equal(listed[0].status_code, 503);
+  assert.equal(listed[0].attempts, 3);
+  assert.equal(listed[0].ok, false);
+  assert.equal(listed[0].error_message, "Webhook returned HTTP 503");
+  assert.equal(listed[0].request_id, "req-1");
 });

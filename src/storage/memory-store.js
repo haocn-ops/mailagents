@@ -594,6 +594,8 @@ export class MemoryStore {
     if (!webhook) return null;
     webhook.lastDeliveryAt = new Date().toISOString();
     webhook.lastStatusCode = statusCode;
+    const deliveryId = randomUUID();
+    const deliveredAt = new Date().toISOString();
     this._recordAudit({
       tenantId: webhook.tenantId,
       actorDid: "system:webhook",
@@ -603,9 +605,11 @@ export class MemoryStore {
       requestId,
       metadata: { status_code: statusCode, ...metadata },
     });
-    this.state.webhookDeliveries.push({
+    this.state.webhookDeliveries.unshift({
+      id: deliveryId,
+      tenantId: webhook.tenantId,
       webhookId,
-      deliveryId: randomUUID(),
+      eventType: metadata.event_type || null,
       resourceId: metadata.resource_id || null,
       statusCode: statusCode ?? null,
       attempts: metadata.attempts ?? null,
@@ -614,7 +618,7 @@ export class MemoryStore {
       errorMessage: metadata.error_message || null,
       responseExcerpt: metadata.response_excerpt || null,
       requestId,
-      deliveredAt: new Date().toISOString(),
+      deliveredAt,
     });
     return webhook;
   }
@@ -734,24 +738,20 @@ export class MemoryStore {
   }
 
   async listTenantWebhookDeliveries(tenantId, { webhookId = null } = {}) {
-    return this.state.auditLogs
+    return this.state.webhookDeliveries
       .filter(
-        (entry) =>
-          entry.tenantId === tenantId &&
-          entry.action === "webhook.deliver" &&
-          entry.resourceType === "webhook" &&
-          (!webhookId || entry.resourceId === webhookId),
+        (entry) => entry.tenantId === tenantId && (!webhookId || entry.webhookId === webhookId),
       )
       .map((entry) => ({
-        webhook_id: entry.resourceId,
+        webhook_id: entry.webhookId,
         delivery_id: entry.id,
-        status_code: entry.metadata?.status_code ?? null,
-        attempts: entry.metadata?.attempts ?? null,
-        ok: entry.metadata?.ok ?? null,
-        error_message: entry.metadata?.error_message ?? null,
-        response_excerpt: entry.metadata?.response_excerpt ?? null,
-        request_id: entry.requestId || entry.metadata?.request_id || null,
-        delivered_at: entry.createdAt,
+        status_code: entry.statusCode ?? null,
+        attempts: entry.attempts ?? null,
+        ok: entry.ok ?? null,
+        error_message: entry.errorMessage || null,
+        response_excerpt: entry.responseExcerpt || null,
+        request_id: entry.requestId || null,
+        delivered_at: entry.deliveredAt || null,
       }))
       .sort((a, b) => String(b.delivered_at).localeCompare(String(a.delivered_at)));
   }
