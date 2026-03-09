@@ -1,7 +1,11 @@
+import { createV1TenantRepository } from "../v1/repository.js";
+
 export function createV1MailboxService({ store, mailBackend }) {
+  const repository = createV1TenantRepository({ store });
+
   return {
     async allocateMailbox({ tenantId, agentId, purpose, ttlHours }) {
-      const result = await store.allocateMailbox({
+      const result = await repository.allocateMailbox({
         tenantId,
         agentId,
         purpose,
@@ -19,10 +23,10 @@ export function createV1MailboxService({ store, mailBackend }) {
           ttlHours,
         });
         if (provider?.providerRef) {
-          await store.saveMailboxProviderRef(result.mailbox.id, provider.providerRef);
+          await repository.saveMailboxProviderRef(result.mailbox.id, provider.providerRef);
         }
       } catch (err) {
-        await store.releaseMailbox({ tenantId, mailboxId: result.mailbox.id });
+        await repository.releaseMailbox({ tenantId, mailboxId: result.mailbox.id });
         throw err;
       }
 
@@ -37,7 +41,7 @@ export function createV1MailboxService({ store, mailBackend }) {
     },
 
     async releaseMailbox({ tenantId, mailboxId }) {
-      const result = await store.releaseMailbox({ tenantId, mailboxId });
+      const result = await repository.releaseMailbox({ tenantId, mailboxId });
       if (!result) return null;
 
       await mailBackend.releaseMailbox({
@@ -51,7 +55,7 @@ export function createV1MailboxService({ store, mailBackend }) {
     },
 
     async resetMailboxCredentials({ tenantId, agentId, mailboxId }) {
-      const mailbox = await store.getTenantMailbox(tenantId, mailboxId);
+      const mailbox = await repository.getTenantMailbox(tenantId, mailboxId);
       if (!mailbox) return null;
 
       const credentials = await mailBackend.issueMailboxCredentials({
@@ -72,7 +76,7 @@ export function createV1MailboxService({ store, mailBackend }) {
     },
 
     async listMailboxes(tenantId) {
-      return store.listTenantMailboxes(tenantId);
+      return repository.listTenantMailboxes(tenantId);
     },
   };
 }
