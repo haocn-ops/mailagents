@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createFetchApp } from "../src/fetch-app.js";
+import { createJobQueue } from "../src/jobs/queue.js";
 import { MemoryStore } from "../src/storage/memory-store.js";
 import { createConfig } from "../src/config.js";
 
@@ -1406,6 +1407,95 @@ test("fetch app accepts internal inbound events and stores message", async () =>
   assert.equal(latest.messages[0].message_id, inbound.message_id);
   assert.ok(latest.messages.some((item) => item.subject === "Inbound from Mailu"));
   assert.ok(latest.messages.some((item) => item.otp_code === "123456"));
+});
+
+test("fetch app supports worker-separated parse flow when queue runs in manual mode", async () => {
+  const cfg = createConfig({
+    JWT_SECRET: "test-secret",
+    INTERNAL_API_TOKEN: "internal-secret",
+    BASE_CHAIN_ID: "84532",
+    MAILBOX_DOMAIN: "inbox.example.com",
+    SIWE_MODE: "mock",
+    PAYMENT_MODE: "mock",
+  });
+  const store = new MemoryStore({
+    chainId: cfg.baseChainId,
+    challengeTtlMs: cfg.siweChallengeTtlMs,
+    mailboxDomain: cfg.mailboxDomain,
+    webhookSecretEncryptionKey: cfg.webhookSecretEncryptionKey,
+  });
+  const queue = createJobQueue({ mode: "manual" });
+  const app = createFetchApp({ config: cfg, store, queue });
+  const verify = await issueToken(app, "0xabc0000000000000000000000000000000000ff1");
+
+  const allocateRes = await app(
+    new Request("http://localhost/v1/mailboxes/allocate", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${verify.access_token}`,
+        "x-payment-proof": "mock-proof",
+      },
+      body: JSON.stringify({ agent_id: verify.agent_id, purpose: "worker-separated-parse", ttl_hours: 1 }),
+    }),
+  );
+  assert.equal(allocateRes.status, 200);
+  const allocation = await allocateRes.json();
+
+  const inboundRes = await app(
+    new Request("http://localhost/internal/inbound/events", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: "Bearer internal-secret",
+      },
+      body: JSON.stringify({
+        address: allocation.address,
+        provider_message_id: "mailu-msg-manual-queue",
+        sender: "notify@example.com",
+        sender_domain: "example.com",
+        subject: "Worker separated parse",
+        received_at: new Date().toISOString(),
+        raw_ref: "mailu://raw/manual-queue",
+        text_excerpt: "Your code is 912345",
+      }),
+    }),
+  );
+  assert.equal(inboundRes.status, 202);
+  const inbound = await inboundRes.json();
+  assert.equal(inbound.parse_job?.status, "queued");
+  assert.ok(inbound.parse_job?.job_id);
+
+  const beforeParseRes = await app(
+    new Request(`http://localhost/v1/messages/latest?mailbox_id=${allocation.mailbox_id}&limit=20`, {
+      method: "GET",
+      headers: {
+        authorization: `Bearer ${verify.access_token}`,
+        "x-payment-proof": "mock-proof",
+      },
+    }),
+  );
+  assert.equal(beforeParseRes.status, 200);
+  const beforeParse = await beforeParseRes.json();
+  const beforeMessage = beforeParse.messages.find((item) => item.message_id === inbound.message_id);
+  assert.equal(beforeMessage.otp_code, null);
+  assert.equal(beforeMessage.verification_link, null);
+
+  await queue.run(inbound.parse_job.job_id);
+
+  const afterParseRes = await app(
+    new Request(`http://localhost/v1/messages/latest?mailbox_id=${allocation.mailbox_id}&limit=20`, {
+      method: "GET",
+      headers: {
+        authorization: `Bearer ${verify.access_token}`,
+        "x-payment-proof": "mock-proof",
+      },
+    }),
+  );
+  assert.equal(afterParseRes.status, 200);
+  const afterParse = await afterParseRes.json();
+  const parsedMessage = afterParse.messages.find((item) => item.message_id === inbound.message_id);
+  assert.equal(parsedMessage.otp_code, "912345");
 });
 
 test("fetch app deduplicates internal inbound events by provider message id", async () => {
