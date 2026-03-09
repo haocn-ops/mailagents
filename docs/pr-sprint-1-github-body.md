@@ -1,35 +1,36 @@
 # PR Title
 
-V2 foundation: docs, queue-backed services, mirror writes, and admin read models
+V2 foundation: runtime APIs, queue-backed flows, and delivery visibility
 
 # PR Body
 
 ## Summary
 
-This PR starts the V2 migration path inside the main `mailagents` repository while keeping the current V1 API working.
+This PR moves `mailagents` from V1-only extension work into a real V2 migration path while keeping the existing V1 API working.
 
-It does not attempt a full V2 rewrite. It establishes the minimum foundation needed to continue:
-- V2 technical and API docs moved into the main repo
-- additive V2 schema draft added
-- mailbox and send flows routed through service and job layers
-- worker entrypoint added
-- optional Redis-backed queue support added
-- V2 mirror writes added for mailbox lifecycle, inbound messages, parse results, and send attempts
-- admin read models extended to expose V2-linked state
+It is no longer only a design or scaffolding branch. It now includes:
+- V2 technical and API docs in the main repo
+- additive V2 schema draft
+- service and job layers for mailbox and send flows
+- worker entrypoint
+- optional Redis-backed queue support
+- V2 mirror writes for mailbox lifecycle, inbound messages, parse results, and send attempts
+- admin read models extended with V2-linked state
+- first implemented `/v2` mailbox, message, send-attempt, and webhook-delivery endpoints
+- webhook retry backoff and richer delivery failure context
 
 ## Main changes
 
 ### Documentation
 
-Added:
+Added or updated:
 - `docs/mailagents-v2-technical-design.md`
 - `docs/openapi-v2.yaml`
 - `docs/openapi-admin-v2.yaml`
 - `docs/db-migration-v2.sql`
 - `docs/sprint-1-implementation-plan.md`
 - `docs/pr-sprint-1-v2-foundation.md`
-
-Updated:
+- `docs/pr-sprint-1-github-body.md`
 - `README.md`
 - `docs/README.md`
 
@@ -43,6 +44,8 @@ Added:
 - `src/jobs/mailbox-release-job.js`
 - `src/jobs/mailbox-credentials-reset-job.js`
 - `src/jobs/send-submit-job.js`
+- `src/jobs/message-parse-job.js`
+- `src/jobs/webhook-delivery-job.js`
 - `src/workers/job-worker.js`
 
 Integrated into existing V1 routes:
@@ -50,6 +53,7 @@ Integrated into existing V1 routes:
 - `POST /v1/mailboxes/release`
 - `POST /v1/mailboxes/credentials/reset`
 - `POST /v1/messages/send`
+- `POST /internal/inbound/events`
 
 ### Queue runtime
 
@@ -79,6 +83,32 @@ Outbound lifecycle mirrors into:
 - `send_attempts`
 - `send_attempt_events`
 
+The implementation is additive and defensive:
+- if V2 tables exist, write them
+- if V2 tables do not exist yet, keep V1 behavior working
+
+### Initial `/v2` endpoints now implemented
+
+Mailbox:
+- `GET /v2/mailboxes/accounts`
+- `GET /v2/mailboxes/leases`
+- `GET /v2/mailboxes/leases/{lease_id}`
+- `POST /v2/mailboxes/leases`
+- `POST /v2/mailboxes/leases/{lease_id}/release`
+
+Messages:
+- `GET /v2/messages`
+- `GET /v2/messages/{message_id}`
+- `POST /v2/messages/send`
+
+Send attempts:
+- `GET /v2/send-attempts`
+- `GET /v2/send-attempts/{send_attempt_id}`
+
+Webhook delivery visibility:
+- `GET /v2/webhooks/deliveries`
+- `GET /v1/admin/webhook-deliveries`
+
 ### Admin read models
 
 Enhanced:
@@ -87,6 +117,16 @@ Enhanced:
 
 Added:
 - `GET /v1/admin/send-attempts`
+- `GET /v1/admin/webhook-deliveries`
+
+### Webhook reliability
+
+Added:
+- retry backoff via `WEBHOOK_RETRY_BACKOFF_MS`
+- richer failed-delivery context:
+  - `error_message`
+  - `response_excerpt`
+- delivery failure visibility through audit-derived history endpoints
 
 ## Compatibility
 
@@ -97,16 +137,20 @@ Important compatibility rules:
 - V2 writes are additive and defensive
 - Redis is optional
 - V1 send still returns the existing synchronous response shape
-- admin V2 visibility is exposed through extra fields, not a new breaking admin contract
+- some V2 write paths currently reuse the existing V1-compatible service flow
+
+Known limitations:
+- `POST /v2/mailboxes/leases` currently reuses the existing mailbox allocation path under the hood
+- `POST /v2/messages/send` currently reuses the existing send service and may complete inline when the queue backend runs in memory mode
+- webhook delivery history is currently derived from `audit_logs`, not yet a first-class persisted delivery table
 
 ## What is not in this PR
 
-- full `/v2/*` route implementation
-- parser worker split
-- webhook delivery worker split
 - full repository-layer extraction
-- UI rewrite
-- V1 removal
+- full UI rewrite
+- V1 route removal
+- first-class persisted webhook delivery store
+- full `/v2/webhooks`, `/v2/usage/summary`, and `/v2/billing/*` parity
 
 ## Validation
 
@@ -121,13 +165,32 @@ node --test \
   test/jobs/mailbox-provision-job.test.js \
   test/jobs/send-submit-job.test.js \
   test/jobs/mailbox-release-job.test.js \
-  test/jobs/mailbox-credentials-reset-job.test.js
+  test/jobs/mailbox-credentials-reset-job.test.js \
+  test/jobs/message-parse-job.test.js \
+  test/jobs/webhook-delivery-job.test.js \
+  test/webhook-dispatcher.test.js \
+  test/preflight.test.js
 ```
 
 Result:
-- `44/44` passing
+- `55/55` passing
+
+## Recommended review order
+
+1. `docs/mailagents-v2-technical-design.md`
+2. `docs/openapi-v2.yaml`
+3. `src/services/mailbox-service.js`
+4. `src/services/send-service.js`
+5. `src/jobs/queue.js`
+6. `src/jobs/message-parse-job.js`
+7. `src/jobs/webhook-delivery-job.js`
+8. `src/workers/job-worker.js`
+9. `src/storage/memory-store.js`
+10. `src/storage/postgres-store.js`
+11. `src/fetch-app.js`
+12. `test/fetch-app.test.js`
 
 ## Follow-up
 
 Recommended next step after merging:
-- start Sprint 2 by turning inbound parse and webhook delivery into explicit worker-driven flows and exposing the first `/v2/*` read endpoints
+- move webhook delivery history from audit-derived views into a first-class persisted delivery store
