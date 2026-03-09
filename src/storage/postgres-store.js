@@ -59,12 +59,18 @@ export class PostgresStore {
       `select
          to_regclass('public.mailbox_accounts') as mailbox_accounts,
          to_regclass('public.mailbox_leases_v2') as mailbox_leases_v2,
+         to_regclass('public.raw_messages') as raw_messages,
+         to_regclass('public.messages_v2') as messages_v2,
+         to_regclass('public.message_parse_results') as message_parse_results,
          to_regclass('public.send_attempts') as send_attempts,
          to_regclass('public.send_attempt_events') as send_attempt_events`
     );
     this.v2Tables = {
       mailbox_accounts: Boolean(result.rows[0]?.mailbox_accounts),
       mailbox_leases_v2: Boolean(result.rows[0]?.mailbox_leases_v2),
+      raw_messages: Boolean(result.rows[0]?.raw_messages),
+      messages_v2: Boolean(result.rows[0]?.messages_v2),
+      message_parse_results: Boolean(result.rows[0]?.message_parse_results),
       send_attempts: Boolean(result.rows[0]?.send_attempts),
       send_attempt_events: Boolean(result.rows[0]?.send_attempt_events),
     };
@@ -766,6 +772,75 @@ export class PostgresStore {
         client,
       );
 
+      const tables = await this._loadV2TableAvailability();
+      if (tables.raw_messages && tables.messages_v2) {
+        const mailboxLookup = await this._query(
+          `select id, tenant_id, address, provider_ref, status
+             from mailboxes
+            where id = $1
+            limit 1`,
+          [mailboxId],
+          client,
+        );
+        const mailbox = mailboxLookup.rowCount ? {
+          id: mailboxLookup.rows[0].id,
+          tenantId: mailboxLookup.rows[0].tenant_id,
+          address: mailboxLookup.rows[0].address,
+          providerRef: mailboxLookup.rows[0].provider_ref,
+          status: mailboxLookup.rows[0].status,
+        } : null;
+        const mailboxAccount = mailbox
+          ? await this.upsertMailboxAccountFromLegacyMailbox(mailbox)
+          : null;
+        const activeLease = await this.getActiveLeaseByMailboxId(mailboxId);
+
+        const rawInsert = await this._query(
+          `insert into raw_messages
+            (mailbox_account_id, backend_message_id, raw_ref, headers_json, sender, sender_domain, subject, received_at, ingested_at)
+           values ($1, $2, $3, $4::jsonb, $5, $6, $7, $8, now())
+           on conflict (mailbox_account_id, backend_message_id)
+           do update set
+             raw_ref = excluded.raw_ref,
+             headers_json = excluded.headers_json,
+             sender = excluded.sender,
+             sender_domain = excluded.sender_domain,
+             subject = excluded.subject,
+             received_at = excluded.received_at
+           returning id`,
+          [
+            mailboxAccount?.id || mailboxId,
+            providerMessageId,
+            rawRef,
+            JSON.stringify(payload.headers || {}),
+            sender,
+            senderDomain,
+            subject,
+            receivedAt,
+          ],
+          client,
+        );
+
+        await this._query(
+          `insert into messages_v2
+            (id, raw_message_id, tenant_id, agent_id, mailbox_account_id, mailbox_lease_id, from_address, subject, received_at, message_status, created_at)
+           values ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'received', now())
+           on conflict (id)
+           do nothing`,
+          [
+            messageId,
+            rawInsert.rows[0].id,
+            tenantId,
+            activeLease?.agentId || null,
+            mailboxAccount?.id || mailboxId,
+            activeLease?.id || null,
+            sender,
+            subject,
+            receivedAt,
+          ],
+          client,
+        );
+      }
+
       return { tenantId, mailboxId, messageId };
     });
   }
@@ -894,6 +969,34 @@ export class PostgresStore {
         },
         client,
       );
+
+      const tables = await this._loadV2TableAvailability();
+      if (tables.messages_v2 && tables.message_parse_results) {
+        await this._query(
+          `update messages_v2
+              set message_status = $2
+            where id = $1`,
+          [messageId, otpCode || verificationLink ? "parsed" : "parse_failed"],
+          client,
+        );
+        await this._query(
+          `insert into message_parse_results
+            (message_id, parser_version, parse_status, otp_code, verification_link, text_excerpt, confidence, error_code, created_at)
+           values ($1, $2, $3, $4, $5, $6, $7, $8, now())`,
+          [
+            messageId,
+            String(payload.parser || "builtin"),
+            otpCode || verificationLink ? "parsed" : "failed",
+            otpCode || null,
+            verificationLink || null,
+            payload.text_excerpt || null,
+            otpCode || verificationLink ? 0.9 : 0.0,
+            otpCode || verificationLink ? null : "NO_MATCH",
+          ],
+          client,
+        );
+      }
+
       return { messageId };
     });
   }

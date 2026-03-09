@@ -953,6 +953,14 @@ test("fetch app accepts internal inbound events and stores message", async () =>
   assert.equal(latest.messages[0].message_id, inbound.message_id);
   assert.ok(latest.messages.some((item) => item.subject === "Inbound from Mailu"));
   assert.ok(latest.messages.some((item) => item.otp_code === "123456"));
+
+  const state = app.store.getStateForTests();
+  const v2Message = state.messagesV2.get(inbound.message_id);
+  assert.ok(v2Message);
+  assert.equal(v2Message.messageStatus, "parse_failed");
+  const rawMessage = state.rawMessagesV2.get(v2Message.rawMessageId);
+  assert.ok(rawMessage);
+  assert.equal(rawMessage.backendMessageId, "mailu-msg-1");
 });
 
 test("fetch app deduplicates internal inbound events by provider message id", async () => {
@@ -1350,4 +1358,11 @@ test("fetch app marks message as failed when parser finds no otp or link", async
   const failed = messages.items.find((item) => item.subject === "Welcome");
   assert.equal(failed.parsed_status, "failed");
   assert.equal(failed.otp_extracted, false);
+
+  const state = app.store.getStateForTests();
+  const failedMessage = [...state.messagesV2.values()].find((item) => item.subject === "Welcome");
+  assert.ok(failedMessage);
+  assert.equal(failedMessage.messageStatus, "parse_failed");
+  const parseResults = state.messageParseResultsV2.get(failedMessage.id) || [];
+  assert.equal(parseResults.at(-1)?.parseStatus, "failed");
 });

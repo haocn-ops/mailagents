@@ -28,6 +28,9 @@ export class MemoryStore {
       },
       mailboxAccountsV2: new Map(),
       mailboxLeasesV2: new Map(),
+      rawMessagesV2: new Map(),
+      messagesV2: new Map(),
+      messageParseResultsV2: new Map(),
       sendAttempts: new Map(),
       sendAttemptEvents: new Map(),
     };
@@ -558,6 +561,35 @@ export class MemoryStore {
       metadata: { mailbox_id: mailboxId, sender_domain: senderDomain },
     });
 
+    const mailboxAccount = await this.upsertMailboxAccountFromLegacyMailbox(mailbox);
+    const activeLease = await this.getActiveLeaseByMailboxId(mailboxId);
+    const rawMessageId = randomUUID();
+    this.state.rawMessagesV2.set(rawMessageId, {
+      id: rawMessageId,
+      mailboxAccountId: mailboxAccount?.id || mailboxId,
+      backendMessageId: providerMessageId || null,
+      rawRef: rawRef || null,
+      headersJson: payload.headers || {},
+      sender,
+      senderDomain,
+      subject,
+      receivedAt,
+      ingestedAt: new Date().toISOString(),
+    });
+    this.state.messagesV2.set(messageId, {
+      id: messageId,
+      rawMessageId,
+      tenantId,
+      agentId: activeLease?.agentId || null,
+      mailboxAccountId: mailboxAccount?.id || mailboxId,
+      mailboxLeaseId: activeLease?.id || null,
+      fromAddress: sender,
+      subject,
+      receivedAt,
+      messageStatus: "received",
+      createdAt: new Date().toISOString(),
+    });
+
     return { tenantId, mailboxId, messageId };
   }
 
@@ -640,6 +672,26 @@ export class MemoryStore {
       requestId,
       metadata: { otp_extracted: Boolean(otpCode), verification_link: Boolean(verificationLink) },
     });
+
+    const messageV2 = this.state.messagesV2.get(messageId);
+    if (messageV2) {
+      messageV2.messageStatus = otpCode || verificationLink ? "parsed" : "parse_failed";
+      const results = this.state.messageParseResultsV2.get(messageId) || [];
+      results.push({
+        id: randomUUID(),
+        messageId,
+        parserVersion: String(payload.parser || "builtin"),
+        parseStatus: otpCode || verificationLink ? "parsed" : "failed",
+        otpCode: otpCode || null,
+        verificationLink: verificationLink || null,
+        textExcerpt: payload.text_excerpt || null,
+        confidence: otpCode || verificationLink ? 0.9 : 0.0,
+        errorCode: otpCode || verificationLink ? null : "NO_MATCH",
+        createdAt: new Date().toISOString(),
+      });
+      this.state.messageParseResultsV2.set(messageId, results);
+    }
+
     return { messageId };
   }
 
