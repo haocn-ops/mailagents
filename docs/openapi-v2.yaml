@@ -14,6 +14,64 @@ components:
       scheme: bearer
       bearerFormat: JWT
   schemas:
+    MailboxAccount:
+      type: object
+      required: [account_id, mailbox_id, address, account_status]
+      properties:
+        account_id:
+          type: string
+        mailbox_id:
+          type: string
+        address:
+          type: string
+        account_status:
+          type: string
+        lease_status:
+          type: string
+          nullable: true
+        lease_id:
+          type: string
+          nullable: true
+        lease_expires_at:
+          type: string
+          format: date-time
+          nullable: true
+        provider_ref:
+          type: string
+          nullable: true
+        updated_at:
+          type: string
+          format: date-time
+          nullable: true
+    MailboxLease:
+      type: object
+      required: [lease_id, mailbox_id, account_id, address, agent_id, purpose, lease_status]
+      properties:
+        lease_id:
+          type: string
+        mailbox_id:
+          type: string
+        account_id:
+          type: string
+        address:
+          type: string
+        agent_id:
+          type: string
+        purpose:
+          type: string
+        lease_status:
+          type: string
+        started_at:
+          type: string
+          format: date-time
+          nullable: true
+        expires_at:
+          type: string
+          format: date-time
+        released_at:
+          type: string
+          format: date-time
+          nullable: true
     Webhook:
       type: object
       required: [webhook_id, event_types, target_url, status]
@@ -75,6 +133,65 @@ components:
 security:
   - bearerAuth: []
 paths:
+  /v2/mailboxes/accounts:
+    get:
+      summary: List mailbox accounts visible to the current tenant
+      responses:
+        '200':
+          description: Mailbox account list
+  /v2/mailboxes/leases:
+    get:
+      summary: List active mailbox leases for the current tenant
+      responses:
+        '200':
+          description: Mailbox lease list
+    post:
+      summary: Allocate a mailbox lease for the current tenant
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [agent_id, purpose, ttl_hours]
+              properties:
+                agent_id:
+                  type: string
+                purpose:
+                  type: string
+                ttl_hours:
+                  type: integer
+      responses:
+        '201':
+          description: Mailbox lease created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MailboxLease'
+  /v2/mailboxes/leases/{lease_id}/release:
+    post:
+      summary: Release a mailbox lease
+      parameters:
+        - in: path
+          name: lease_id
+          required: true
+          schema:
+            type: string
+      responses:
+        '202':
+          description: Mailbox lease released
+  /v2/mailboxes/accounts/{account_id}/credentials/reset:
+    post:
+      summary: Reset mailbox credentials for a mailbox account
+      parameters:
+        - in: path
+          name: account_id
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Mailbox credentials issued
   /v2/webhooks:
     get:
       summary: List webhooks for the current tenant

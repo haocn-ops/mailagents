@@ -943,6 +943,29 @@ export class PostgresStore {
     };
   }
 
+  async getTenantLeaseById(tenantId, leaseId) {
+    const result = await this._query(
+      `select id, mailbox_id, tenant_id, agent_id, purpose, status, started_at, expires_at, released_at
+         from mailbox_leases
+        where id = $1 and tenant_id = $2
+        limit 1`,
+      [leaseId, tenantId],
+    );
+    if (result.rowCount === 0) return null;
+    const row = result.rows[0];
+    return {
+      id: row.id,
+      mailboxId: row.mailbox_id,
+      tenantId: row.tenant_id,
+      agentId: row.agent_id,
+      purpose: row.purpose,
+      status: row.status,
+      startedAt: row.started_at.toISOString(),
+      expiresAt: row.expires_at.toISOString(),
+      releasedAt: row.released_at ? row.released_at.toISOString() : null,
+    };
+  }
+
   async ingestInboundMessage({
     tenantId,
     mailboxId,

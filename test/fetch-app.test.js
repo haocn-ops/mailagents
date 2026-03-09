@@ -584,6 +584,94 @@ test("fetch app exposes v2 webhook, usage, and billing endpoints", async () => {
   assert.equal(invoiceDetail.invoice_id, invoices.items[0].invoice_id);
 });
 
+test("fetch app exposes v2 mailbox accounts and leases endpoints", async () => {
+  const app = makeApp({ AGENT_ALLOCATE_HOURLY_LIMIT: "1" });
+  const verify = await issueToken(app, "0xabc0000000000000000000000000000000000a12");
+
+  const leaseCreateRes = await app(
+    new Request("http://localhost/v2/mailboxes/leases", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${verify.access_token}`,
+      },
+      body: JSON.stringify({ agent_id: verify.agent_id, purpose: "v2-mailbox", ttl_hours: 1 }),
+    }),
+  );
+  assert.equal(leaseCreateRes.status, 201);
+  const createdLease = await leaseCreateRes.json();
+  assert.equal(createdLease.lease_status, "active");
+
+  const accountsRes = await app(
+    new Request("http://localhost/v2/mailboxes/accounts", {
+      method: "GET",
+      headers: { authorization: `Bearer ${verify.access_token}` },
+    }),
+  );
+  assert.equal(accountsRes.status, 200);
+  const accounts = await accountsRes.json();
+  assert.ok(accounts.items.length >= 1);
+  assert.ok(accounts.items.some((item) => item.account_id === createdLease.account_id && item.lease_id === createdLease.lease_id));
+
+  const leasesRes = await app(
+    new Request("http://localhost/v2/mailboxes/leases", {
+      method: "GET",
+      headers: { authorization: `Bearer ${verify.access_token}` },
+    }),
+  );
+  assert.equal(leasesRes.status, 200);
+  const leases = await leasesRes.json();
+  assert.equal(leases.items.length, 1);
+  assert.equal(leases.items[0].lease_id, createdLease.lease_id);
+
+  const resetRes = await app(
+    new Request(`http://localhost/v2/mailboxes/accounts/${createdLease.account_id}/credentials/reset`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${verify.access_token}` },
+    }),
+  );
+  assert.equal(resetRes.status, 200);
+  const reset = await resetRes.json();
+  assert.equal(reset.account_id, createdLease.account_id);
+  assert.equal(reset.webmail_password, "noop-password");
+
+  const secondLeaseDeniedRes = await app(
+    new Request("http://localhost/v2/mailboxes/leases", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${verify.access_token}`,
+      },
+      body: JSON.stringify({ agent_id: verify.agent_id, purpose: "v2-mailbox-paid", ttl_hours: 1 }),
+    }),
+  );
+  assert.equal(secondLeaseDeniedRes.status, 402);
+
+  const secondLeasePaidRes = await app(
+    new Request("http://localhost/v2/mailboxes/leases", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${verify.access_token}`,
+        "x-payment-proof": "mock-proof",
+      },
+      body: JSON.stringify({ agent_id: verify.agent_id, purpose: "v2-mailbox-paid", ttl_hours: 1 }),
+    }),
+  );
+  assert.equal(secondLeasePaidRes.status, 201);
+
+  const releaseRes = await app(
+    new Request(`http://localhost/v2/mailboxes/leases/${createdLease.lease_id}/release`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${verify.access_token}` },
+    }),
+  );
+  assert.equal(releaseRes.status, 202);
+  const released = await releaseRes.json();
+  assert.equal(released.lease_id, createdLease.lease_id);
+  assert.equal(released.lease_status, "released");
+});
+
 test("fetch app issues webmail credentials for an existing tenant mailbox", async () => {
   const app = makeApp();
   const verify = await issueToken(app, "0xabc0000000000000000000000000000000000777");

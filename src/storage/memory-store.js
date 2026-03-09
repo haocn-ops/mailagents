@@ -618,6 +618,22 @@ export class MemoryStore {
     };
   }
 
+  async getTenantLeaseById(tenantId, leaseId) {
+    const lease = this.state.leases.get(leaseId);
+    if (!lease || lease.tenantId !== tenantId) return null;
+    return {
+      id: lease.id,
+      mailboxId: lease.mailboxId,
+      tenantId: lease.tenantId,
+      agentId: lease.agentId,
+      purpose: lease.purpose,
+      status: lease.status,
+      startedAt: lease.startedAt,
+      expiresAt: lease.expiresAt,
+      releasedAt: lease.releasedAt,
+    };
+  }
+
   async ingestInboundMessage({
     tenantId,
     mailboxId,
