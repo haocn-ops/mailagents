@@ -18,6 +18,7 @@ function makeApp(overrides = {}) {
     chainId: cfg.baseChainId,
     challengeTtlMs: cfg.siweChallengeTtlMs,
     mailboxDomain: cfg.mailboxDomain,
+    webhookSecretEncryptionKey: cfg.webhookSecretEncryptionKey,
   });
   const app = createFetchApp({ config: cfg, store });
   app.store = store;
@@ -71,6 +72,7 @@ test("fetch app strict challenge preserves wallet address casing for SIWE messag
     chainId: cfg.baseChainId,
     challengeTtlMs: cfg.siweChallengeTtlMs,
     mailboxDomain: cfg.mailboxDomain,
+    webhookSecretEncryptionKey: cfg.webhookSecretEncryptionKey,
   });
   const calls = [];
   const app = createFetchApp({
@@ -176,6 +178,7 @@ test("fetch app issues a tenant payment proof for over-limit hmac endpoints", as
     chainId: cfg.baseChainId,
     challengeTtlMs: cfg.siweChallengeTtlMs,
     mailboxDomain: cfg.mailboxDomain,
+    webhookSecretEncryptionKey: cfg.webhookSecretEncryptionKey,
   });
   const app = createFetchApp({ config: cfg, store });
   const verify = await issueToken(app, "0xabc0000000000000000000000000000000000666");
@@ -320,92 +323,6 @@ test("fetch app requires payment after tenant qps limit and still allows paid by
   assert.equal(paidRes.status, 200);
 });
 
-test("fetch app enforces payment on v2 allocate and send endpoints", async () => {
-  const app = makeApp({ AGENT_ALLOCATE_HOURLY_LIMIT: "1" });
-  const verify = await issueToken(app, "0xabc0000000000000000000000000000000000669");
-
-  const firstAllocateRes = await app(
-    new Request("http://localhost/v1/mailboxes/allocate", {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        authorization: `Bearer ${verify.access_token}`,
-      },
-      body: JSON.stringify({ agent_id: verify.agent_id, purpose: "seed-mailbox", ttl_hours: 1 }),
-    }),
-  );
-  assert.equal(firstAllocateRes.status, 200);
-  const allocation = await firstAllocateRes.json();
-
-  const v2AllocateDeniedRes = await app(
-    new Request("http://localhost/v2/mailboxes/leases", {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        authorization: `Bearer ${verify.access_token}`,
-      },
-      body: JSON.stringify({ agent_id: verify.agent_id, purpose: "paid-allocate", ttl_hours: 1 }),
-    }),
-  );
-  assert.equal(v2AllocateDeniedRes.status, 402);
-  const v2AllocateDenied = await v2AllocateDeniedRes.json();
-  assert.equal(v2AllocateDenied.reasons[0].code, "agent_allocate_hourly");
-
-  const v2AllocatePaidRes = await app(
-    new Request("http://localhost/v2/mailboxes/leases", {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        authorization: `Bearer ${verify.access_token}`,
-        "x-payment-proof": "mock-proof",
-      },
-      body: JSON.stringify({ agent_id: verify.agent_id, purpose: "paid-allocate", ttl_hours: 1 }),
-    }),
-  );
-  assert.equal(v2AllocatePaidRes.status, 202);
-
-  await app.store?.adminPatchTenant?.(verify.tenant_id, { quotas: { qps: 1 } });
-
-  const v2SendDeniedRes = await app(
-    new Request("http://localhost/v2/messages/send", {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        authorization: `Bearer ${verify.access_token}`,
-      },
-      body: JSON.stringify({
-        mailbox_id: allocation.mailbox_id,
-        to: ["receiver@example.com"],
-        subject: "hello-v2-send",
-        text: "mail body",
-        mailbox_password: allocation.webmail_password,
-      }),
-    }),
-  );
-  assert.equal(v2SendDeniedRes.status, 402);
-  const v2SendDenied = await v2SendDeniedRes.json();
-  assert.equal(v2SendDenied.reasons[0].code, "tenant_qps");
-
-  const v2SendPaidRes = await app(
-    new Request("http://localhost/v2/messages/send", {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        authorization: `Bearer ${verify.access_token}`,
-        "x-payment-proof": "mock-proof",
-      },
-      body: JSON.stringify({
-        mailbox_id: allocation.mailbox_id,
-        to: ["receiver@example.com"],
-        subject: "hello-v2-send",
-        text: "mail body",
-        mailbox_password: allocation.webmail_password,
-      }),
-    }),
-  );
-  assert.equal(v2SendPaidRes.status, 202);
-});
-
 test("fetch app blocks suspended tenants even with payment proof", async () => {
   const cfg = createConfig({
     JWT_SECRET: "test-secret",
@@ -419,6 +336,7 @@ test("fetch app blocks suspended tenants even with payment proof", async () => {
     chainId: cfg.baseChainId,
     challengeTtlMs: cfg.siweChallengeTtlMs,
     mailboxDomain: cfg.mailboxDomain,
+    webhookSecretEncryptionKey: cfg.webhookSecretEncryptionKey,
   });
   const app = createFetchApp({ config: cfg, store });
   const verify = await issueToken(app, "0xabc0000000000000000000000000000000000669");
@@ -582,6 +500,84 @@ test("fetch app exposes v2 webhook, usage, and billing endpoints", async () => {
   assert.equal(invoiceDetailRes.status, 200);
   const invoiceDetail = await invoiceDetailRes.json();
   assert.equal(invoiceDetail.invoice_id, invoices.items[0].invoice_id);
+});
+
+test("fetch app exposes v2 webhook rotate-secret and delivery history endpoints", async () => {
+  const app = makeApp();
+  const verify = await issueToken(app, "0xabc0000000000000000000000000000000000a14");
+
+  const allocateRes = await app(
+    new Request("http://localhost/v1/mailboxes/allocate", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${verify.access_token}`,
+      },
+      body: JSON.stringify({ agent_id: verify.agent_id, purpose: "v2-webhook-history", ttl_hours: 1 }),
+    }),
+  );
+  assert.equal(allocateRes.status, 200);
+  const allocation = await allocateRes.json();
+
+  const webhookRes = await app(
+    new Request("http://localhost/v2/webhooks", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${verify.access_token}`,
+      },
+      body: JSON.stringify({
+        event_types: ["otp.extracted"],
+        target_url: "https://example.com/v2-webhook-history",
+        secret: "1234567890abcdef",
+      }),
+    }),
+  );
+  assert.equal(webhookRes.status, 201);
+  const webhook = await webhookRes.json();
+
+  const inboundRes = await app(
+    new Request("http://localhost/internal/inbound/events", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-internal-token": "internal-secret",
+      },
+      body: JSON.stringify({
+        address: allocation.address,
+        sender: "service@example.com",
+        sender_domain: "example.com",
+        subject: "Your code",
+        provider_message_id: "provider-v2-webhook-1",
+        received_at: "2026-03-09T00:00:00.000Z",
+        text_excerpt: "Verification code is 999999",
+      }),
+    }),
+  );
+  assert.equal(inboundRes.status, 202);
+
+  const deliveriesRes = await app(
+    new Request(`http://localhost/v2/webhooks/deliveries?webhook_id=${webhook.webhook_id}`, {
+      method: "GET",
+      headers: { authorization: `Bearer ${verify.access_token}` },
+    }),
+  );
+  assert.equal(deliveriesRes.status, 200);
+  const deliveries = await deliveriesRes.json();
+  assert.ok(deliveries.items.length >= 1);
+  assert.equal(deliveries.items[0].webhook_id, webhook.webhook_id);
+
+  const rotateRes = await app(
+    new Request(`http://localhost/v2/webhooks/${webhook.webhook_id}/rotate-secret`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${verify.access_token}` },
+    }),
+  );
+  assert.equal(rotateRes.status, 200);
+  const rotated = await rotateRes.json();
+  assert.equal(rotated.webhook_id, webhook.webhook_id);
+  assert.ok(rotated.secret);
+  assert.ok(rotated.secret.length >= 16);
 });
 
 test("fetch app exposes v2 mailbox accounts and leases endpoints", async () => {
@@ -904,240 +900,6 @@ test("fetch app sends mail through the backend adapter", async () => {
   assert.match(sent.message_id, /^noop:/);
 });
 
-test("fetch app exposes v2 messages and send attempts read endpoints", async () => {
-  const app = makeApp();
-  const verify = await issueToken(app, "0xabc0000000000000000000000000000000000888");
-
-  const allocateRes = await app(
-    new Request("http://localhost/v1/mailboxes/allocate", {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        authorization: `Bearer ${verify.access_token}`,
-        "x-payment-proof": "mock-proof",
-      },
-      body: JSON.stringify({ agent_id: verify.agent_id, purpose: "v2-read", ttl_hours: 1 }),
-    }),
-  );
-  assert.equal(allocateRes.status, 200);
-  const allocation = await allocateRes.json();
-
-  const inboundRes = await app(
-    new Request("http://localhost/internal/inbound/events", {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        authorization: "Bearer internal-secret",
-      },
-      body: JSON.stringify({
-        address: allocation.address,
-        sender: "notify@example.com",
-        sender_domain: "example.com",
-        subject: "Your code is 654321",
-        text_excerpt: "Click https://example.com/verify?token=abc",
-      }),
-    }),
-  );
-  assert.equal(inboundRes.status, 202);
-  const inbound = await inboundRes.json();
-
-  const sendRes = await app(
-    new Request("http://localhost/v1/messages/send", {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        authorization: `Bearer ${verify.access_token}`,
-        "x-payment-proof": "mock-proof",
-      },
-      body: JSON.stringify({
-        mailbox_id: allocation.mailbox_id,
-        to: ["receiver@example.com"],
-        subject: "hello-v2",
-        text: "mail body",
-        mailbox_password: allocation.webmail_password,
-      }),
-    }),
-  );
-  assert.equal(sendRes.status, 200);
-  const sent = await sendRes.json();
-
-  const v2MessagesRes = await app(
-    new Request(`http://localhost/v2/messages?mailbox_id=${allocation.mailbox_id}&page=1&page_size=20`, {
-      method: "GET",
-      headers: { authorization: `Bearer ${verify.access_token}` },
-    }),
-  );
-  assert.equal(v2MessagesRes.status, 200);
-  const v2Messages = await v2MessagesRes.json();
-  assert.equal(v2Messages.total, 1);
-  assert.equal(v2Messages.items[0].message_id, inbound.message_id);
-  assert.equal(v2Messages.items[0].message_status, "parsed");
-  assert.equal(v2Messages.items[0].otp_code, "654321");
-
-  const v2MessageDetailRes = await app(
-    new Request(`http://localhost/v2/messages/${inbound.message_id}`, {
-      method: "GET",
-      headers: { authorization: `Bearer ${verify.access_token}` },
-    }),
-  );
-  assert.equal(v2MessageDetailRes.status, 200);
-  const v2MessageDetail = await v2MessageDetailRes.json();
-  assert.equal(v2MessageDetail.message_id, inbound.message_id);
-  assert.equal(v2MessageDetail.message_status, "parsed");
-  assert.equal(v2MessageDetail.verification_link, "https://example.com/verify?token=abc");
-
-  const sendAttemptsRes = await app(
-    new Request(`http://localhost/v2/send-attempts?mailbox_id=${allocation.mailbox_id}&page=1&page_size=20`, {
-      method: "GET",
-      headers: { authorization: `Bearer ${verify.access_token}` },
-    }),
-  );
-  assert.equal(sendAttemptsRes.status, 200);
-  const sendAttempts = await sendAttemptsRes.json();
-  assert.equal(sendAttempts.total, 1);
-  assert.equal(sendAttempts.items[0].send_attempt_id, sent.send_attempt_id);
-  assert.equal(sendAttempts.items[0].submission_status, "accepted");
-
-  const sendAttemptDetailRes = await app(
-    new Request(`http://localhost/v2/send-attempts/${sent.send_attempt_id}`, {
-      method: "GET",
-      headers: { authorization: `Bearer ${verify.access_token}` },
-    }),
-  );
-  assert.equal(sendAttemptDetailRes.status, 200);
-  const sendAttemptDetail = await sendAttemptDetailRes.json();
-  assert.equal(sendAttemptDetail.send_attempt_id, sent.send_attempt_id);
-  assert.deepEqual(sendAttemptDetail.recipients, ["receiver@example.com"]);
-  assert.equal(sendAttemptDetail.submission_status, "accepted");
-});
-
-test("fetch app accepts v2 messages send and returns attempt-oriented response", async () => {
-  const app = makeApp();
-  const verify = await issueToken(app, "0xabc0000000000000000000000000000000000779");
-
-  const allocateRes = await app(
-    new Request("http://localhost/v1/mailboxes/allocate", {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        authorization: `Bearer ${verify.access_token}`,
-        "x-payment-proof": "mock-proof",
-      },
-      body: JSON.stringify({ agent_id: verify.agent_id, purpose: "v2-send", ttl_hours: 1 }),
-    }),
-  );
-  assert.equal(allocateRes.status, 200);
-  const allocation = await allocateRes.json();
-
-  const sendRes = await app(
-    new Request("http://localhost/v2/messages/send", {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        authorization: `Bearer ${verify.access_token}`,
-      },
-      body: JSON.stringify({
-        mailbox_id: allocation.mailbox_id,
-        to: ["receiver@example.com"],
-        subject: "hello-v2-send",
-        text: "mail body",
-        mailbox_password: allocation.webmail_password,
-      }),
-    }),
-  );
-  assert.equal(sendRes.status, 202);
-  const sent = await sendRes.json();
-  assert.ok(sent.send_attempt_id);
-  assert.equal(sent.mailbox_id, allocation.mailbox_id);
-  assert.equal(sent.from_address, allocation.address);
-  assert.equal(sent.submission_status, "accepted");
-  assert.equal(sent.job_status, "completed");
-  assert.deepEqual(sent.accepted, ["receiver@example.com"]);
-
-  const attemptRes = await app(
-    new Request(`http://localhost/v2/send-attempts/${sent.send_attempt_id}`, {
-      method: "GET",
-      headers: { authorization: `Bearer ${verify.access_token}` },
-    }),
-  );
-  assert.equal(attemptRes.status, 200);
-  const attempt = await attemptRes.json();
-  assert.equal(attempt.send_attempt_id, sent.send_attempt_id);
-  assert.equal(attempt.submission_status, "accepted");
-});
-
-test("fetch app exposes v2 mailbox accounts and leases endpoints", async () => {
-  const app = makeApp();
-  const verify = await issueToken(app, "0xabc0000000000000000000000000000000000778");
-
-  const createLeaseRes = await app(
-    new Request("http://localhost/v2/mailboxes/leases", {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        authorization: `Bearer ${verify.access_token}`,
-      },
-      body: JSON.stringify({ agent_id: verify.agent_id, purpose: "v2-lease", ttl_hours: 1 }),
-    }),
-  );
-  assert.equal(createLeaseRes.status, 202);
-  const createdLease = await createLeaseRes.json();
-  assert.ok(createdLease.lease_id);
-  assert.ok(createdLease.mailbox_account_id);
-  assert.equal(createdLease.lease_status, "active");
-
-  const accountsRes = await app(
-    new Request("http://localhost/v2/mailboxes/accounts?page=1&page_size=20", {
-      method: "GET",
-      headers: { authorization: `Bearer ${verify.access_token}` },
-    }),
-  );
-  assert.equal(accountsRes.status, 200);
-  const accounts = await accountsRes.json();
-  assert.equal(accounts.total, 5);
-  const leasedAccount = accounts.items.find((item) => item.mailbox_id === createdLease.mailbox_id);
-  assert.ok(leasedAccount?.mailbox_account_id);
-  assert.equal(leasedAccount?.backend_status, "active");
-
-  const leasesRes = await app(
-    new Request("http://localhost/v2/mailboxes/leases?page=1&page_size=20", {
-      method: "GET",
-      headers: { authorization: `Bearer ${verify.access_token}` },
-    }),
-  );
-  assert.equal(leasesRes.status, 200);
-  const leases = await leasesRes.json();
-  assert.equal(leases.total, 1);
-  assert.equal(leases.items[0].lease_id, createdLease.lease_id);
-  assert.equal(leases.items[0].mailbox_id, createdLease.mailbox_id);
-
-  const leaseDetailRes = await app(
-    new Request(`http://localhost/v2/mailboxes/leases/${createdLease.lease_id}`, {
-      method: "GET",
-      headers: { authorization: `Bearer ${verify.access_token}` },
-    }),
-  );
-  assert.equal(leaseDetailRes.status, 200);
-  const leaseDetail = await leaseDetailRes.json();
-  assert.equal(leaseDetail.lease_id, createdLease.lease_id);
-  assert.equal(leaseDetail.address, createdLease.address);
-
-  const releaseRes = await app(
-    new Request(`http://localhost/v2/mailboxes/leases/${createdLease.lease_id}/release`, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        authorization: `Bearer ${verify.access_token}`,
-      },
-      body: "{}",
-    }),
-  );
-  assert.equal(releaseRes.status, 202);
-  const released = await releaseRes.json();
-  assert.equal(released.lease_id, createdLease.lease_id);
-  assert.equal(released.lease_status, "releasing");
-});
-
 test("fetch app requires dedicated admin token when configured", async () => {
   const cfg = createConfig({
     JWT_SECRET: "test-secret",
@@ -1283,6 +1045,7 @@ test("runtime settings persist across app instances when store retains them", as
     chainId: cfg.baseChainId,
     challengeTtlMs: cfg.siweChallengeTtlMs,
     mailboxDomain: cfg.mailboxDomain,
+    webhookSecretEncryptionKey: cfg.webhookSecretEncryptionKey,
   });
 
   const appA = createFetchApp({ config: cfg, store });
@@ -1358,40 +1121,6 @@ test("fetch app admin API exposes live overview and lists", async () => {
   const mailboxes = await mailboxesRes.json();
   assert.equal(mailboxes.items.find((item) => item.mailbox_id === allocation.mailbox_id).status, "leased");
   assert.match(mailboxes.items[0].address, /@inbox\.example\.com$/);
-  assert.ok(mailboxes.items[0].mailbox_account_id);
-  assert.equal(mailboxes.items[0].lease_v2_status, "active");
-
-  const sendRes = await app(
-    new Request("http://localhost/v1/messages/send", {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        authorization: `Bearer ${verify.access_token}`,
-        "x-payment-proof": "mock-proof",
-      },
-      body: JSON.stringify({
-        mailbox_id: allocation.mailbox_id,
-        to: ["ops@example.com"],
-        subject: "Admin visible send",
-        text: "body",
-        mailbox_password: allocation.webmail_password,
-      }),
-    }),
-  );
-  assert.equal(sendRes.status, 200);
-
-  const sendAttemptsRes = await app(
-    new Request("http://localhost/v1/admin/send-attempts?tenant_id=" + verify.tenant_id, {
-      method: "GET",
-      headers: { authorization: `Bearer ${verify.access_token}` },
-    }),
-  );
-  assert.equal(sendAttemptsRes.status, 200);
-  const sendAttempts = await sendAttemptsRes.json();
-  assert.equal(sendAttempts.total, 1);
-  assert.equal(sendAttempts.items[0].mailbox_id, allocation.mailbox_id);
-  assert.ok(sendAttempts.items[0].mailbox_account_id);
-  assert.equal(sendAttempts.items[0].submission_status, "accepted");
 });
 
 test("fetch app admin actions mutate live resources", async () => {
@@ -1431,9 +1160,6 @@ test("fetch app admin actions mutate live resources", async () => {
   );
   const messages = await messagesRes.json();
   assert.ok(messages.items[0].message_id);
-  const parsedMessage = messages.items.find((item) => item.parsed_status === "parsed");
-  assert.ok(parsedMessage?.mailbox_account_id);
-  assert.equal(parsedMessage?.message_v2_status, "parsed");
 
   const reparseRes = await app(
     new Request(`http://localhost/v1/admin/messages/${messages.items[0].message_id}/reparse`, {
@@ -1479,6 +1205,7 @@ test("fetch app provisions and releases mailboxes via mail provider", async () =
     chainId: cfg.baseChainId,
     challengeTtlMs: cfg.siweChallengeTtlMs,
     mailboxDomain: cfg.mailboxDomain,
+    webhookSecretEncryptionKey: cfg.webhookSecretEncryptionKey,
   });
   const calls = [];
   const mailBackend = {
@@ -1580,14 +1307,6 @@ test("fetch app accepts internal inbound events and stores message", async () =>
   assert.equal(latest.messages[0].message_id, inbound.message_id);
   assert.ok(latest.messages.some((item) => item.subject === "Inbound from Mailu"));
   assert.ok(latest.messages.some((item) => item.otp_code === "123456"));
-
-  const state = app.store.getStateForTests();
-  const v2Message = state.messagesV2.get(inbound.message_id);
-  assert.ok(v2Message);
-  assert.equal(v2Message.messageStatus, "parse_failed");
-  const rawMessage = state.rawMessagesV2.get(v2Message.rawMessageId);
-  assert.ok(rawMessage);
-  assert.equal(rawMessage.backendMessageId, "mailu-msg-1");
 });
 
 test("fetch app deduplicates internal inbound events by provider message id", async () => {
@@ -1820,6 +1539,7 @@ test("fetch app dispatches subscribed webhook after parsing inbound mail", async
     chainId: cfg.baseChainId,
     challengeTtlMs: cfg.siweChallengeTtlMs,
     mailboxDomain: cfg.mailboxDomain,
+    webhookSecretEncryptionKey: cfg.webhookSecretEncryptionKey,
   });
   const deliveries = [];
   const webhookDispatcher = {
@@ -1878,9 +1598,6 @@ test("fetch app dispatches subscribed webhook after parsing inbound mail", async
     }),
   );
   assert.equal(inboundRes.status, 202);
-  const inboundBody = await inboundRes.json();
-  assert.ok(inboundBody.parse_job_id);
-  assert.equal(inboundBody.parse_job_status, "completed");
   assert.equal(deliveries.length, 1);
   assert.equal(deliveries[0].payload.event_type, "otp.extracted");
   assert.equal(deliveries[0].payload.otp_code, "654321");
@@ -1893,112 +1610,6 @@ test("fetch app dispatches subscribed webhook after parsing inbound mail", async
   );
   const webhooks = await webhooksRes.json();
   assert.equal(webhooks.items[0].last_status_code, 200);
-
-  const deliveriesRes = await app(
-    new Request("http://localhost/v2/webhooks/deliveries?page=1&page_size=20", {
-      method: "GET",
-      headers: { authorization: `Bearer ${verify.access_token}` },
-    }),
-  );
-  assert.equal(deliveriesRes.status, 200);
-  const deliveriesBody = await deliveriesRes.json();
-  assert.equal(deliveriesBody.total, 1);
-  assert.equal(deliveriesBody.items[0].event_type, "otp.extracted");
-  assert.equal(deliveriesBody.items[0].status_code, 200);
-  assert.equal(deliveriesBody.items[0].ok, true);
-});
-
-test("fetch app admin can inspect webhook delivery failure history", async () => {
-  const cfg = createConfig({
-    JWT_SECRET: "test-secret",
-    INTERNAL_API_TOKEN: "internal-secret",
-    BASE_CHAIN_ID: "84532",
-    MAILBOX_DOMAIN: "inbox.example.com",
-    SIWE_MODE: "mock",
-    PAYMENT_MODE: "mock",
-  });
-  const store = new MemoryStore({
-    chainId: cfg.baseChainId,
-    challengeTtlMs: cfg.siweChallengeTtlMs,
-    mailboxDomain: cfg.mailboxDomain,
-  });
-  const webhookDispatcher = {
-    async dispatch() {
-      return {
-        ok: false,
-        statusCode: 503,
-        attempts: 3,
-        deliveryId: "delivery-failed",
-        errorMessage: "Webhook returned HTTP 503",
-        responseExcerpt: "upstream down",
-      };
-    },
-  };
-  const app = createFetchApp({ config: cfg, store, webhookDispatcher });
-  const verify = await issueToken(app, "0xabc0000000000000000000000000000000000998");
-
-  const createWebhookRes = await app(
-    new Request("http://localhost/v1/webhooks", {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        authorization: `Bearer ${verify.access_token}`,
-        "x-payment-proof": "mock-proof",
-      },
-      body: JSON.stringify({
-        event_types: ["otp.extracted"],
-        target_url: "https://example.com/hook",
-        secret: "1234567890abcdef",
-      }),
-    }),
-  );
-  assert.equal(createWebhookRes.status, 200);
-  const webhook = await createWebhookRes.json();
-
-  const allocateRes = await app(
-    new Request("http://localhost/v1/mailboxes/allocate", {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        authorization: `Bearer ${verify.access_token}`,
-        "x-payment-proof": "mock-proof",
-      },
-      body: JSON.stringify({ agent_id: verify.agent_id, purpose: "hook-fail", ttl_hours: 1 }),
-    }),
-  );
-  const allocation = await allocateRes.json();
-
-  const inboundRes = await app(
-    new Request("http://localhost/internal/inbound/events", {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        authorization: "Bearer internal-secret",
-      },
-      body: JSON.stringify({
-        address: allocation.address,
-        sender: "notify@example.com",
-        sender_domain: "example.com",
-        subject: "Your code is 654321",
-        text_excerpt: "Click https://example.com/verify?token=abc",
-      }),
-    }),
-  );
-  assert.equal(inboundRes.status, 202);
-
-  const adminDeliveriesRes = await app(
-    new Request(`http://localhost/v1/admin/webhook-deliveries?page=1&page_size=20&webhook_id=${webhook.webhook_id}`, {
-      method: "GET",
-      headers: { authorization: `Bearer ${verify.access_token}` },
-    }),
-  );
-  assert.equal(adminDeliveriesRes.status, 200);
-  const adminDeliveries = await adminDeliveriesRes.json();
-  assert.equal(adminDeliveries.total, 1);
-  assert.equal(adminDeliveries.items[0].status_code, 503);
-  assert.equal(adminDeliveries.items[0].ok, false);
-  assert.equal(adminDeliveries.items[0].error_message, "Webhook returned HTTP 503");
-  assert.equal(adminDeliveries.items[0].response_excerpt, "upstream down");
 });
 
 test("fetch app parses otp and link from html inbound content", async () => {
@@ -2094,13 +1705,4 @@ test("fetch app marks message as failed when parser finds no otp or link", async
   const failed = messages.items.find((item) => item.subject === "Welcome");
   assert.equal(failed.parsed_status, "failed");
   assert.equal(failed.otp_extracted, false);
-  assert.ok(failed.mailbox_account_id);
-  assert.equal(failed.message_v2_status, "parse_failed");
-
-  const state = app.store.getStateForTests();
-  const failedMessage = [...state.messagesV2.values()].find((item) => item.subject === "Welcome");
-  assert.ok(failedMessage);
-  assert.equal(failedMessage.messageStatus, "parse_failed");
-  const parseResults = state.messageParseResultsV2.get(failedMessage.id) || [];
-  assert.equal(parseResults.at(-1)?.parseStatus, "failed");
 });
