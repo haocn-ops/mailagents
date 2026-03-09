@@ -164,6 +164,44 @@ components:
         last_status_code:
           type: integer
           nullable: true
+    WebhookDelivery:
+      type: object
+      required: [webhook_id, delivery_id]
+      properties:
+        webhook_id:
+          type: string
+        delivery_id:
+          type: string
+        status_code:
+          type: integer
+          nullable: true
+        attempts:
+          type: integer
+          nullable: true
+        ok:
+          type: boolean
+          nullable: true
+        error_message:
+          type: string
+          nullable: true
+        response_excerpt:
+          type: string
+          nullable: true
+        request_id:
+          type: string
+          nullable: true
+        delivered_at:
+          type: string
+          format: date-time
+          nullable: true
+    WebhookSecretRotationResult:
+      type: object
+      required: [webhook_id, secret]
+      properties:
+        webhook_id:
+          type: string
+        secret:
+          type: string
     UsageSummary:
       type: object
       required: [period, usage]
@@ -245,6 +283,22 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/MailboxLease'
+  /v2/mailboxes/leases/{lease_id}:
+    get:
+      summary: Get mailbox lease detail for the current tenant
+      parameters:
+        - in: path
+          name: lease_id
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Mailbox lease detail
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MailboxLease'
   /v2/mailboxes/leases/{lease_id}/release:
     post:
       summary: Release a mailbox lease
@@ -317,6 +371,44 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Webhook'
+  /v2/webhooks/{webhook_id}/rotate-secret:
+    post:
+      summary: Rotate webhook secret for the current tenant webhook
+      parameters:
+        - in: path
+          name: webhook_id
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Webhook secret rotated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookSecretRotationResult'
+  /v2/webhooks/deliveries:
+    get:
+      summary: List webhook deliveries for the current tenant
+      parameters:
+        - in: query
+          name: webhook_id
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Webhook delivery history
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/WebhookDelivery'
   /v2/usage/summary:
     get:
       summary: Get tenant usage summary for a billing period
