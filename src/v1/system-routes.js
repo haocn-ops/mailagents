@@ -1,6 +1,4 @@
-import { createJwt } from "../auth.js";
-import { buildHmacPaymentProof } from "../payment.js";
-import { createNonce } from "../utils.js";
+import { createV1SystemService } from "../services/v1-system-service.js";
 
 export function createV1SystemRouteHandler({
   store,
@@ -12,6 +10,13 @@ export function createV1SystemRouteHandler({
   paidBypassTargets,
   getOverageChargeUsdc,
 }) {
+  const systemService = createV1SystemService({
+    store,
+    runtimeConfig,
+    siweService,
+    getOverageChargeUsdc,
+  });
+
   return async function handleV1SystemRoute({ method, path, request, requestId }) {
     if (!path.startsWith("/v1/")) return null;
 
@@ -30,28 +35,7 @@ export function createV1SystemRouteHandler({
         return jsonResponse(400, { error: "bad_request", message: "unsupported payment proof target" }, requestId);
       }
 
-      const nowSec = Math.floor(Date.now() / 1000);
-      const proof =
-        runtimeConfig.paymentMode === "hmac"
-          ? buildHmacPaymentProof({
-              secret: runtimeConfig.paymentHmacSecret,
-              method: proofMethod,
-              path: proofPath,
-              timestampSec: nowSec,
-            })
-          : "mock-proof";
-
-      return jsonResponse(
-        200,
-        {
-          x_payment_proof: proof,
-          method: proofMethod,
-          path: proofPath,
-          amount_usdc: getOverageChargeUsdc(),
-          expires_at: new Date((nowSec + runtimeConfig.paymentHmacSkewSec) * 1000).toISOString(),
-        },
-        requestId,
-      );
+      return jsonResponse(200, systemService.createPaymentProof({ proofMethod, proofPath }), requestId);
     }
 
     if (method === "POST" && path === "/v1/auth/siwe/challenge") {
@@ -61,19 +45,15 @@ export function createV1SystemRouteHandler({
         return jsonResponse(400, { error: "bad_request", message: "wallet_address is required" }, requestId);
       }
 
-      const nonce = createNonce();
-      let message;
       try {
-        message = await siweService.createChallengeMessage(walletAddress, nonce);
+        const challenge = await systemService.createSiweChallenge(walletAddress);
+        return jsonResponse(200, challenge, requestId);
       } catch (err) {
         if (err.code === "INVALID_SIWE_MESSAGE") {
           return jsonResponse(400, { error: "bad_request", message: err.message }, requestId);
         }
         throw err;
       }
-      await store.saveChallenge(walletAddress, nonce, message);
-
-      return jsonResponse(200, { nonce, message }, requestId);
     }
 
     if (method === "POST" && path === "/v1/auth/siwe/verify") {
@@ -84,61 +64,18 @@ export function createV1SystemRouteHandler({
         return jsonResponse(400, { error: "bad_request", message: "message and signature are required" }, requestId);
       }
 
-      let parsed;
       try {
-        parsed = await siweService.parseMessage(message);
+        const result = await systemService.verifySiwe({ message, signature });
+        if (!result.ok) {
+          return jsonResponse(401, { error: "unauthorized", message: result.message }, requestId);
+        }
+        return jsonResponse(200, result.payload, requestId);
       } catch (err) {
         if (err.code === "INVALID_SIWE_MESSAGE") {
           return jsonResponse(400, { error: "bad_request", message: err.message }, requestId);
         }
         throw err;
       }
-
-      const walletAddress = parsed.address;
-      const nonce = parsed.nonce;
-      const challenge = await store.getChallenge(walletAddress);
-
-      if (!challenge || challenge.nonce !== nonce || challenge.message !== message) {
-        return jsonResponse(401, { error: "unauthorized", message: "challenge mismatch or expired" }, requestId);
-      }
-
-      const verified = await siweService.verifySignature({
-        message,
-        signature,
-        expectedAddress: walletAddress,
-        expectedNonce: nonce,
-      });
-
-      if (!verified.ok) {
-        return jsonResponse(401, { error: "unauthorized", message: verified.message || "invalid signature" }, requestId);
-      }
-
-      await store.consumeChallenge(walletAddress);
-      const identity = await store.getOrCreateIdentity(walletAddress);
-
-      const token = createJwt(
-        {
-          tenant_id: identity.tenantId,
-          agent_id: identity.agentId,
-          did: identity.did,
-          scopes: ["mail:allocate", "mail:read", "mail:send", "webhook:write", "billing:read"],
-        },
-        runtimeConfig.jwtSecret,
-        3600,
-      );
-
-      return jsonResponse(
-        200,
-        {
-          access_token: token,
-          token_type: "Bearer",
-          expires_in: 3600,
-          did: identity.did,
-          tenant_id: identity.tenantId,
-          agent_id: identity.agentId,
-        },
-        requestId,
-      );
     }
 
     return null;
