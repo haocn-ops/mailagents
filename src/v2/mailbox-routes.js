@@ -1,4 +1,4 @@
-import { createMailboxService } from "../services/mailbox-service.js";
+import { createV2MailboxService } from "../services/v2-mailbox-service.js";
 import { createV2Authz } from "./authz.js";
 import { createV2Metering } from "./metering.js";
 import { parseIntegerInRange, parseRequiredPathParam } from "./validation.js";
@@ -12,7 +12,7 @@ export function createV2MailboxRouteHandler({
   readJsonBody,
   getOverageChargeUsdc,
 }) {
-  const mailboxService = createMailboxService({ store, mailBackend });
+  const mailboxService = createV2MailboxService({ store, mailBackend });
   const authz = createV2Authz({ requireAuth, evaluateAccess });
   const metering = createV2Metering({ store, getOverageChargeUsdc });
 

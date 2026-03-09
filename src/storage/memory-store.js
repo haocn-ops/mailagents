@@ -16,7 +16,11 @@ export class MemoryStore {
       leases: new Map(),
       messages: new Map(),
       messageEvents: new Map(),
+      rawMessagesV2: new Map(),
+      messagesV2: new Map(),
+      messageParseResultsV2: new Map(),
       webhooks: new Map(),
+      webhookDeliveries: [],
       sendAttempts: new Map(),
       usageRecords: [],
       invoices: new Map(),
@@ -438,6 +442,31 @@ export class MemoryStore {
       createdAt: receivedAt,
     });
 
+    const rawMessageId = randomUUID();
+    this.state.rawMessagesV2.set(rawMessageId, {
+      id: rawMessageId,
+      mailboxId,
+      backendMessageId: providerMessageId,
+      rawRef,
+      headers: payload?.headers || {},
+      sender,
+      senderDomain,
+      subject,
+      receivedAt,
+      ingestedAt: new Date().toISOString(),
+    });
+    this.state.messagesV2.set(messageId, {
+      id: messageId,
+      rawMessageId,
+      tenantId,
+      mailboxId,
+      sender,
+      senderDomain,
+      subject,
+      receivedAt,
+      messageStatus: "received",
+    });
+
     this._recordAudit({
       tenantId,
       actorDid: "system:mailu",
@@ -530,6 +559,23 @@ export class MemoryStore {
       requestId,
       metadata: { otp_extracted: Boolean(otpCode), verification_link: Boolean(verificationLink) },
     });
+
+    const parseStatus = otpCode || verificationLink ? "parsed" : "parse_failed";
+    const messageV2 = this.state.messagesV2.get(messageId);
+    if (messageV2) {
+      messageV2.messageStatus = parseStatus;
+    }
+    const results = this.state.messageParseResultsV2.get(messageId) || [];
+    results.push({
+      messageId,
+      parserVersion: payload.parser || "builtin",
+      parseStatus,
+      otpCode: otpCode || null,
+      verificationLink: verificationLink || null,
+      createdAt: new Date().toISOString(),
+    });
+    this.state.messageParseResultsV2.set(messageId, results);
+
     return { messageId };
   }
 
@@ -556,6 +602,19 @@ export class MemoryStore {
       resourceId: webhookId,
       requestId,
       metadata: { status_code: statusCode, ...metadata },
+    });
+    this.state.webhookDeliveries.push({
+      webhookId,
+      deliveryId: randomUUID(),
+      resourceId: metadata.resource_id || null,
+      statusCode: statusCode ?? null,
+      attempts: metadata.attempts ?? null,
+      ok: metadata.ok ?? null,
+      deliveryStatus: metadata.ok ? "delivered" : "failed",
+      errorMessage: metadata.error_message || null,
+      responseExcerpt: metadata.response_excerpt || null,
+      requestId,
+      deliveredAt: new Date().toISOString(),
     });
     return webhook;
   }
