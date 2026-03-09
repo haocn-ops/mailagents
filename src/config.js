@@ -1,15 +1,4 @@
-function asLower(value, fallback) {
-  return String(value ?? fallback).toLowerCase();
-}
-
-function asNumber(value, fallback) {
-  const n = Number(value ?? fallback);
-  return Number.isFinite(n) ? n : Number(fallback);
-}
-
-function asUpper(value, fallback) {
-  return String(value ?? fallback).toUpperCase();
-}
+import { asBoolean, asCsvList, asLower, asNumber, asUpper } from "./config-parsers.js";
 
 export function createConfig(source = {}) {
   const baseChainId = asNumber(source.BASE_CHAIN_ID, 84532);
@@ -24,14 +13,8 @@ export function createConfig(source = {}) {
     internalApiToken: String(source.INTERNAL_API_TOKEN || ""),
     baseChainId,
     chainName: String(source.CHAIN_NAME || defaultChainName),
-    chainRpcUrls: String(source.CHAIN_RPC_URLS || defaultRpcUrls.join(","))
-      .split(",")
-      .map((item) => item.trim())
-      .filter(Boolean),
-    chainExplorerUrls: String(source.CHAIN_EXPLORER_URLS || defaultExplorerUrls.join(","))
-      .split(",")
-      .map((item) => item.trim())
-      .filter(Boolean),
+    chainRpcUrls: asCsvList(source.CHAIN_RPC_URLS, defaultRpcUrls),
+    chainExplorerUrls: asCsvList(source.CHAIN_EXPLORER_URLS, defaultExplorerUrls),
     mailboxDomain: String(source.MAILBOX_DOMAIN || "pool.mailcloud.local"),
     mailProvider: asLower(source.MAIL_PROVIDER, "noop"),
     storageBackend: asLower(source.STORAGE_BACKEND, "memory"),
@@ -43,7 +26,7 @@ export function createConfig(source = {}) {
     mailuAuthScheme: asUpper(source.MAILU_AUTH_SCHEME, "BEARER"),
     mailSmtpHost: String(source.MAIL_SMTP_HOST || source.MAILBOX_DOMAIN || "localhost"),
     mailSmtpPort: asNumber(source.MAIL_SMTP_PORT, 587),
-    mailSmtpSecure: String(source.MAIL_SMTP_SECURE || "false").toLowerCase() === "true",
+    mailSmtpSecure: asBoolean(source.MAIL_SMTP_SECURE, false),
     siweMode: asLower(source.SIWE_MODE, "mock"),
     siweDomain: String(source.SIWE_DOMAIN || "localhost"),
     siweUri: String(source.SIWE_URI || "http://localhost"),
