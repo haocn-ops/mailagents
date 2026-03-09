@@ -13,6 +13,15 @@ export function createMailboxProvisionJob({ store, mailBackend }) {
     if (provisioned?.providerRef) {
       await store.saveMailboxProviderRef(payload.mailboxId, provisioned.providerRef);
     }
+    if (payload.mailboxAccountId && typeof store.markMailboxAccountProvisioned === "function") {
+      await store.markMailboxAccountProvisioned({
+        mailboxAccountId: payload.mailboxAccountId,
+        providerRef: provisioned?.providerRef || null,
+      });
+    }
+    if (payload.mailboxLeaseV2Id && typeof store.markMailboxLeaseV2Active === "function") {
+      await store.markMailboxLeaseV2Active(payload.mailboxLeaseV2Id);
+    }
 
     return {
       mailboxId: payload.mailboxId,

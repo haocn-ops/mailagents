@@ -26,6 +26,10 @@ export class MemoryStore {
         overage_charge_usdc: null,
         agent_allocate_hourly_limit: null,
       },
+      mailboxAccountsV2: new Map(),
+      mailboxLeasesV2: new Map(),
+      sendAttempts: new Map(),
+      sendAttemptEvents: new Map(),
     };
   }
 
@@ -359,6 +363,129 @@ export class MemoryStore {
       status: mailbox.status,
       providerRef: mailbox.providerRef || null,
     };
+  }
+
+  async upsertMailboxAccountFromLegacyMailbox(mailbox) {
+    const existing = [...this.state.mailboxAccountsV2.values()].find((item) => item.address === mailbox.address);
+    if (existing) {
+      existing.backendStatus = mailbox.status === "leased" ? "active" : "disabled";
+      existing.backendRef = mailbox.providerRef || existing.backendRef || null;
+      existing.updatedAt = new Date().toISOString();
+      return existing;
+    }
+
+    const account = {
+      id: randomUUID(),
+      legacyMailboxId: mailbox.id,
+      address: mailbox.address,
+      domain: String(mailbox.address).split("@")[1] || this.mailboxDomain,
+      backendRef: mailbox.providerRef || null,
+      backendStatus: mailbox.status === "leased" ? "active" : "disabled",
+      mailboxType: "pooled",
+      lastPasswordResetAt: null,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    this.state.mailboxAccountsV2.set(account.id, account);
+    return account;
+  }
+
+  async createMailboxLeaseV2({ mailboxAccountId, tenantId, agentId, purpose, endsAt }) {
+    const lease = {
+      id: randomUUID(),
+      mailboxAccountId,
+      tenantId,
+      agentId,
+      purpose,
+      status: "pending",
+      startedAt: null,
+      endsAt,
+      releasedAt: null,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    this.state.mailboxLeasesV2.set(lease.id, lease);
+    return lease;
+  }
+
+  async markMailboxAccountProvisioned({ mailboxAccountId, providerRef = null }) {
+    const account = this.state.mailboxAccountsV2.get(mailboxAccountId);
+    if (!account) return null;
+    account.backendStatus = "active";
+    if (providerRef) account.backendRef = providerRef;
+    account.updatedAt = new Date().toISOString();
+    return account;
+  }
+
+  async markMailboxLeaseV2Active(leaseId) {
+    const lease = this.state.mailboxLeasesV2.get(leaseId);
+    if (!lease) return null;
+    lease.status = "active";
+    lease.startedAt = lease.startedAt || new Date().toISOString();
+    lease.updatedAt = new Date().toISOString();
+    return lease;
+  }
+
+  async createSendAttempt({ tenantId, agentId, mailboxAccountId, legacyMailboxId, fromAddress, to, subject }) {
+    const attempt = {
+      id: randomUUID(),
+      tenantId,
+      agentId,
+      mailboxAccountId,
+      legacyMailboxId,
+      fromAddress,
+      to,
+      subject,
+      status: "queued",
+      backendQueueId: null,
+      smtpResponse: null,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      submittedAt: null,
+    };
+    this.state.sendAttempts.set(attempt.id, attempt);
+    this.state.sendAttemptEvents.set(attempt.id, [
+      {
+        eventType: "queued",
+        payload: {},
+        createdAt: attempt.createdAt,
+      },
+    ]);
+    return attempt;
+  }
+
+  async completeSendAttempt({ sendAttemptId, backendQueueId = null, smtpResponse = null }) {
+    const attempt = this.state.sendAttempts.get(sendAttemptId);
+    if (!attempt) return null;
+    attempt.status = "accepted";
+    attempt.backendQueueId = backendQueueId;
+    attempt.smtpResponse = smtpResponse;
+    attempt.submittedAt = new Date().toISOString();
+    attempt.updatedAt = attempt.submittedAt;
+    const events = this.state.sendAttemptEvents.get(sendAttemptId) || [];
+    events.push({
+      eventType: "accepted",
+      payload: { backend_queue_id: backendQueueId, smtp_response: smtpResponse },
+      createdAt: attempt.submittedAt,
+    });
+    this.state.sendAttemptEvents.set(sendAttemptId, events);
+    return attempt;
+  }
+
+  async failSendAttempt({ sendAttemptId, errorMessage }) {
+    const attempt = this.state.sendAttempts.get(sendAttemptId);
+    if (!attempt) return null;
+    attempt.status = "failed";
+    attempt.smtpResponse = errorMessage;
+    attempt.updatedAt = new Date().toISOString();
+    const events = this.state.sendAttemptEvents.get(sendAttemptId) || [];
+    events.push({
+      eventType: "failed",
+      payload: { error: errorMessage },
+      createdAt: attempt.updatedAt,
+    });
+    this.state.sendAttemptEvents.set(sendAttemptId, events);
+    return attempt;
   }
 
   async getActiveLeaseByMailboxId(mailboxId) {

@@ -10,6 +10,7 @@ export class PostgresStore {
     this.webhookSecretEncryptionKey = webhookSecretEncryptionKey;
     this.pool = null;
     this.challenges = new Map();
+    this.v2Tables = null;
   }
 
   async _ensurePool() {
@@ -50,6 +51,24 @@ export class PostgresStore {
     } finally {
       client.release();
     }
+  }
+
+  async _loadV2TableAvailability() {
+    if (this.v2Tables) return this.v2Tables;
+    const result = await this._query(
+      `select
+         to_regclass('public.mailbox_accounts') as mailbox_accounts,
+         to_regclass('public.mailbox_leases_v2') as mailbox_leases_v2,
+         to_regclass('public.send_attempts') as send_attempts,
+         to_regclass('public.send_attempt_events') as send_attempt_events`
+    );
+    this.v2Tables = {
+      mailbox_accounts: Boolean(result.rows[0]?.mailbox_accounts),
+      mailbox_leases_v2: Boolean(result.rows[0]?.mailbox_leases_v2),
+      send_attempts: Boolean(result.rows[0]?.send_attempts),
+      send_attempt_events: Boolean(result.rows[0]?.send_attempt_events),
+    };
+    return this.v2Tables;
   }
 
   _paginate(items, page, pageSize) {
@@ -504,6 +523,161 @@ export class PostgresStore {
       providerRef: row.provider_ref,
       status: row.status,
     };
+  }
+
+  async upsertMailboxAccountFromLegacyMailbox(mailbox) {
+    const tables = await this._loadV2TableAvailability();
+    if (!tables.mailbox_accounts) return null;
+
+    const result = await this._query(
+      `insert into mailbox_accounts (address, domain, backend_ref, backend_status, mailbox_type, created_at, updated_at)
+       values ($1, $2, $3, $4, 'pooled', now(), now())
+       on conflict (address)
+       do update set
+         backend_ref = excluded.backend_ref,
+         backend_status = excluded.backend_status,
+         updated_at = now()
+       returning id, address, domain, backend_ref, backend_status, mailbox_type, last_password_reset_at, created_at, updated_at`,
+      [
+        mailbox.address,
+        String(mailbox.address).split("@")[1] || this.mailboxDomain,
+        mailbox.providerRef || null,
+        mailbox.status === "leased" ? "active" : "disabled",
+      ],
+    );
+
+    const row = result.rows[0];
+    return {
+      id: row.id,
+      address: row.address,
+      domain: row.domain,
+      backendRef: row.backend_ref,
+      backendStatus: row.backend_status,
+      mailboxType: row.mailbox_type,
+      lastPasswordResetAt: row.last_password_reset_at ? row.last_password_reset_at.toISOString() : null,
+      createdAt: row.created_at.toISOString(),
+      updatedAt: row.updated_at.toISOString(),
+    };
+  }
+
+  async createMailboxLeaseV2({ mailboxAccountId, tenantId, agentId, purpose, endsAt }) {
+    const tables = await this._loadV2TableAvailability();
+    if (!tables.mailbox_leases_v2) return null;
+    const result = await this._query(
+      `insert into mailbox_leases_v2
+        (mailbox_account_id, tenant_id, agent_id, lease_status, purpose, ends_at, created_at, updated_at)
+       values ($1, $2, $3, 'pending', $4, $5, now(), now())
+       returning id, mailbox_account_id, tenant_id, agent_id, lease_status, purpose, started_at, ends_at, released_at, created_at, updated_at`,
+      [mailboxAccountId, tenantId, agentId, purpose, endsAt],
+    );
+    const row = result.rows[0];
+    return {
+      id: row.id,
+      mailboxAccountId: row.mailbox_account_id,
+      tenantId: row.tenant_id,
+      agentId: row.agent_id,
+      status: row.lease_status,
+      purpose: row.purpose,
+      startedAt: row.started_at ? row.started_at.toISOString() : null,
+      endsAt: row.ends_at.toISOString(),
+      releasedAt: row.released_at ? row.released_at.toISOString() : null,
+      createdAt: row.created_at.toISOString(),
+      updatedAt: row.updated_at.toISOString(),
+    };
+  }
+
+  async markMailboxAccountProvisioned({ mailboxAccountId, providerRef = null }) {
+    const tables = await this._loadV2TableAvailability();
+    if (!tables.mailbox_accounts) return null;
+    await this._query(
+      `update mailbox_accounts
+          set backend_status = 'active',
+              backend_ref = coalesce($2, backend_ref),
+              updated_at = now()
+        where id = $1`,
+      [mailboxAccountId, providerRef],
+    );
+    return { id: mailboxAccountId };
+  }
+
+  async markMailboxLeaseV2Active(leaseId) {
+    const tables = await this._loadV2TableAvailability();
+    if (!tables.mailbox_leases_v2) return null;
+    await this._query(
+      `update mailbox_leases_v2
+          set lease_status = 'active',
+              started_at = coalesce(started_at, now()),
+              updated_at = now()
+        where id = $1`,
+      [leaseId],
+    );
+    return { id: leaseId };
+  }
+
+  async createSendAttempt({ tenantId, agentId, mailboxAccountId, legacyMailboxId, fromAddress, to, subject }) {
+    const tables = await this._loadV2TableAvailability();
+    if (!tables.send_attempts) {
+      return { id: `legacy-${legacyMailboxId}-${Date.now()}`, status: "queued" };
+    }
+    const result = await this._query(
+      `insert into send_attempts
+        (tenant_id, agent_id, mailbox_account_id, from_address, to_json, subject, submission_status, created_at, updated_at)
+       values ($1, $2, $3, $4, $5::jsonb, $6, 'queued', now(), now())
+       returning id, submission_status`,
+      [tenantId, agentId, mailboxAccountId, fromAddress, JSON.stringify(to), subject],
+    );
+    if (tables.send_attempt_events) {
+      await this._query(
+        `insert into send_attempt_events (send_attempt_id, event_type, payload)
+         values ($1, 'queued', '{}'::jsonb)`,
+        [result.rows[0].id],
+      );
+    }
+    return { id: result.rows[0].id, status: result.rows[0].submission_status };
+  }
+
+  async completeSendAttempt({ sendAttemptId, backendQueueId = null, smtpResponse = null }) {
+    const tables = await this._loadV2TableAvailability();
+    if (!tables.send_attempts) return null;
+    await this._query(
+      `update send_attempts
+          set submission_status = 'accepted',
+              backend_queue_id = $2,
+              smtp_response = $3,
+              submitted_at = now(),
+              updated_at = now()
+        where id = $1`,
+      [sendAttemptId, backendQueueId, smtpResponse],
+    );
+    if (tables.send_attempt_events) {
+      await this._query(
+        `insert into send_attempt_events (send_attempt_id, event_type, payload)
+         values ($1, 'accepted', $2::jsonb)`,
+        [sendAttemptId, JSON.stringify({ backend_queue_id: backendQueueId, smtp_response: smtpResponse })],
+      );
+    }
+    return { id: sendAttemptId };
+  }
+
+  async failSendAttempt({ sendAttemptId, errorMessage }) {
+    const tables = await this._loadV2TableAvailability();
+    if (!tables.send_attempts) return null;
+    await this._query(
+      `update send_attempts
+          set submission_status = 'failed',
+              smtp_response = $2,
+              updated_at = now()
+        where id = $1`,
+      [sendAttemptId, errorMessage],
+    );
+    if (tables.send_attempt_events) {
+      await this._query(
+        `insert into send_attempt_events (send_attempt_id, event_type, payload)
+         values ($1, 'failed', $2::jsonb)`,
+        [sendAttemptId, JSON.stringify({ error: errorMessage })],
+      );
+    }
+    return { id: sendAttemptId };
   }
 
   async getActiveLeaseByMailboxId(mailboxId) {

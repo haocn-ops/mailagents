@@ -10,13 +10,32 @@ export class SendService {
     const mailbox = await this.store.getTenantMailbox(tenantId, mailboxId);
     if (!mailbox) return null;
 
-    const sendAttemptId = randomUUID();
+    const mailboxAccount =
+      typeof this.store.upsertMailboxAccountFromLegacyMailbox === "function"
+        ? await this.store.upsertMailboxAccountFromLegacyMailbox(mailbox)
+        : null;
+    const sendAttempt =
+      typeof this.store.createSendAttempt === "function"
+        ? await this.store.createSendAttempt({
+            tenantId,
+            agentId,
+            mailboxAccountId: mailboxAccount?.id || mailbox.id,
+            legacyMailboxId: mailbox.id,
+            fromAddress: mailbox.address,
+            to: recipients,
+            subject,
+          })
+        : { id: randomUUID(), status: "queued" };
+    const sendAttemptId = sendAttempt.id;
+
     const job = await this.queue.enqueue("send.submit", {
       sendAttemptId,
+      store: this.store,
       tenantId,
       agentId,
       mailboxId,
       address: mailbox.address,
+      mailboxAccountId: mailboxAccount?.id || null,
       recipients,
       subject,
       text,
@@ -27,6 +46,7 @@ export class SendService {
     return {
       sendAttemptId,
       mailbox,
+      mailboxAccount,
       jobId: job.id,
       jobStatus: job.status,
       delivery: job.result?.delivery || null,

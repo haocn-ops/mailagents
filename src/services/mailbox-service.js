@@ -16,6 +16,21 @@ export class MailboxService {
       return null;
     }
 
+    const mailboxAccount =
+      typeof this.store.upsertMailboxAccountFromLegacyMailbox === "function"
+        ? await this.store.upsertMailboxAccountFromLegacyMailbox(result.mailbox)
+        : null;
+    const leaseRecord =
+      mailboxAccount && typeof this.store.createMailboxLeaseV2 === "function"
+        ? await this.store.createMailboxLeaseV2({
+            mailboxAccountId: mailboxAccount.id,
+            tenantId,
+            agentId,
+            purpose,
+            endsAt: result.lease.expiresAt,
+          })
+        : null;
+
     try {
       const job = await this.queue.enqueue("mailbox.provision", {
         tenantId,
@@ -23,11 +38,15 @@ export class MailboxService {
         mailboxId: result.mailbox.id,
         address: result.mailbox.address,
         ttlHours,
+        mailboxAccountId: mailboxAccount?.id || null,
+        mailboxLeaseV2Id: leaseRecord?.id || null,
       });
 
       return {
         mailbox: result.mailbox,
         lease: result.lease,
+        mailboxAccount,
+        leaseV2: leaseRecord,
         jobId: job.id,
         jobStatus: job.status,
         provider: job.result,

@@ -5,9 +5,20 @@ import { createSendSubmitJob, SEND_SUBMIT_JOB } from "../../src/jobs/send-submit
 import { createSendService } from "../../src/services/send-service.js";
 
 test("send service queues send and returns delivery info", async () => {
+  const attempts = [];
   const store = {
     async getTenantMailbox() {
       return { id: "mailbox-1", address: "a@example.com" };
+    },
+    async upsertMailboxAccountFromLegacyMailbox() {
+      return { id: "account-1" };
+    },
+    async createSendAttempt(payload) {
+      attempts.push(payload);
+      return { id: "attempt-1", status: "queued" };
+    },
+    async completeSendAttempt({ sendAttemptId }) {
+      assert.equal(sendAttemptId, "attempt-1");
     },
   };
   const mailBackend = {
@@ -41,7 +52,9 @@ test("send service queues send and returns delivery info", async () => {
   assert.equal(result.mailbox.address, "a@example.com");
   assert.equal(result.delivery.messageId, "msg-1");
   assert.equal(result.jobStatus, "completed");
-  assert.ok(result.sendAttemptId);
+  assert.equal(result.sendAttemptId, "attempt-1");
+  assert.equal(attempts.length, 1);
+  assert.equal(result.mailboxAccount.id, "account-1");
 });
 
 test("send service returns null when mailbox is missing", async () => {

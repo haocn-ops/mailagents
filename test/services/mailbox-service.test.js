@@ -5,6 +5,8 @@ import { createJobQueue } from "../../src/jobs/queue.js";
 import { createMailboxService } from "../../src/services/mailbox-service.js";
 
 test("mailbox service allocates and provisions via queue", async () => {
+  const accounts = [];
+  const leases = [];
   const store = {
     async allocateMailbox() {
       return {
@@ -18,6 +20,20 @@ test("mailbox service allocates and provisions via queue", async () => {
     async saveMailboxProviderRef(mailboxId, providerRef) {
       assert.equal(mailboxId, "mailbox-1");
       assert.equal(providerRef, "provider-ref");
+    },
+    async upsertMailboxAccountFromLegacyMailbox(mailbox) {
+      accounts.push(mailbox);
+      return { id: "account-1" };
+    },
+    async createMailboxLeaseV2(lease) {
+      leases.push(lease);
+      return { id: "lease-v2-1" };
+    },
+    async markMailboxAccountProvisioned({ mailboxAccountId }) {
+      assert.equal(mailboxAccountId, "account-1");
+    },
+    async markMailboxLeaseV2Active(leaseId) {
+      assert.equal(leaseId, "lease-v2-1");
     },
   };
   const mailBackend = {
@@ -47,6 +63,10 @@ test("mailbox service allocates and provisions via queue", async () => {
   assert.equal(result.mailbox.id, "mailbox-1");
   assert.equal(result.provider.credentials.login, "a@example.com");
   assert.equal(result.jobStatus, "completed");
+  assert.equal(accounts.length, 1);
+  assert.equal(leases.length, 1);
+  assert.equal(result.mailboxAccount.id, "account-1");
+  assert.equal(result.leaseV2.id, "lease-v2-1");
 });
 
 test("mailbox service releases allocation if provisioning fails", async () => {
