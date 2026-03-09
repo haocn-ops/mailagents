@@ -655,6 +655,61 @@ test("fetch app exposes v2 messages and send attempts read endpoints", async () 
   assert.equal(sendAttemptDetail.submission_status, "accepted");
 });
 
+test("fetch app accepts v2 messages send and returns attempt-oriented response", async () => {
+  const app = makeApp();
+  const verify = await issueToken(app, "0xabc0000000000000000000000000000000000779");
+
+  const allocateRes = await app(
+    new Request("http://localhost/v1/mailboxes/allocate", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${verify.access_token}`,
+        "x-payment-proof": "mock-proof",
+      },
+      body: JSON.stringify({ agent_id: verify.agent_id, purpose: "v2-send", ttl_hours: 1 }),
+    }),
+  );
+  assert.equal(allocateRes.status, 200);
+  const allocation = await allocateRes.json();
+
+  const sendRes = await app(
+    new Request("http://localhost/v2/messages/send", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${verify.access_token}`,
+      },
+      body: JSON.stringify({
+        mailbox_id: allocation.mailbox_id,
+        to: ["receiver@example.com"],
+        subject: "hello-v2-send",
+        text: "mail body",
+        mailbox_password: allocation.webmail_password,
+      }),
+    }),
+  );
+  assert.equal(sendRes.status, 202);
+  const sent = await sendRes.json();
+  assert.ok(sent.send_attempt_id);
+  assert.equal(sent.mailbox_id, allocation.mailbox_id);
+  assert.equal(sent.from_address, allocation.address);
+  assert.equal(sent.submission_status, "accepted");
+  assert.equal(sent.job_status, "completed");
+  assert.deepEqual(sent.accepted, ["receiver@example.com"]);
+
+  const attemptRes = await app(
+    new Request(`http://localhost/v2/send-attempts/${sent.send_attempt_id}`, {
+      method: "GET",
+      headers: { authorization: `Bearer ${verify.access_token}` },
+    }),
+  );
+  assert.equal(attemptRes.status, 200);
+  const attempt = await attemptRes.json();
+  assert.equal(attempt.send_attempt_id, sent.send_attempt_id);
+  assert.equal(attempt.submission_status, "accepted");
+});
+
 test("fetch app exposes v2 mailbox accounts and leases endpoints", async () => {
   const app = makeApp();
   const verify = await issueToken(app, "0xabc0000000000000000000000000000000000778");

@@ -109,6 +109,7 @@ Added:
 - `POST /v2/mailboxes/leases/{lease_id}/release`
 - `GET /v2/messages`
 - `GET /v2/messages/{message_id}`
+- `POST /v2/messages/send`
 - `GET /v2/send-attempts`
 - `GET /v2/send-attempts/{send_attempt_id}`
 
@@ -127,8 +128,8 @@ Current behavior:
 
 Known intentional limitations:
 - `POST /v1/messages/send` still returns the existing V1 synchronous response shape even though it now records a V2 `send_attempt`
-- `POST /v2/messages/send` is still documented, but not implemented yet
 - `POST /v2/mailboxes/leases` currently reuses the existing mailbox allocation path under the hood
+- `POST /v2/messages/send` still reuses the current send service and may complete inline when the queue backend runs in memory mode
 
 ## Not Included
 
@@ -160,7 +161,7 @@ node --test \
 ```
 
 Expected result on this branch:
-- `48/48` passing
+- `49/49` passing
 
 ## Reviewer Guide
 
@@ -180,4 +181,4 @@ Suggested review order:
 ## Follow-up
 
 Recommended next step after this PR:
-- add webhook retry/backoff semantics and finish the remaining `/v2` write paths, especially `POST /v2/messages/send`
+- add webhook retry/backoff semantics and continue separating the V2 write paths from V1 compatibility behavior

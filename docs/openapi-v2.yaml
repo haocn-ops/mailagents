@@ -142,6 +142,12 @@ paths:
     post:
       tags: [Messages]
       summary: Queue an outbound message send attempt
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateSendAttemptRequest'
       responses:
         '202':
           description: Send attempt queued
@@ -313,3 +319,24 @@ components:
           type: integer
           minimum: 1
           maximum: 720
+    CreateSendAttemptRequest:
+      type: object
+      required: [mailbox_id, to, subject, mailbox_password]
+      properties:
+        mailbox_id:
+          type: string
+          format: uuid
+        to:
+          oneOf:
+            - type: string
+            - type: array
+              items:
+                type: string
+        subject:
+          type: string
+        text:
+          type: string
+        html:
+          type: string
+        mailbox_password:
+          type: string

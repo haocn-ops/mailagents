@@ -1088,6 +1088,80 @@ export function createFetchApp(deps = {}) {
         );
       }
 
+      if (method === "POST" && path === "/v2/messages/send") {
+        const auth = await requireAuth(request, requestId);
+        if (!auth.ok) return auth.response;
+
+        const body = await readJsonBody(request);
+        const mailboxId = String(body.mailbox_id || "").trim();
+        const recipients = Array.isArray(body.to)
+          ? body.to.map((item) => String(item || "").trim()).filter(Boolean)
+          : String(body.to || "").trim()
+            ? [String(body.to || "").trim()]
+            : [];
+        const subject = String(body.subject || "").trim();
+        const text = String(body.text || "");
+        const html = String(body.html || "");
+        const mailboxPassword = String(body.mailbox_password || "").trim();
+
+        if (!mailboxId || !recipients.length || !subject || !mailboxPassword || (!text && !html)) {
+          return jsonResponse(
+            400,
+            { error: "bad_request", message: "mailbox_id, to, subject, mailbox_password, and text or html are required" },
+            requestId,
+          );
+        }
+
+        let result;
+        try {
+          result = await sendService.queueSend({
+            tenantId: auth.payload.tenant_id,
+            agentId: auth.payload.agent_id,
+            mailboxId,
+            recipients,
+            subject,
+            text,
+            html,
+            mailboxPassword,
+          });
+        } catch (err) {
+          return jsonResponse(
+            502,
+            { error: "mail_backend_error", message: err.message || "Mail backend send failed" },
+            requestId,
+          );
+        }
+
+        if (!result) {
+          return jsonResponse(404, { error: "not_found", message: "Mailbox not found" }, requestId);
+        }
+
+        await store.recordUsage({
+          tenantId: auth.payload.tenant_id,
+          agentId: auth.payload.agent_id,
+          endpoint: "POST /v2/messages/send",
+          quantity: 1,
+          requestId,
+        });
+
+        return jsonResponse(
+          202,
+          {
+            send_attempt_id: result.sendAttemptId,
+            mailbox_id: result.mailbox.id,
+            mailbox_account_id: result.mailboxAccount?.id || null,
+            from_address: result.mailbox.address,
+            submission_status: result.delivery ? "accepted" : "queued",
+            accepted: result.delivery?.accepted || [],
+            rejected: result.delivery?.rejected || [],
+            provider_message_id: result.delivery?.messageId || null,
+            job_id: result.jobId,
+            job_status: result.jobStatus,
+          },
+          requestId,
+        );
+      }
+
       if (method === "GET" && path === "/v2/send-attempts") {
         const auth = await requireAuth(request, requestId);
         if (!auth.ok) return auth.response;
