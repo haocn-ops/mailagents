@@ -55,3 +55,56 @@ export function toV2Invoice(invoice) {
     settlement_tx_hash: invoice.settlementTxHash,
   };
 }
+
+export function toV2AllocatedLease({ lease, mailbox, provider }) {
+  return {
+    lease_id: lease.id,
+    mailbox_id: mailbox.id,
+    account_id: mailbox.id,
+    address: mailbox.address,
+    lease_status: lease.status,
+    expires_at: lease.expiresAt,
+    webmail_login: provider?.credentials?.login || null,
+    webmail_password: provider?.credentials?.password || null,
+    webmail_url: provider?.credentials?.webmailUrl || null,
+  };
+}
+
+export function toV2ReleasedLease({ leaseId, mailboxId, leaseStatus = "released" }) {
+  return {
+    lease_id: leaseId,
+    mailbox_id: mailboxId,
+    lease_status: leaseStatus,
+  };
+}
+
+export function toV2MailboxCredentials({ mailbox, credentials }) {
+  return {
+    account_id: mailbox.id,
+    mailbox_id: mailbox.id,
+    address: mailbox.address,
+    webmail_login: credentials?.login || mailbox.address,
+    webmail_password: credentials?.password || null,
+    webmail_url: credentials?.webmailUrl || null,
+  };
+}
+
+export function toV2SendResult({ attemptId, completedAttempt }) {
+  return {
+    send_attempt_id: completedAttempt?.send_attempt_id || attemptId,
+    submission_status: completedAttempt?.submission_status || "accepted",
+    accepted: completedAttempt?.accepted || [],
+    rejected: completedAttempt?.rejected || [],
+    message_id: completedAttempt?.message_id || null,
+    response: completedAttempt?.response || null,
+  };
+}
+
+export function toV2Webhook(webhook) {
+  return {
+    webhook_id: webhook.webhook_id || webhook.id,
+    event_types: webhook.event_types || webhook.eventTypes,
+    target_url: webhook.target_url || webhook.targetUrl,
+    status: webhook.status,
+  };
+}
