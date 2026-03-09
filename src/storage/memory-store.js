@@ -958,6 +958,31 @@ export class MemoryStore {
       .sort((a, b) => String(a.target_url).localeCompare(String(b.target_url)));
   }
 
+  async listTenantWebhookDeliveries({ tenantId, page, pageSize, webhookId = null }) {
+    let items = this.state.auditLogs
+      .filter((entry) => entry.tenantId === tenantId && entry.action === "webhook.deliver" && entry.resourceType === "webhook")
+      .map((entry) => {
+        const webhook = this.state.webhooks.get(entry.resourceId);
+        return {
+          delivery_log_id: entry.id,
+          webhook_id: entry.resourceId,
+          target_url: webhook?.targetUrl || null,
+          event_type: entry.metadata?.event_type || null,
+          status_code: entry.metadata?.status_code ?? null,
+          attempts: entry.metadata?.attempts ?? null,
+          ok: entry.metadata?.ok ?? null,
+          delivery_id: entry.metadata?.delivery_id || null,
+          error_message: entry.metadata?.error_message || null,
+          response_excerpt: entry.metadata?.response_excerpt || null,
+          request_id: entry.requestId,
+          delivered_at: entry.createdAt,
+        };
+      });
+    if (webhookId) items = items.filter((item) => item.webhook_id === webhookId);
+    items.sort((a, b) => String(b.delivered_at).localeCompare(String(a.delivered_at)));
+    return this._paginate(items, page, pageSize);
+  }
+
   async getInvoice(invoiceId, tenantId) {
     const invoice = this.state.invoices.get(invoiceId);
     if (!invoice || invoice.tenantId !== tenantId) return null;
@@ -1447,6 +1472,33 @@ export class MemoryStore {
         last_status_code: webhook.lastStatusCode,
       }))
       .sort((a, b) => String(a.target_url).localeCompare(String(b.target_url)));
+    return this._paginate(items, page, pageSize);
+  }
+
+  async adminListWebhookDeliveries({ page, pageSize, tenantId = null, webhookId = null }) {
+    let items = this.state.auditLogs
+      .filter((entry) => entry.action === "webhook.deliver" && entry.resourceType === "webhook")
+      .map((entry) => {
+        const webhook = this.state.webhooks.get(entry.resourceId);
+        return {
+          delivery_log_id: entry.id,
+          tenant_id: entry.tenantId,
+          webhook_id: entry.resourceId,
+          target_url: webhook?.targetUrl || null,
+          event_type: entry.metadata?.event_type || null,
+          status_code: entry.metadata?.status_code ?? null,
+          attempts: entry.metadata?.attempts ?? null,
+          ok: entry.metadata?.ok ?? null,
+          delivery_id: entry.metadata?.delivery_id || null,
+          error_message: entry.metadata?.error_message || null,
+          response_excerpt: entry.metadata?.response_excerpt || null,
+          request_id: entry.requestId,
+          delivered_at: entry.createdAt,
+        };
+      });
+    if (tenantId) items = items.filter((item) => item.tenant_id === tenantId);
+    if (webhookId) items = items.filter((item) => item.webhook_id === webhookId);
+    items.sort((a, b) => String(b.delivered_at).localeCompare(String(a.delivered_at)));
     return this._paginate(items, page, pageSize);
   }
 

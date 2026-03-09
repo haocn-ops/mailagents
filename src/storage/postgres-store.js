@@ -1571,6 +1571,58 @@ export class PostgresStore {
     }));
   }
 
+  async listTenantWebhookDeliveries({ tenantId, page, pageSize, webhookId = null }) {
+    const values = [tenantId];
+    let webhookFilter = "";
+    if (webhookId) {
+      values.push(webhookId);
+      webhookFilter = `and al.resource_id = $${values.length}`;
+    }
+    const result = await this._query(
+      `select al.id as delivery_log_id,
+              al.resource_id as webhook_id,
+              w.target_url,
+              al.metadata->>'event_type' as event_type,
+              nullif(al.metadata->>'status_code', '')::int as status_code,
+              nullif(al.metadata->>'attempts', '')::int as attempts,
+              case
+                when al.metadata ? 'ok' then (al.metadata->>'ok')::boolean
+                else null
+              end as ok,
+              al.metadata->>'delivery_id' as delivery_id,
+              al.metadata->>'error_message' as error_message,
+              al.metadata->>'response_excerpt' as response_excerpt,
+              al.request_id,
+              al.created_at as delivered_at
+         from audit_logs al
+         left join webhooks w on w.id = al.resource_id
+        where al.tenant_id = $1
+          and al.action = 'webhook.deliver'
+          and al.resource_type = 'webhook'
+          ${webhookFilter}
+        order by al.created_at desc`,
+      values,
+    );
+    return this._paginate(
+      result.rows.map((row) => ({
+        delivery_log_id: row.delivery_log_id,
+        webhook_id: row.webhook_id,
+        target_url: row.target_url,
+        event_type: row.event_type,
+        status_code: row.status_code,
+        attempts: row.attempts,
+        ok: row.ok,
+        delivery_id: row.delivery_id,
+        error_message: row.error_message,
+        response_excerpt: row.response_excerpt,
+        request_id: row.request_id,
+        delivered_at: row.delivered_at ? row.delivered_at.toISOString() : null,
+      })),
+      page,
+      pageSize,
+    );
+  }
+
   async getInvoice(invoiceId, tenantId) {
     const result = await this._query(
       `select id, tenant_id, period_start, period_end, amount_usdc, status, statement_hash, settlement_tx_hash
@@ -2351,6 +2403,62 @@ export class PostgresStore {
         status: row.status,
         last_delivery_at: row.last_delivery_at ? row.last_delivery_at.toISOString() : null,
         last_status_code: row.last_status_code,
+      })),
+      page,
+      pageSize,
+    );
+  }
+
+  async adminListWebhookDeliveries({ page, pageSize, tenantId = null, webhookId = null }) {
+    const values = [];
+    const filters = [`al.action = 'webhook.deliver'`, `al.resource_type = 'webhook'`];
+    if (tenantId) {
+      values.push(tenantId);
+      filters.push(`al.tenant_id = $${values.length}`);
+    }
+    if (webhookId) {
+      values.push(webhookId);
+      filters.push(`al.resource_id = $${values.length}`);
+    }
+    const where = `where ${filters.join(" and ")}`;
+    const result = await this._query(
+      `select al.id as delivery_log_id,
+              al.tenant_id,
+              al.resource_id as webhook_id,
+              w.target_url,
+              al.metadata->>'event_type' as event_type,
+              nullif(al.metadata->>'status_code', '')::int as status_code,
+              nullif(al.metadata->>'attempts', '')::int as attempts,
+              case
+                when al.metadata ? 'ok' then (al.metadata->>'ok')::boolean
+                else null
+              end as ok,
+              al.metadata->>'delivery_id' as delivery_id,
+              al.metadata->>'error_message' as error_message,
+              al.metadata->>'response_excerpt' as response_excerpt,
+              al.request_id,
+              al.created_at as delivered_at
+         from audit_logs al
+         left join webhooks w on w.id = al.resource_id
+         ${where}
+        order by al.created_at desc`,
+      values,
+    );
+    return this._paginate(
+      result.rows.map((row) => ({
+        delivery_log_id: row.delivery_log_id,
+        tenant_id: row.tenant_id,
+        webhook_id: row.webhook_id,
+        target_url: row.target_url,
+        event_type: row.event_type,
+        status_code: row.status_code,
+        attempts: row.attempts,
+        ok: row.ok,
+        delivery_id: row.delivery_id,
+        error_message: row.error_message,
+        response_excerpt: row.response_excerpt,
+        request_id: row.request_id,
+        delivered_at: row.delivered_at ? row.delivered_at.toISOString() : null,
       })),
       page,
       pageSize,

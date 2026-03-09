@@ -1299,6 +1299,28 @@ export function createFetchApp(deps = {}) {
         return jsonResponse(200, { items }, requestId);
       }
 
+      if (method === "GET" && path === "/v2/webhooks/deliveries") {
+        const auth = await requireAuth(request, requestId);
+        if (!auth.ok) return auth.response;
+        const paging = parsePaging(requestUrl);
+        if (!paging.ok) return jsonResponse(400, { error: "bad_request", message: paging.message }, requestId);
+
+        const result = await store.listTenantWebhookDeliveries({
+          tenantId: auth.payload.tenant_id,
+          webhookId: requestUrl.searchParams.get("webhook_id"),
+          page: paging.page,
+          pageSize: paging.pageSize,
+        });
+        await store.recordUsage({
+          tenantId: auth.payload.tenant_id,
+          agentId: auth.payload.agent_id,
+          endpoint: "GET /v2/webhooks/deliveries",
+          quantity: 1,
+          requestId,
+        });
+        return jsonResponse(200, result, requestId);
+      }
+
       if (method === "GET" && path === "/v1/usage/summary") {
         const auth = await requireAuth(request, requestId);
         if (!auth.ok) return auth.response;
@@ -1721,6 +1743,17 @@ export function createFetchApp(deps = {}) {
         if (method === "GET" && path === "/v1/admin/webhooks") {
           if (!paging.ok) return jsonResponse(400, { error: "bad_request", message: paging.message }, requestId);
           const result = await store.adminListWebhooks({ page: paging.page, pageSize: paging.pageSize });
+          return jsonResponse(200, result, requestId);
+        }
+
+        if (method === "GET" && path === "/v1/admin/webhook-deliveries") {
+          if (!paging.ok) return jsonResponse(400, { error: "bad_request", message: paging.message }, requestId);
+          const result = await store.adminListWebhookDeliveries({
+            page: paging.page,
+            pageSize: paging.pageSize,
+            tenantId: requestUrl.searchParams.get("tenant_id"),
+            webhookId: requestUrl.searchParams.get("webhook_id"),
+          });
           return jsonResponse(200, result, requestId);
         }
 

@@ -14,6 +14,7 @@ The branch does not deliver the full V2 architecture. It establishes the minimum
 - initial admin read model support for V2 state
 - first `/v2` mailbox, message, and send-attempt endpoints
 - webhook retry backoff and richer delivery failure context
+- webhook delivery history endpoints for tenant and admin inspection
 
 ## What Changed
 
@@ -123,6 +124,10 @@ Updated:
 - failed deliveries now return and record richer context, including response excerpts and error messages
 - failure context is written into webhook delivery audit metadata for later inspection
 
+Added:
+- `GET /v2/webhooks/deliveries`
+- `GET /v1/admin/webhook-deliveries`
+
 ## Compatibility Rules
 
 This PR intentionally keeps V1 compatibility in place.
@@ -169,7 +174,7 @@ node --test \
 ```
 
 Expected result on this branch:
-- `54/54` passing
+- `55/55` passing
 
 ## Reviewer Guide
 
@@ -189,4 +194,4 @@ Suggested review order:
 ## Follow-up
 
 Recommended next step after this PR:
-- expose webhook delivery history more directly in admin and tenant APIs instead of relying mainly on audit logs
+- move webhook delivery history from audit-log derived views into a first-class persisted delivery store

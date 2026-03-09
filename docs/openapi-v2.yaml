@@ -193,6 +193,21 @@ paths:
       responses:
         '200':
           description: Webhooks listed
+  /v2/webhooks/deliveries:
+    get:
+      tags: [Webhooks]
+      summary: List webhook delivery history for the tenant
+      parameters:
+        - in: query
+          name: webhook_id
+          schema:
+            type: string
+            format: uuid
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: Webhook deliveries listed
   /v2/webhooks/{webhook_id}/rotate-secret:
     post:
       tags: [Webhooks]

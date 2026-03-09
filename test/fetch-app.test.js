@@ -1537,6 +1537,112 @@ test("fetch app dispatches subscribed webhook after parsing inbound mail", async
   );
   const webhooks = await webhooksRes.json();
   assert.equal(webhooks.items[0].last_status_code, 200);
+
+  const deliveriesRes = await app(
+    new Request("http://localhost/v2/webhooks/deliveries?page=1&page_size=20", {
+      method: "GET",
+      headers: { authorization: `Bearer ${verify.access_token}` },
+    }),
+  );
+  assert.equal(deliveriesRes.status, 200);
+  const deliveriesBody = await deliveriesRes.json();
+  assert.equal(deliveriesBody.total, 1);
+  assert.equal(deliveriesBody.items[0].event_type, "otp.extracted");
+  assert.equal(deliveriesBody.items[0].status_code, 200);
+  assert.equal(deliveriesBody.items[0].ok, true);
+});
+
+test("fetch app admin can inspect webhook delivery failure history", async () => {
+  const cfg = createConfig({
+    JWT_SECRET: "test-secret",
+    INTERNAL_API_TOKEN: "internal-secret",
+    BASE_CHAIN_ID: "84532",
+    MAILBOX_DOMAIN: "inbox.example.com",
+    SIWE_MODE: "mock",
+    PAYMENT_MODE: "mock",
+  });
+  const store = new MemoryStore({
+    chainId: cfg.baseChainId,
+    challengeTtlMs: cfg.siweChallengeTtlMs,
+    mailboxDomain: cfg.mailboxDomain,
+  });
+  const webhookDispatcher = {
+    async dispatch() {
+      return {
+        ok: false,
+        statusCode: 503,
+        attempts: 3,
+        deliveryId: "delivery-failed",
+        errorMessage: "Webhook returned HTTP 503",
+        responseExcerpt: "upstream down",
+      };
+    },
+  };
+  const app = createFetchApp({ config: cfg, store, webhookDispatcher });
+  const verify = await issueToken(app, "0xabc0000000000000000000000000000000000998");
+
+  const createWebhookRes = await app(
+    new Request("http://localhost/v1/webhooks", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${verify.access_token}`,
+        "x-payment-proof": "mock-proof",
+      },
+      body: JSON.stringify({
+        event_types: ["otp.extracted"],
+        target_url: "https://example.com/hook",
+        secret: "1234567890abcdef",
+      }),
+    }),
+  );
+  assert.equal(createWebhookRes.status, 200);
+  const webhook = await createWebhookRes.json();
+
+  const allocateRes = await app(
+    new Request("http://localhost/v1/mailboxes/allocate", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${verify.access_token}`,
+        "x-payment-proof": "mock-proof",
+      },
+      body: JSON.stringify({ agent_id: verify.agent_id, purpose: "hook-fail", ttl_hours: 1 }),
+    }),
+  );
+  const allocation = await allocateRes.json();
+
+  const inboundRes = await app(
+    new Request("http://localhost/internal/inbound/events", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: "Bearer internal-secret",
+      },
+      body: JSON.stringify({
+        address: allocation.address,
+        sender: "notify@example.com",
+        sender_domain: "example.com",
+        subject: "Your code is 654321",
+        text_excerpt: "Click https://example.com/verify?token=abc",
+      }),
+    }),
+  );
+  assert.equal(inboundRes.status, 202);
+
+  const adminDeliveriesRes = await app(
+    new Request(`http://localhost/v1/admin/webhook-deliveries?page=1&page_size=20&webhook_id=${webhook.webhook_id}`, {
+      method: "GET",
+      headers: { authorization: `Bearer ${verify.access_token}` },
+    }),
+  );
+  assert.equal(adminDeliveriesRes.status, 200);
+  const adminDeliveries = await adminDeliveriesRes.json();
+  assert.equal(adminDeliveries.total, 1);
+  assert.equal(adminDeliveries.items[0].status_code, 503);
+  assert.equal(adminDeliveries.items[0].ok, false);
+  assert.equal(adminDeliveries.items[0].error_message, "Webhook returned HTTP 503");
+  assert.equal(adminDeliveries.items[0].response_excerpt, "upstream down");
 });
 
 test("fetch app parses otp and link from html inbound content", async () => {
