@@ -1,4 +1,4 @@
-export class MailboxService {
+export class LegacyMailboxService {
   constructor({ store, queue }) {
     this.store = store;
     this.queue = queue;
@@ -139,5 +139,9 @@ export class MailboxService {
 }
 
 export function createMailboxService(deps) {
-  return new MailboxService(deps);
+  return new LegacyMailboxService(deps);
+}
+
+export function createLegacyMailboxService(deps) {
+  return new LegacyMailboxService(deps);
 }
