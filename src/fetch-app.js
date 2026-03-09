@@ -16,8 +16,10 @@ import {
   createMailboxCredentialsResetJob,
   MAILBOX_CREDENTIALS_RESET_JOB,
 } from "./jobs/mailbox-credentials-reset-job.js";
+import { createMessageParseJob, MESSAGE_PARSE_JOB } from "./jobs/message-parse-job.js";
 import { createJobQueue } from "./jobs/queue.js";
 import { createSendSubmitJob, SEND_SUBMIT_JOB } from "./jobs/send-submit-job.js";
+import { createWebhookDeliveryJob, WEBHOOK_DELIVERY_JOB } from "./jobs/webhook-delivery-job.js";
 import { createMailboxService } from "./services/mailbox-service.js";
 import { createSendService } from "./services/send-service.js";
 
@@ -111,6 +113,8 @@ export function createFetchApp(deps = {}) {
     createMailboxCredentialsResetJob({ store, mailBackend }),
   );
   queue.register(SEND_SUBMIT_JOB, createSendSubmitJob({ mailBackend }));
+  queue.register(MESSAGE_PARSE_JOB, createMessageParseJob({ store, queue }));
+  queue.register(WEBHOOK_DELIVERY_JOB, createWebhookDeliveryJob({ store, webhookDispatcher }));
   const mailboxService = deps.mailboxService || createMailboxService({ store, queue });
   const sendService = deps.sendService || createSendService({ store, queue });
   const paidBypassTargets = new Set([
@@ -1079,55 +1083,20 @@ export function createFetchApp(deps = {}) {
           requestId,
         });
 
-        const parsed = parseInboundContent({
+        const parseJob = await queue.enqueue(MESSAGE_PARSE_JOB, {
+          tenantId: mailbox.tenantId,
+          mailboxId: mailbox.id,
+          messageId: ingested.messageId,
+          sender,
+          senderDomain,
           subject,
+          receivedAt,
           textExcerpt,
           htmlExcerpt,
           htmlBody,
-        });
-        await store.applyMessageParseResult({
-          messageId: ingested.messageId,
-          otpCode: parsed.otpCode,
-          verificationLink: parsed.verificationLink,
-          payload: {
-            parser: "builtin",
-            source: "mailu-internal-event",
-            parser_status: parsed.parserStatus,
-          },
+          source: "mailu-internal-event",
           requestId,
         });
-
-        const eventType = parsed.parsed ? "otp.extracted" : "mail.received";
-        const message = await store.getMessage(ingested.messageId);
-        const webhooks = await store.listActiveWebhooksByEvent(mailbox.tenantId, eventType);
-        for (const webhook of webhooks) {
-          const delivery = await webhookDispatcher.dispatch({
-            webhook,
-            payload: {
-              event_type: eventType,
-              tenant_id: mailbox.tenantId,
-              mailbox_id: mailbox.id,
-              message_id: ingested.messageId,
-              sender,
-              sender_domain: senderDomain,
-              subject,
-              received_at: receivedAt,
-              otp_code: parsed.otpCode,
-              verification_link: parsed.verificationLink,
-              message,
-            },
-          });
-          await store.recordWebhookDelivery(webhook.id, {
-            statusCode: delivery.statusCode,
-            requestId,
-            metadata: {
-              event_type: eventType,
-              delivery_id: delivery.deliveryId,
-              attempts: delivery.attempts,
-              ok: delivery.ok,
-            },
-          });
-        }
 
         return jsonResponse(
           202,
@@ -1136,6 +1105,8 @@ export function createFetchApp(deps = {}) {
             tenant_id: ingested.tenantId,
             mailbox_id: ingested.mailboxId,
             message_id: ingested.messageId,
+            parse_job_id: parseJob.id,
+            parse_job_status: parseJob.status,
           },
           requestId,
         );

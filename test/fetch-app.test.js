@@ -1288,6 +1288,9 @@ test("fetch app dispatches subscribed webhook after parsing inbound mail", async
     }),
   );
   assert.equal(inboundRes.status, 202);
+  const inboundBody = await inboundRes.json();
+  assert.ok(inboundBody.parse_job_id);
+  assert.equal(inboundBody.parse_job_status, "completed");
   assert.equal(deliveries.length, 1);
   assert.equal(deliveries[0].payload.event_type, "otp.extracted");
   assert.equal(deliveries[0].payload.otp_code, "654321");

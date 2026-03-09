@@ -1122,6 +1122,29 @@ export class PostgresStore {
     });
   }
 
+  async getWebhook(webhookId) {
+    const result = await this._query(
+      `select id, tenant_id, target_url, secret_hash, secret_enc, event_types, status, last_delivery_at, last_status_code
+         from webhooks
+        where id = $1
+        limit 1`,
+      [webhookId],
+    );
+    if (result.rowCount === 0) return null;
+    const row = result.rows[0];
+    return {
+      id: row.id,
+      tenantId: row.tenant_id,
+      targetUrl: row.target_url,
+      secretHash: row.secret_hash,
+      secretEnc: row.secret_enc,
+      eventTypes: row.event_types,
+      status: row.status,
+      lastDeliveryAt: row.last_delivery_at ? row.last_delivery_at.toISOString() : null,
+      lastStatusCode: row.last_status_code,
+    };
+  }
+
   async getLatestMessages({ tenantId, mailboxId, since, limit }) {
     const mailboxCheck = await this._query(
       `select id from mailboxes where id = $1 and tenant_id = $2 limit 1`,

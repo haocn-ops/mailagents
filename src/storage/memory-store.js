@@ -757,6 +757,11 @@ export class MemoryStore {
     return webhook;
   }
 
+  async getWebhook(webhookId) {
+    const webhook = this.state.webhooks.get(webhookId);
+    return webhook ? { ...webhook } : null;
+  }
+
   async getLatestMessages({ tenantId, mailboxId, since, limit }) {
     const mailbox = this.state.mailboxes.get(mailboxId);
     if (!mailbox || mailbox.tenantId !== tenantId) return null;
