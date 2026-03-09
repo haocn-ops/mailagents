@@ -1,6 +1,7 @@
 import { createMessageService } from "../services/message-service.js";
 import { createV2Authz } from "./authz.js";
 import { createV2Metering } from "./metering.js";
+import { parseIntegerInRange, parseRecipients, parseRequiredPathParam } from "./validation.js";
 
 export function createV2MessageRouteHandler({
   store,
@@ -32,14 +33,19 @@ export function createV2MessageRouteHandler({
 
       const mailboxId = requestUrl.searchParams.get("mailbox_id");
       const since = requestUrl.searchParams.get("since");
-      const limitRaw = requestUrl.searchParams.get("limit");
-      const limit = limitRaw ? Number(limitRaw) : 20;
+      const limitResult = parseIntegerInRange(requestUrl.searchParams.get("limit"), {
+        name: "limit",
+        min: 1,
+        max: 100,
+        defaultValue: 20,
+      });
       if (!mailboxId) {
         return jsonResponse(400, { error: "bad_request", message: "mailbox_id is required" }, requestId);
       }
-      if (!Number.isInteger(limit) || limit < 1 || limit > 100) {
-        return jsonResponse(400, { error: "bad_request", message: "limit must be 1..100" }, requestId);
+      if (!limitResult.ok) {
+        return jsonResponse(400, { error: "bad_request", message: limitResult.error }, requestId);
       }
+      const limit = limitResult.value;
 
       const messages = await messageService.listMessages({
         tenantId: auth.payload.tenant_id,
@@ -76,11 +82,7 @@ export function createV2MessageRouteHandler({
 
       const body = await readJsonBody(request);
       const mailboxId = String(body.mailbox_id || "").trim();
-      const recipients = Array.isArray(body.to)
-        ? body.to.map((item) => String(item || "").trim()).filter(Boolean)
-        : String(body.to || "").trim()
-          ? [String(body.to || "").trim()]
-          : [];
+      const recipients = parseRecipients(body.to);
       const subject = String(body.subject || "").trim();
       const text = String(body.text || "");
       const html = String(body.html || "");
@@ -156,10 +158,14 @@ export function createV2MessageRouteHandler({
       const auth = await authz.requireTenantAuth(request, requestId);
       if (!auth.ok) return auth.response;
 
-      const sendAttemptId = path.replace("/v2/send-attempts/", "").trim();
-      if (!sendAttemptId) {
-        return jsonResponse(400, { error: "bad_request", message: "send_attempt_id is required" }, requestId);
+      const sendAttemptIdResult = parseRequiredPathParam(path, {
+        prefix: "/v2/send-attempts/",
+        name: "send_attempt_id",
+      });
+      if (!sendAttemptIdResult.ok) {
+        return jsonResponse(400, { error: "bad_request", message: sendAttemptIdResult.error }, requestId);
       }
+      const sendAttemptId = sendAttemptIdResult.value;
 
       const sendAttempt = await messageService.getSendAttempt(auth.payload.tenant_id, sendAttemptId);
       if (!sendAttempt) {
@@ -172,10 +178,14 @@ export function createV2MessageRouteHandler({
       const auth = await authz.requireTenantAuth(request, requestId);
       if (!auth.ok) return auth.response;
 
-      const messageId = path.replace("/v2/messages/", "").trim();
-      if (!messageId) {
-        return jsonResponse(400, { error: "bad_request", message: "message_id is required" }, requestId);
+      const messageIdResult = parseRequiredPathParam(path, {
+        prefix: "/v2/messages/",
+        name: "message_id",
+      });
+      if (!messageIdResult.ok) {
+        return jsonResponse(400, { error: "bad_request", message: messageIdResult.error }, requestId);
       }
+      const messageId = messageIdResult.value;
 
       const message = await messageService.getMessage(auth.payload.tenant_id, messageId);
       if (!message) {

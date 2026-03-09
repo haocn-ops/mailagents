@@ -1,6 +1,7 @@
 import { createWebhookService } from "../services/webhook-service.js";
 import { createV2Authz } from "./authz.js";
 import { createV2Metering } from "./metering.js";
+import { parseRequiredPathParam } from "./validation.js";
 
 export function createV2WebhookRouteHandler({
   store,
@@ -84,7 +85,15 @@ export function createV2WebhookRouteHandler({
       const auth = await authz.requireTenantAuth(request, requestId);
       if (!auth.ok) return auth.response;
 
-      const webhookId = path.slice("/v2/webhooks/".length, -"/rotate-secret".length);
+      const webhookIdResult = parseRequiredPathParam(path, {
+        prefix: "/v2/webhooks/",
+        suffix: "/rotate-secret",
+        name: "webhook_id",
+      });
+      if (!webhookIdResult.ok) {
+        return jsonResponse(400, { error: "bad_request", message: webhookIdResult.error }, requestId);
+      }
+      const webhookId = webhookIdResult.value;
       const rotated = await webhookService.rotateWebhookSecret({
         tenantId: auth.payload.tenant_id,
         webhookId,
@@ -129,10 +138,14 @@ export function createV2WebhookRouteHandler({
       const auth = await authz.requireTenantAuth(request, requestId);
       if (!auth.ok) return auth.response;
 
-      const invoiceId = path.replace("/v2/billing/invoices/", "").trim();
-      if (!invoiceId) {
-        return jsonResponse(400, { error: "bad_request", message: "invoice_id is required" }, requestId);
+      const invoiceIdResult = parseRequiredPathParam(path, {
+        prefix: "/v2/billing/invoices/",
+        name: "invoice_id",
+      });
+      if (!invoiceIdResult.ok) {
+        return jsonResponse(400, { error: "bad_request", message: invoiceIdResult.error }, requestId);
       }
+      const invoiceId = invoiceIdResult.value;
 
       const invoice = await webhookService.getInvoice({
         tenantId: auth.payload.tenant_id,

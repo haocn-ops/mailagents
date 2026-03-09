@@ -1,6 +1,7 @@
 import { createMailboxService } from "../services/mailbox-service.js";
 import { createV2Authz } from "./authz.js";
 import { createV2Metering } from "./metering.js";
+import { parseIntegerInRange, parseRequiredPathParam } from "./validation.js";
 
 export function createV2MailboxRouteHandler({
   store,
@@ -38,18 +39,19 @@ export function createV2MailboxRouteHandler({
 
       const body = await readJsonBody(request);
       const purpose = String(body.purpose || "").trim();
-      const ttlHours = Number(body.ttl_hours);
+      const ttlHoursResult = parseIntegerInRange(body.ttl_hours, { name: "ttl_hours", min: 1, max: 720 });
       const agentId = String(body.agent_id || "");
 
-      if (!agentId || !purpose || !Number.isFinite(ttlHours)) {
+      if (!agentId || !purpose || body.ttl_hours == null || body.ttl_hours === "") {
         return jsonResponse(400, { error: "bad_request", message: "agent_id, purpose, ttl_hours are required" }, requestId);
+      }
+      if (!ttlHoursResult.ok) {
+        return jsonResponse(400, { error: "bad_request", message: ttlHoursResult.error }, requestId);
       }
       if (auth.payload.agent_id !== agentId) {
         return jsonResponse(403, { error: "forbidden", message: "agent_id does not match token" }, requestId);
       }
-      if (ttlHours < 1 || ttlHours > 720) {
-        return jsonResponse(400, { error: "bad_request", message: "ttl_hours must be 1..720" }, requestId);
-      }
+      const ttlHours = ttlHoursResult.value;
 
       const access = await authz.requireTenantAccess({
         request,
@@ -92,7 +94,15 @@ export function createV2MailboxRouteHandler({
       const auth = await authz.requireTenantAuth(request, requestId);
       if (!auth.ok) return auth.response;
 
-      const leaseId = path.slice("/v2/mailboxes/leases/".length, -"/release".length);
+      const leaseIdResult = parseRequiredPathParam(path, {
+        prefix: "/v2/mailboxes/leases/",
+        suffix: "/release",
+        name: "lease_id",
+      });
+      if (!leaseIdResult.ok) {
+        return jsonResponse(400, { error: "bad_request", message: leaseIdResult.error }, requestId);
+      }
+      const leaseId = leaseIdResult.value;
       let result;
       try {
         result = await mailboxService.releaseLease({ tenantId: auth.payload.tenant_id, leaseId });
@@ -117,7 +127,15 @@ export function createV2MailboxRouteHandler({
       const auth = await authz.requireTenantAuth(request, requestId);
       if (!auth.ok) return auth.response;
 
-      const accountId = path.slice("/v2/mailboxes/accounts/".length, -"/credentials/reset".length);
+      const accountIdResult = parseRequiredPathParam(path, {
+        prefix: "/v2/mailboxes/accounts/",
+        suffix: "/credentials/reset",
+        name: "account_id",
+      });
+      if (!accountIdResult.ok) {
+        return jsonResponse(400, { error: "bad_request", message: accountIdResult.error }, requestId);
+      }
+      const accountId = accountIdResult.value;
       const credentials = await mailboxService.resetCredentials({
         tenantId: auth.payload.tenant_id,
         agentId: auth.payload.agent_id,
