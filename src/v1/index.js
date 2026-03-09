@@ -1,4 +1,6 @@
-import { parsePeriod } from "../utils.js";
+import { createV1MailboxService } from "../services/v1-mailbox-service.js";
+import { createV1MessageService } from "../services/v1-message-service.js";
+import { createV1WebhookService } from "../services/v1-webhook-service.js";
 
 export function createV1RouteHandler({
   store,
@@ -9,6 +11,10 @@ export function createV1RouteHandler({
   readJsonBody,
   getOverageChargeUsdc,
 }) {
+  const mailboxService = createV1MailboxService({ store, mailBackend });
+  const messageService = createV1MessageService({ store, mailBackend });
+  const webhookService = createV1WebhookService({ store });
+
   return async function handleV1Route({ method, path, request, requestId, requestUrl }) {
     if (!path.startsWith("/v1/")) return null;
 
@@ -41,36 +47,24 @@ export function createV1RouteHandler({
       });
       if (!access.ok) return access.response;
 
-      const result = await store.allocateMailbox({
-        tenantId: auth.payload.tenant_id,
-        agentId,
-        purpose,
-        ttlHours,
-      });
-
-      if (!result) {
-        return jsonResponse(409, { error: "no_available_mailbox", message: "No available mailbox for current tenant" }, requestId);
-      }
-
-      let provider = null;
+      let result;
       try {
-        provider = await mailBackend.provisionMailbox({
+        result = await mailboxService.allocateMailbox({
           tenantId: auth.payload.tenant_id,
           agentId,
-          mailboxId: result.mailbox.id,
-          address: result.mailbox.address,
+          purpose,
           ttlHours,
         });
-        if (provider?.providerRef) {
-          await store.saveMailboxProviderRef(result.mailbox.id, provider.providerRef);
-        }
       } catch (err) {
-        await store.releaseMailbox({ tenantId: auth.payload.tenant_id, mailboxId: result.mailbox.id });
         return jsonResponse(
           502,
           { error: "mail_backend_error", message: err.message || "Mail backend provisioning failed" },
           requestId,
         );
+      }
+
+      if (!result) {
+        return jsonResponse(409, { error: "no_available_mailbox", message: "No available mailbox for current tenant" }, requestId);
       }
 
       await store.recordUsage({
@@ -91,18 +85,7 @@ export function createV1RouteHandler({
         });
       }
 
-      return jsonResponse(
-        200,
-        {
-          mailbox_id: result.mailbox.id,
-          address: result.mailbox.address,
-          lease_expires_at: result.lease.expiresAt,
-          webmail_login: provider?.credentials?.login || null,
-          webmail_password: provider?.credentials?.password || null,
-          webmail_url: provider?.credentials?.webmailUrl || null,
-        },
-        requestId,
-      );
+      return jsonResponse(200, result, requestId);
     }
 
     if (method === "POST" && path === "/v1/mailboxes/release") {
@@ -115,17 +98,11 @@ export function createV1RouteHandler({
         return jsonResponse(400, { error: "bad_request", message: "mailbox_id is required" }, requestId);
       }
 
-      const result = await store.releaseMailbox({ tenantId: auth.payload.tenant_id, mailboxId });
-      if (!result) {
-        return jsonResponse(404, { error: "not_found", message: "Mailbox not found" }, requestId);
-      }
-
+      let result;
       try {
-        await mailBackend.releaseMailbox({
+        result = await mailboxService.releaseMailbox({
           tenantId: auth.payload.tenant_id,
           mailboxId,
-          address: result.mailbox.address,
-          providerRef: result.mailbox.providerRef || null,
         });
       } catch (err) {
         return jsonResponse(
@@ -133,6 +110,9 @@ export function createV1RouteHandler({
           { error: "mail_backend_error", message: err.message || "Mail backend release failed" },
           requestId,
         );
+      }
+      if (!result) {
+        return jsonResponse(404, { error: "not_found", message: "Mailbox not found" }, requestId);
       }
 
       await store.recordUsage({
@@ -142,8 +122,7 @@ export function createV1RouteHandler({
         quantity: 1,
         requestId,
       });
-
-      return jsonResponse(200, { mailbox_id: mailboxId, status: "released" }, requestId);
+      return jsonResponse(200, result, requestId);
     }
 
     if (method === "POST" && path === "/v1/mailboxes/credentials/reset") {
@@ -156,18 +135,14 @@ export function createV1RouteHandler({
         return jsonResponse(400, { error: "bad_request", message: "mailbox_id is required" }, requestId);
       }
 
-      const mailbox = await store.getTenantMailbox(auth.payload.tenant_id, mailboxId);
-      if (!mailbox) {
-        return jsonResponse(404, { error: "not_found", message: "Mailbox not found" }, requestId);
-      }
-
-      const credentials = await mailBackend.issueMailboxCredentials({
+      const credentials = await mailboxService.resetMailboxCredentials({
         tenantId: auth.payload.tenant_id,
         agentId: auth.payload.agent_id,
         mailboxId,
-        address: mailbox.address,
-        providerRef: mailbox.providerRef || null,
       });
+      if (!credentials) {
+        return jsonResponse(404, { error: "not_found", message: "Mailbox not found" }, requestId);
+      }
 
       await store.recordUsage({
         tenantId: auth.payload.tenant_id,
@@ -177,24 +152,14 @@ export function createV1RouteHandler({
         requestId,
       });
 
-      return jsonResponse(
-        200,
-        {
-          mailbox_id: mailbox.id,
-          address: mailbox.address,
-          webmail_login: credentials?.login || mailbox.address,
-          webmail_password: credentials?.password || null,
-          webmail_url: credentials?.webmailUrl || null,
-        },
-        requestId,
-      );
+      return jsonResponse(200, credentials, requestId);
     }
 
     if (method === "GET" && path === "/v1/mailboxes") {
       const auth = await requireAuth(request, requestId);
       if (!auth.ok) return auth.response;
 
-      const items = await store.listTenantMailboxes(auth.payload.tenant_id);
+      const items = await mailboxService.listMailboxes(auth.payload.tenant_id);
       return jsonResponse(200, { items }, requestId);
     }
 
@@ -222,7 +187,7 @@ export function createV1RouteHandler({
         return jsonResponse(400, { error: "bad_request", message: "limit must be 1..100" }, requestId);
       }
 
-      const messages = await store.getLatestMessages({
+      const messages = await messageService.getLatestMessages({
         tenantId: auth.payload.tenant_id,
         mailboxId,
         since,
@@ -285,23 +250,17 @@ export function createV1RouteHandler({
         );
       }
 
-      const mailbox = await store.getTenantMailbox(auth.payload.tenant_id, mailboxId);
-      if (!mailbox) {
-        return jsonResponse(404, { error: "not_found", message: "Mailbox not found" }, requestId);
-      }
-
       let delivery;
       try {
-        delivery = await mailBackend.sendMailboxMessage({
+        delivery = await messageService.sendMessage({
           tenantId: auth.payload.tenant_id,
           agentId: auth.payload.agent_id,
           mailboxId,
-          address: mailbox.address,
-          password: mailboxPassword,
-          to: recipients,
+          recipients,
           subject,
           text,
           html,
+          mailboxPassword,
         });
       } catch (err) {
         return jsonResponse(
@@ -309,6 +268,9 @@ export function createV1RouteHandler({
           { error: "mail_backend_error", message: err.message || "Mail backend send failed" },
           requestId,
         );
+      }
+      if (!delivery) {
+        return jsonResponse(404, { error: "not_found", message: "Mailbox not found" }, requestId);
       }
 
       await store.recordUsage({
@@ -329,19 +291,7 @@ export function createV1RouteHandler({
         });
       }
 
-      return jsonResponse(
-        200,
-        {
-          mailbox_id: mailbox.id,
-          from: mailbox.address,
-          accepted: delivery?.accepted || [],
-          rejected: delivery?.rejected || [],
-          message_id: delivery?.messageId || null,
-          envelope: delivery?.envelope || null,
-          response: delivery?.response || null,
-        },
-        requestId,
-      );
+      return jsonResponse(200, delivery, requestId);
     }
 
     if (method === "GET" && path.startsWith("/v1/messages/")) {
@@ -353,7 +303,7 @@ export function createV1RouteHandler({
         return jsonResponse(400, { error: "bad_request", message: "message_id is required" }, requestId);
       }
 
-      const message = await store.getTenantMessageDetail(auth.payload.tenant_id, messageId);
+      const message = await messageService.getMessageDetail(auth.payload.tenant_id, messageId);
       if (!message) {
         return jsonResponse(404, { error: "not_found", message: "Message not found" }, requestId);
       }
@@ -389,7 +339,7 @@ export function createV1RouteHandler({
         return jsonResponse(400, { error: "bad_request", message: "event_types contains unsupported values" }, requestId);
       }
 
-      const webhook = await store.createWebhook({
+      const webhook = await webhookService.createWebhook({
         tenantId: auth.payload.tenant_id,
         eventTypes,
         targetUrl,
@@ -414,23 +364,14 @@ export function createV1RouteHandler({
         });
       }
 
-      return jsonResponse(
-        200,
-        {
-          webhook_id: webhook.id,
-          event_types: webhook.eventTypes,
-          target_url: webhook.targetUrl,
-          status: webhook.status,
-        },
-        requestId,
-      );
+      return jsonResponse(200, webhook, requestId);
     }
 
     if (method === "GET" && path === "/v1/webhooks") {
       const auth = await requireAuth(request, requestId);
       if (!auth.ok) return auth.response;
 
-      const items = await store.listTenantWebhooks(auth.payload.tenant_id);
+      const items = await webhookService.listWebhooks(auth.payload.tenant_id);
       return jsonResponse(200, { items }, requestId);
     }
 
@@ -439,23 +380,11 @@ export function createV1RouteHandler({
       if (!auth.ok) return auth.response;
 
       const period = requestUrl.searchParams.get("period");
-      const parsed = parsePeriod(period);
-      if (!parsed) {
+      const summary = await webhookService.getUsageSummary(auth.payload.tenant_id, period);
+      if (!summary) {
         return jsonResponse(400, { error: "bad_request", message: "period must match YYYY-MM" }, requestId);
       }
-
-      const summary = await store.usageSummary(auth.payload.tenant_id, parsed.start, parsed.end);
-      return jsonResponse(
-        200,
-        {
-          period,
-          api_calls: summary.api_calls,
-          active_mailboxes: summary.active_mailboxes,
-          message_parses: summary.message_parses,
-          billable_units: summary.billable_units,
-        },
-        requestId,
-      );
+      return jsonResponse(200, summary, requestId);
     }
 
     if (method === "GET" && path.startsWith("/v1/billing/invoices/")) {
@@ -467,25 +396,11 @@ export function createV1RouteHandler({
         return jsonResponse(400, { error: "bad_request", message: "invoice_id is required" }, requestId);
       }
 
-      const invoice = await store.getInvoice(invoiceId, auth.payload.tenant_id);
+      const invoice = await webhookService.getInvoice(auth.payload.tenant_id, invoiceId);
       if (!invoice) {
         return jsonResponse(404, { error: "not_found", message: "Invoice not found" }, requestId);
       }
-
-      return jsonResponse(
-        200,
-        {
-          invoice_id: invoice.id,
-          tenant_id: invoice.tenantId,
-          period_start: invoice.periodStart,
-          period_end: invoice.periodEnd,
-          amount_usdc: invoice.amountUsdc,
-          status: invoice.status,
-          statement_hash: invoice.statementHash,
-          settlement_tx_hash: invoice.settlementTxHash,
-        },
-        requestId,
-      );
+      return jsonResponse(200, invoice, requestId);
     }
 
     if (method === "GET" && path === "/v1/billing/invoices") {
@@ -493,7 +408,7 @@ export function createV1RouteHandler({
       if (!auth.ok) return auth.response;
 
       const period = requestUrl.searchParams.get("period");
-      const items = await store.listTenantInvoices(auth.payload.tenant_id, period);
+      const items = await webhookService.listInvoices(auth.payload.tenant_id, period);
       return jsonResponse(200, { items }, requestId);
     }
 
