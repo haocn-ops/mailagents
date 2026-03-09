@@ -4,12 +4,12 @@ import { parseInboundEventBody, parseInternalPathParam, parseMailboxCallbackBody
 
 export function createInternalRouteHandler({
   store,
+  queue,
   requireInternalAuth,
   jsonResponse,
   readJsonBody,
-  webhookDispatcher,
 }) {
-  const internalService = createInternalService({ store, webhookDispatcher });
+  const internalService = createInternalService({ store, queue });
   const responses = createInternalResponses({ jsonResponse });
 
   return async function handleInternalRoute({ method, path, request, requestId }) {

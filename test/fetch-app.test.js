@@ -1389,6 +1389,8 @@ test("fetch app accepts internal inbound events and stores message", async () =>
   );
   assert.equal(inboundRes.status, 202);
   const inbound = await inboundRes.json();
+  assert.ok(inbound.parse_job?.job_id);
+  assert.equal(inbound.parse_job?.status, "completed");
 
   const latestRes = await app(
     new Request(`http://localhost/v1/messages/latest?mailbox_id=${allocation.mailbox_id}&limit=20`, {
