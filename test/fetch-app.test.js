@@ -1550,6 +1550,10 @@ test("fetch app deduplicates internal inbound events by provider message id", as
   const first = await firstRes.json();
   const second = await secondRes.json();
   assert.equal(first.message_id, second.message_id);
+  assert.ok(first.parse_job?.job_id);
+  assert.equal(first.parse_job?.status, "completed");
+  assert.equal(second.deduped, true);
+  assert.equal(second.parse_job, null);
 
   const latestRes = await app(
     new Request(`http://localhost/v1/messages/latest?mailbox_id=${allocation.mailbox_id}&limit=20`, {
