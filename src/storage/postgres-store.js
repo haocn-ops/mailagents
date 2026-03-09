@@ -770,6 +770,19 @@ export class PostgresStore {
     return { id: leaseId };
   }
 
+  async markMailboxLeaseV2Releasing(leaseId) {
+    const tables = await this._loadV2TableAvailability();
+    if (!tables.mailbox_leases_v2) return null;
+    await this._query(
+      `update mailbox_leases_v2
+          set lease_status = 'releasing',
+              updated_at = now()
+        where id = $1`,
+      [leaseId],
+    );
+    return { id: leaseId };
+  }
+
   async getActiveMailboxLeaseV2ByLegacyMailboxId(legacyMailboxId) {
     const tables = await this._loadV2TableAvailability();
     if (!tables.mailbox_accounts || !tables.mailbox_leases_v2) return null;

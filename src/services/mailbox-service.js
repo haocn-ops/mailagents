@@ -86,6 +86,11 @@ export class MailboxService {
       throw err;
     }
 
+    const leaseV2 =
+      activeLeaseV2 && typeof this.store.markMailboxLeaseV2Releasing === "function"
+        ? await this.store.markMailboxLeaseV2Releasing(activeLeaseV2.id)
+        : activeLeaseV2;
+
     const result = await this.store.releaseMailbox({ tenantId, mailboxId });
     if (!result) return null;
 
@@ -93,7 +98,12 @@ export class MailboxService {
       mailbox: result.mailbox,
       lease: result.lease,
       mailboxAccount,
-      leaseV2: activeLeaseV2,
+      leaseV2: leaseV2
+        ? {
+            ...activeLeaseV2,
+            status: "releasing",
+          }
+        : activeLeaseV2,
       jobId: job.id,
       jobStatus: job.status,
       release: job.result?.release || null,
