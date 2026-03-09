@@ -57,6 +57,69 @@ export class MailboxService {
       throw err;
     }
   }
+
+  async releaseLease({ tenantId, mailboxId }) {
+    const mailbox = await this.store.getTenantMailbox(tenantId, mailboxId);
+    if (!mailbox) return null;
+
+    const activeLeaseV2 =
+      typeof this.store.getActiveMailboxLeaseV2ByLegacyMailboxId === "function"
+        ? await this.store.getActiveMailboxLeaseV2ByLegacyMailboxId(mailboxId)
+        : null;
+    const mailboxAccount =
+      typeof this.store.upsertMailboxAccountFromLegacyMailbox === "function"
+        ? await this.store.upsertMailboxAccountFromLegacyMailbox(mailbox)
+        : null;
+
+    const result = await this.store.releaseMailbox({ tenantId, mailboxId });
+    if (!result) return null;
+
+    const job = await this.queue.enqueue("mailbox.release", {
+      tenantId,
+      mailboxId,
+      address: result.mailbox.address,
+      providerRef: result.mailbox.providerRef || null,
+      mailboxAccountId: mailboxAccount?.id || null,
+      mailboxLeaseV2Id: activeLeaseV2?.id || null,
+    });
+
+    return {
+      mailbox: result.mailbox,
+      lease: result.lease,
+      mailboxAccount,
+      leaseV2: activeLeaseV2,
+      jobId: job.id,
+      jobStatus: job.status,
+      release: job.result?.release || null,
+    };
+  }
+
+  async resetCredentials({ tenantId, agentId, mailboxId }) {
+    const mailbox = await this.store.getTenantMailbox(tenantId, mailboxId);
+    if (!mailbox) return null;
+
+    const mailboxAccount =
+      typeof this.store.upsertMailboxAccountFromLegacyMailbox === "function"
+        ? await this.store.upsertMailboxAccountFromLegacyMailbox(mailbox)
+        : null;
+
+    const job = await this.queue.enqueue("mailbox.credentials.reset", {
+      tenantId,
+      agentId,
+      mailboxId,
+      address: mailbox.address,
+      providerRef: mailbox.providerRef || null,
+      mailboxAccountId: mailboxAccount?.id || null,
+    });
+
+    return {
+      mailbox,
+      mailboxAccount,
+      jobId: job.id,
+      jobStatus: job.status,
+      credentials: job.result?.credentials || null,
+    };
+  }
 }
 
 export function createMailboxService(deps) {

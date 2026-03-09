@@ -429,6 +429,41 @@ export class MemoryStore {
     return lease;
   }
 
+  async getActiveMailboxLeaseV2ByLegacyMailboxId(legacyMailboxId) {
+    const account = [...this.state.mailboxAccountsV2.values()].find((item) => item.legacyMailboxId === legacyMailboxId);
+    if (!account) return null;
+    return (
+      [...this.state.mailboxLeasesV2.values()].find(
+        (lease) => lease.mailboxAccountId === account.id && lease.status === "active",
+      ) || null
+    );
+  }
+
+  async markMailboxAccountReleased(mailboxAccountId) {
+    const account = this.state.mailboxAccountsV2.get(mailboxAccountId);
+    if (!account) return null;
+    account.backendStatus = "disabled";
+    account.updatedAt = new Date().toISOString();
+    return account;
+  }
+
+  async markMailboxLeaseV2Released(leaseId) {
+    const lease = this.state.mailboxLeasesV2.get(leaseId);
+    if (!lease) return null;
+    lease.status = "released";
+    lease.releasedAt = new Date().toISOString();
+    lease.updatedAt = lease.releasedAt;
+    return lease;
+  }
+
+  async markMailboxAccountCredentialsReset(mailboxAccountId) {
+    const account = this.state.mailboxAccountsV2.get(mailboxAccountId);
+    if (!account) return null;
+    account.lastPasswordResetAt = new Date().toISOString();
+    account.updatedAt = account.lastPasswordResetAt;
+    return account;
+  }
+
   async createSendAttempt({ tenantId, agentId, mailboxAccountId, legacyMailboxId, fromAddress, to, subject }) {
     const attempt = {
       id: randomUUID(),

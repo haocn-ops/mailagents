@@ -620,6 +620,77 @@ export class PostgresStore {
     return { id: leaseId };
   }
 
+  async getActiveMailboxLeaseV2ByLegacyMailboxId(legacyMailboxId) {
+    const tables = await this._loadV2TableAvailability();
+    if (!tables.mailbox_accounts || !tables.mailbox_leases_v2) return null;
+    const mailbox = await this._query(`select address from mailboxes where id = $1 limit 1`, [legacyMailboxId]);
+    if (mailbox.rowCount === 0) return null;
+    const result = await this._query(
+      `select l.id, l.mailbox_account_id, l.tenant_id, l.agent_id, l.lease_status, l.purpose, l.started_at, l.ends_at, l.released_at,
+              a.address
+         from mailbox_leases_v2 l
+         join mailbox_accounts a on a.id = l.mailbox_account_id
+        where a.address = $1
+          and l.lease_status = 'active'
+        order by l.created_at desc
+        limit 1`,
+      [mailbox.rows[0].address],
+    );
+    if (result.rowCount === 0) return null;
+    const row = result.rows[0];
+    return {
+      id: row.id,
+      mailboxAccountId: row.mailbox_account_id,
+      tenantId: row.tenant_id,
+      agentId: row.agent_id,
+      status: row.lease_status,
+      purpose: row.purpose,
+      startedAt: row.started_at ? row.started_at.toISOString() : null,
+      endsAt: row.ends_at.toISOString(),
+      releasedAt: row.released_at ? row.released_at.toISOString() : null,
+    };
+  }
+
+  async markMailboxAccountReleased(mailboxAccountId) {
+    const tables = await this._loadV2TableAvailability();
+    if (!tables.mailbox_accounts) return null;
+    await this._query(
+      `update mailbox_accounts
+          set backend_status = 'disabled',
+              updated_at = now()
+        where id = $1`,
+      [mailboxAccountId],
+    );
+    return { id: mailboxAccountId };
+  }
+
+  async markMailboxLeaseV2Released(leaseId) {
+    const tables = await this._loadV2TableAvailability();
+    if (!tables.mailbox_leases_v2) return null;
+    await this._query(
+      `update mailbox_leases_v2
+          set lease_status = 'released',
+              released_at = now(),
+              updated_at = now()
+        where id = $1`,
+      [leaseId],
+    );
+    return { id: leaseId };
+  }
+
+  async markMailboxAccountCredentialsReset(mailboxAccountId) {
+    const tables = await this._loadV2TableAvailability();
+    if (!tables.mailbox_accounts) return null;
+    await this._query(
+      `update mailbox_accounts
+          set last_password_reset_at = now(),
+              updated_at = now()
+        where id = $1`,
+      [mailboxAccountId],
+    );
+    return { id: mailboxAccountId };
+  }
+
   async createSendAttempt({ tenantId, agentId, mailboxAccountId, legacyMailboxId, fromAddress, to, subject }) {
     const tables = await this._loadV2TableAvailability();
     if (!tables.send_attempts) {

@@ -100,3 +100,69 @@ test("mailbox service releases allocation if provisioning fails", async () => {
   );
   assert.equal(released, true);
 });
+
+test("mailbox service releases mailbox via queue", async () => {
+  const store = {
+    async getTenantMailbox() {
+      return { id: "mailbox-1", address: "a@example.com", providerRef: "provider-ref", status: "leased" };
+    },
+    async upsertMailboxAccountFromLegacyMailbox() {
+      return { id: "account-1" };
+    },
+    async getActiveMailboxLeaseV2ByLegacyMailboxId() {
+      return { id: "lease-v2-1" };
+    },
+    async releaseMailbox() {
+      return { mailbox: { id: "mailbox-1", address: "a@example.com", providerRef: "provider-ref" }, lease: {} };
+    },
+    async markMailboxAccountReleased(mailboxAccountId) {
+      assert.equal(mailboxAccountId, "account-1");
+    },
+    async markMailboxLeaseV2Released(leaseId) {
+      assert.equal(leaseId, "lease-v2-1");
+    },
+  };
+  const mailBackend = {
+    async releaseMailbox({ address }) {
+      assert.equal(address, "a@example.com");
+      return { status: "released" };
+    },
+  };
+  const queue = createJobQueue({ mode: "inline" });
+  queue.register("mailbox.release", (await import("../../src/jobs/mailbox-release-job.js")).createMailboxReleaseJob({ store, mailBackend }));
+
+  const service = createMailboxService({ store, queue });
+  const result = await service.releaseLease({ tenantId: "tenant-1", mailboxId: "mailbox-1" });
+  assert.equal(result.jobStatus, "completed");
+  assert.equal(result.release.status, "released");
+});
+
+test("mailbox service resets credentials via queue", async () => {
+  const store = {
+    async getTenantMailbox() {
+      return { id: "mailbox-1", address: "a@example.com", providerRef: "provider-ref", status: "leased" };
+    },
+    async upsertMailboxAccountFromLegacyMailbox() {
+      return { id: "account-1" };
+    },
+    async markMailboxAccountCredentialsReset(mailboxAccountId) {
+      assert.equal(mailboxAccountId, "account-1");
+    },
+  };
+  const mailBackend = {
+    async issueMailboxCredentials({ address }) {
+      assert.equal(address, "a@example.com");
+      return { login: "a@example.com", password: "secret", webmailUrl: "https://mail.example.com" };
+    },
+  };
+  const queue = createJobQueue({ mode: "inline" });
+  queue.register(
+    "mailbox.credentials.reset",
+    (await import("../../src/jobs/mailbox-credentials-reset-job.js")).createMailboxCredentialsResetJob({ store, mailBackend }),
+  );
+
+  const service = createMailboxService({ store, queue });
+  const result = await service.resetCredentials({ tenantId: "tenant-1", agentId: "agent-1", mailboxId: "mailbox-1" });
+  assert.equal(result.jobStatus, "completed");
+  assert.equal(result.credentials.login, "a@example.com");
+});

@@ -11,6 +11,11 @@ import { getDefaultStore } from "./store.js";
 import { createNonce, createRequestId, parseBearerToken, parsePeriod } from "./utils.js";
 import { createWebhookDispatcher } from "./webhook-dispatcher.js";
 import { createMailboxProvisionJob, MAILBOX_PROVISION_JOB } from "./jobs/mailbox-provision-job.js";
+import { createMailboxReleaseJob, MAILBOX_RELEASE_JOB } from "./jobs/mailbox-release-job.js";
+import {
+  createMailboxCredentialsResetJob,
+  MAILBOX_CREDENTIALS_RESET_JOB,
+} from "./jobs/mailbox-credentials-reset-job.js";
 import { createJobQueue } from "./jobs/queue.js";
 import { createSendSubmitJob, SEND_SUBMIT_JOB } from "./jobs/send-submit-job.js";
 import { createMailboxService } from "./services/mailbox-service.js";
@@ -100,6 +105,11 @@ export function createFetchApp(deps = {}) {
       mode: deps.queueMode || (runtimeConfig.queueBackend === "redis" ? "producer" : "inline"),
     });
   queue.register(MAILBOX_PROVISION_JOB, createMailboxProvisionJob({ store, mailBackend }));
+  queue.register(MAILBOX_RELEASE_JOB, createMailboxReleaseJob({ store, mailBackend }));
+  queue.register(
+    MAILBOX_CREDENTIALS_RESET_JOB,
+    createMailboxCredentialsResetJob({ store, mailBackend }),
+  );
   queue.register(SEND_SUBMIT_JOB, createSendSubmitJob({ mailBackend }));
   const mailboxService = deps.mailboxService || createMailboxService({ store, queue });
   const sendService = deps.sendService || createSendService({ store, queue });
@@ -646,24 +656,9 @@ export function createFetchApp(deps = {}) {
           return jsonResponse(400, { error: "bad_request", message: "mailbox_id is required" }, requestId);
         }
 
-        const result = await store.releaseMailbox({ tenantId: auth.payload.tenant_id, mailboxId });
+        const result = await mailboxService.releaseLease({ tenantId: auth.payload.tenant_id, mailboxId });
         if (!result) {
           return jsonResponse(404, { error: "not_found", message: "Mailbox not found" }, requestId);
-        }
-
-        try {
-          await mailBackend.releaseMailbox({
-            tenantId: auth.payload.tenant_id,
-            mailboxId,
-            address: result.mailbox.address,
-            providerRef: result.mailbox.providerRef || null,
-          });
-        } catch (err) {
-          return jsonResponse(
-            502,
-            { error: "mail_backend_error", message: err.message || "Mail backend release failed" },
-            requestId,
-          );
         }
 
         await store.recordUsage({
@@ -674,7 +669,16 @@ export function createFetchApp(deps = {}) {
           requestId,
         });
 
-        return jsonResponse(200, { mailbox_id: mailboxId, status: "released" }, requestId);
+        return jsonResponse(
+          200,
+          {
+            mailbox_id: mailboxId,
+            status: "released",
+            job_id: result.jobId,
+            job_status: result.jobStatus,
+          },
+          requestId,
+        );
       }
 
       if (method === "POST" && path === "/v1/mailboxes/credentials/reset") {
@@ -687,18 +691,14 @@ export function createFetchApp(deps = {}) {
           return jsonResponse(400, { error: "bad_request", message: "mailbox_id is required" }, requestId);
         }
 
-        const mailbox = await store.getTenantMailbox(auth.payload.tenant_id, mailboxId);
-        if (!mailbox) {
-          return jsonResponse(404, { error: "not_found", message: "Mailbox not found" }, requestId);
-        }
-
-        const credentials = await mailBackend.issueMailboxCredentials({
+        const result = await mailboxService.resetCredentials({
           tenantId: auth.payload.tenant_id,
           agentId: auth.payload.agent_id,
           mailboxId,
-          address: mailbox.address,
-          providerRef: mailbox.providerRef || null,
         });
+        if (!result) {
+          return jsonResponse(404, { error: "not_found", message: "Mailbox not found" }, requestId);
+        }
 
         await store.recordUsage({
           tenantId: auth.payload.tenant_id,
@@ -711,11 +711,13 @@ export function createFetchApp(deps = {}) {
         return jsonResponse(
           200,
           {
-            mailbox_id: mailbox.id,
-            address: mailbox.address,
-            webmail_login: credentials?.login || mailbox.address,
-            webmail_password: credentials?.password || null,
-            webmail_url: credentials?.webmailUrl || null,
+            mailbox_id: result.mailbox.id,
+            address: result.mailbox.address,
+            webmail_login: result.credentials?.login || result.mailbox.address,
+            webmail_password: result.credentials?.password || null,
+            webmail_url: result.credentials?.webmailUrl || null,
+            job_id: result.jobId,
+            job_status: result.jobStatus,
           },
           requestId,
         );
