@@ -62,16 +62,7 @@ export function createV2WebhookRouteHandler({
         access,
       });
 
-      return jsonResponse(
-        201,
-        {
-          webhook_id: webhook.id,
-          event_types: webhook.eventTypes,
-          target_url: webhook.targetUrl,
-          status: webhook.status,
-        },
-        requestId,
-      );
+      return jsonResponse(201, webhook, requestId);
     }
 
     if (method === "GET" && path === "/v2/webhooks") {

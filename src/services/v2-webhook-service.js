@@ -1,11 +1,13 @@
 import { createV2TenantReadModels } from "../v2/tenant-read-models.js";
+import { createV2TenantCommands } from "../v2/tenant-commands.js";
 
 export function createV2WebhookService({ store }) {
   const readModels = createV2TenantReadModels({ store });
+  const commands = createV2TenantCommands({ store });
 
   return {
     async createWebhook({ tenantId, eventTypes, targetUrl, secret }) {
-      return store.createWebhook({ tenantId, eventTypes, targetUrl, secret });
+      return commands.createWebhook({ tenantId, eventTypes, targetUrl, secret });
     },
 
     async listWebhooks(tenantId) {
@@ -13,9 +15,7 @@ export function createV2WebhookService({ store }) {
     },
 
     async rotateWebhookSecret({ tenantId, webhookId, actorDid, requestId }) {
-      const webhook = await store.getTenantWebhook(tenantId, webhookId);
-      if (!webhook) return null;
-      return store.rotateTenantWebhookSecret(tenantId, webhookId, { actorDid, requestId });
+      return commands.rotateWebhookSecret({ tenantId, webhookId, actorDid, requestId });
     },
 
     async listWebhookDeliveries({ tenantId, webhookId }) {
