@@ -1,9 +1,13 @@
+import { createAdminRepository } from "../admin/repository.js";
+
 export function createAdminService({
   store,
   getOverageChargeUsdc,
   getAgentAllocateHourlyLimit,
   updateRuntimeSettings,
 }) {
+  const repository = createAdminRepository({ store });
+
   return {
     getLimitSettings() {
       return {
@@ -25,79 +29,79 @@ export function createAdminService({
     },
 
     adminOverviewMetrics() {
-      return store.adminOverviewMetrics();
+      return repository.adminOverviewMetrics();
     },
 
     adminOverviewTimeseries(args) {
-      return store.adminOverviewTimeseries(args);
+      return repository.adminOverviewTimeseries(args);
     },
 
     adminListTenants(args) {
-      return store.adminListTenants(args);
+      return repository.adminListTenants(args);
     },
 
     adminGetTenant(tenantId) {
-      return store.adminGetTenant(tenantId);
+      return repository.adminGetTenant(tenantId);
     },
 
-    adminPatchTenant(tenantId, body, ctx) {
-      return store.adminPatchTenant(tenantId, body, ctx);
+    adminPatchTenant(tenantId, body, context) {
+      return repository.adminPatchTenant(tenantId, body, context);
     },
 
     adminListMailboxes(args) {
-      return store.adminListMailboxes(args);
+      return repository.adminListMailboxes(args);
     },
 
-    adminFreezeMailbox(mailboxId, ctx) {
-      return store.adminFreezeMailbox(mailboxId, ctx);
+    adminFreezeMailbox(mailboxId, context) {
+      return repository.adminFreezeMailbox(mailboxId, context);
     },
 
-    adminReleaseMailbox(mailboxId, ctx) {
-      return store.adminReleaseMailbox(mailboxId, ctx);
+    adminReleaseMailbox(mailboxId, context) {
+      return repository.adminReleaseMailbox(mailboxId, context);
     },
 
     adminListMessages(args) {
-      return store.adminListMessages(args);
+      return repository.adminListMessages(args);
     },
 
-    adminReparseMessage(messageId, ctx) {
-      return store.adminReparseMessage(messageId, ctx);
+    adminReparseMessage(messageId, context) {
+      return repository.adminReparseMessage(messageId, context);
     },
 
-    adminReplayMessageWebhook(messageId, ctx) {
-      return store.adminReplayMessageWebhook(messageId, ctx);
+    adminReplayMessageWebhook(messageId, context) {
+      return repository.adminReplayMessageWebhook(messageId, context);
     },
 
     adminListWebhooks(args) {
-      return store.adminListWebhooks(args);
+      return repository.adminListWebhooks(args);
     },
 
     adminReplayWebhook(webhookId, args) {
-      return store.adminReplayWebhook(webhookId, args);
+      return repository.adminReplayWebhook(webhookId, args);
     },
 
-    adminRotateWebhookSecret(webhookId, ctx) {
-      return store.adminRotateWebhookSecret(webhookId, ctx);
+    adminRotateWebhookSecret(webhookId, context) {
+      return repository.adminRotateWebhookSecret(webhookId, context);
     },
 
     adminListInvoices(args) {
-      return store.adminListInvoices(args);
+      return repository.adminListInvoices(args);
     },
 
-    adminIssueInvoice(invoiceId, ctx) {
-      return store.adminIssueInvoice(invoiceId, ctx);
+    adminIssueInvoice(invoiceId, context) {
+      return repository.adminIssueInvoice(invoiceId, context);
     },
 
     adminListRiskEvents(args) {
-      return store.adminListRiskEvents(args);
+      return repository.adminListRiskEvents(args);
     },
 
     adminUpsertRiskPolicy(args) {
-      return store.adminUpsertRiskPolicy(args);
+      return repository.adminUpsertRiskPolicy(args);
     },
 
     adminListAuditLogs(args) {
-      return store.adminListAuditLogs(args);
+      return repository.adminListAuditLogs(args);
     },
   };
 }
