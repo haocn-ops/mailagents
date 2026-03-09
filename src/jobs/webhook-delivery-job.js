@@ -11,10 +11,28 @@ export function createWebhookDeliveryJob({ store, webhookDispatcher }) {
       };
     }
 
-    const delivery = await webhookDispatcher.dispatch({
-      webhook,
-      payload: payload.eventPayload,
-    });
+    let delivery;
+    try {
+      delivery = await webhookDispatcher.dispatch({
+        webhook,
+        payload: payload.eventPayload,
+      });
+    } catch (err) {
+      await store.recordWebhookDelivery(webhook.id, {
+        statusCode: null,
+        requestId: payload.requestId || null,
+        metadata: {
+          event_type: payload.eventPayload?.event_type || null,
+          resource_id: payload.eventPayload?.message_id || payload.eventPayload?.mailbox_id || webhook.id,
+          delivery_id: null,
+          attempts: 1,
+          ok: false,
+          error_message: err?.message || String(err),
+          response_excerpt: null,
+        },
+      });
+      throw err;
+    }
 
     await store.recordWebhookDelivery(webhook.id, {
       statusCode: delivery.statusCode,

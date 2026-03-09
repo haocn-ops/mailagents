@@ -49,3 +49,48 @@ test("message parse job stores parse result and enqueues webhook delivery", asyn
   assert.equal(enqueued[0].payload.webhookId, "webhook-1");
   assert.equal(enqueued[0].payload.eventPayload.otp_code, "654321");
 });
+
+test("message parse job skips webhook enqueue when message is missing", async () => {
+  let queriedWebhooks = false;
+  let enqueued = false;
+  const store = {
+    async applyMessageParseResult(payload) {
+      assert.equal(payload.messageId, "message-missing");
+    },
+    async getMessage(messageId) {
+      assert.equal(messageId, "message-missing");
+      return null;
+    },
+    async listActiveWebhooksByEvent() {
+      queriedWebhooks = true;
+      return [];
+    },
+  };
+  const queue = {
+    async enqueue() {
+      enqueued = true;
+      return { id: "job-x", status: "queued" };
+    },
+  };
+
+  const job = createMessageParseJob({ store, queue });
+  const result = await job({
+    tenantId: "tenant-1",
+    mailboxId: "mailbox-1",
+    messageId: "message-missing",
+    sender: "notify@example.com",
+    senderDomain: "example.com",
+    subject: "No OTP present",
+    receivedAt: "2026-03-10T00:00:00.000Z",
+    textExcerpt: "hello world",
+    htmlExcerpt: "",
+    htmlBody: "",
+    requestId: "req-missing",
+  });
+
+  assert.equal(result.skipped, true);
+  assert.equal(result.reason, "message_not_found");
+  assert.equal(result.deliveryJobs.length, 0);
+  assert.equal(queriedWebhooks, false);
+  assert.equal(enqueued, false);
+});
