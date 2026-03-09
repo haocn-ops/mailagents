@@ -1754,6 +1754,167 @@ export class PostgresStore {
     }));
   }
 
+  _sendAttemptFromAuditRow(row) {
+    const metadata = row.metadata || {};
+    return {
+      send_attempt_id: row.resource_id,
+      mailbox_id: metadata.mailboxId || null,
+      to: metadata.to || [],
+      subject: metadata.subject || "",
+      submission_status: metadata.submissionStatus || "queued",
+      accepted: metadata.accepted || [],
+      rejected: metadata.rejected || [],
+      message_id: metadata.messageId || null,
+      response: metadata.response || null,
+      envelope: metadata.envelope || null,
+      error: metadata.error || null,
+      created_at: metadata.createdAt || row.created_at?.toISOString() || null,
+      updated_at: metadata.updatedAt || row.created_at?.toISOString() || null,
+    };
+  }
+
+  async createSendAttempt({ tenantId, agentId, mailboxId, to, subject, text = "", html = "", requestId = null }) {
+    const result = await this._query(
+      `insert into audit_logs (tenant_id, agent_id, actor_did, action, resource_type, resource_id, request_id, metadata)
+       values ($1, $2, $3, 'send_attempt.created', 'send_attempt', gen_random_uuid()::text, $4, $5::jsonb)
+       returning resource_id, created_at, metadata`,
+      [
+        tenantId,
+        agentId,
+        null,
+        requestId,
+        JSON.stringify({
+          mailboxId,
+          to,
+          subject,
+          text,
+          html,
+          submissionStatus: "queued",
+          accepted: [],
+          rejected: [],
+          messageId: null,
+          response: null,
+          envelope: null,
+          error: null,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        }),
+      ],
+    );
+    return this._sendAttemptFromAuditRow(result.rows[0]);
+  }
+
+  async completeSendAttempt(sendAttemptId, delivery, { requestId = null } = {}) {
+    const existing = await this.getTenantSendAttemptByIdAny(sendAttemptId);
+    if (!existing) return null;
+    await this._recordAudit({
+      tenantId: existing.tenant_id,
+      agentId: existing.agent_id,
+      action: "send_attempt.completed",
+      resourceType: "send_attempt",
+      resourceId: sendAttemptId,
+      requestId,
+      metadata: {
+        mailboxId: existing.mailbox_id,
+        to: existing.to,
+        subject: existing.subject,
+        text: existing.text || "",
+        html: existing.html || "",
+        submissionStatus: "accepted",
+        accepted: delivery?.accepted || [],
+        rejected: delivery?.rejected || [],
+        messageId: delivery?.messageId || null,
+        response: delivery?.response || null,
+        envelope: delivery?.envelope || null,
+        error: null,
+        createdAt: existing.created_at,
+        updatedAt: new Date().toISOString(),
+      },
+    });
+    return this.getTenantSendAttempt(existing.tenant_id, sendAttemptId);
+  }
+
+  async failSendAttempt(sendAttemptId, error, { requestId = null } = {}) {
+    const existing = await this.getTenantSendAttemptByIdAny(sendAttemptId);
+    if (!existing) return null;
+    await this._recordAudit({
+      tenantId: existing.tenant_id,
+      agentId: existing.agent_id,
+      action: "send_attempt.failed",
+      resourceType: "send_attempt",
+      resourceId: sendAttemptId,
+      requestId,
+      metadata: {
+        mailboxId: existing.mailbox_id,
+        to: existing.to,
+        subject: existing.subject,
+        text: existing.text || "",
+        html: existing.html || "",
+        submissionStatus: "failed",
+        accepted: existing.accepted || [],
+        rejected: existing.rejected || [],
+        messageId: existing.message_id || null,
+        response: existing.response || null,
+        envelope: existing.envelope || null,
+        error: error || "send_failed",
+        createdAt: existing.created_at,
+        updatedAt: new Date().toISOString(),
+      },
+    });
+    return this.getTenantSendAttempt(existing.tenant_id, sendAttemptId);
+  }
+
+  async getTenantSendAttemptByIdAny(sendAttemptId) {
+    const result = await this._query(
+      `select tenant_id, agent_id, resource_id, metadata, created_at
+         from audit_logs
+        where resource_type = 'send_attempt'
+          and resource_id = $1
+        order by created_at desc
+        limit 1`,
+      [sendAttemptId],
+    );
+    if (result.rowCount === 0) return null;
+    const row = result.rows[0];
+    const mapped = this._sendAttemptFromAuditRow(row);
+    return {
+      tenant_id: row.tenant_id,
+      agent_id: row.agent_id,
+      ...mapped,
+      text: row.metadata?.text || "",
+      html: row.metadata?.html || "",
+    };
+  }
+
+  async listTenantSendAttempts(tenantId) {
+    const result = await this._query(
+      `select distinct on (resource_id) tenant_id, agent_id, resource_id, metadata, created_at
+         from audit_logs
+        where resource_type = 'send_attempt'
+          and tenant_id = $1
+        order by resource_id, created_at desc`,
+      [tenantId],
+    );
+    return result.rows
+      .map((row) => this._sendAttemptFromAuditRow(row))
+      .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
+  }
+
+  async getTenantSendAttempt(tenantId, sendAttemptId) {
+    const result = await this._query(
+      `select tenant_id, agent_id, resource_id, metadata, created_at
+         from audit_logs
+        where resource_type = 'send_attempt'
+          and tenant_id = $1
+          and resource_id = $2
+        order by created_at desc
+        limit 1`,
+      [tenantId, sendAttemptId],
+    );
+    if (result.rowCount === 0) return null;
+    return this._sendAttemptFromAuditRow(result.rows[0]);
+  }
+
   async recordUsage({ tenantId, agentId, endpoint, quantity = 1, requestId }) {
     await this._query(
       `insert into usage_records (tenant_id, agent_id, endpoint, unit, quantity, request_id)

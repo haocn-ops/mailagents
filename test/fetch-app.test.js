@@ -672,6 +672,109 @@ test("fetch app exposes v2 mailbox accounts and leases endpoints", async () => {
   assert.equal(released.lease_status, "released");
 });
 
+test("fetch app exposes v2 messages and send attempt endpoints", async () => {
+  const app = makeApp();
+  const verify = await issueToken(app, "0xabc0000000000000000000000000000000000a13");
+
+  const allocateRes = await app(
+    new Request("http://localhost/v1/mailboxes/allocate", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${verify.access_token}`,
+      },
+      body: JSON.stringify({ agent_id: verify.agent_id, purpose: "v2-messages", ttl_hours: 1 }),
+    }),
+  );
+  assert.equal(allocateRes.status, 200);
+  const allocation = await allocateRes.json();
+
+  const inboundRes = await app(
+    new Request("http://localhost/internal/inbound/events", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-internal-token": "internal-secret",
+      },
+      body: JSON.stringify({
+        address: allocation.address,
+        sender: "service@example.com",
+        sender_domain: "example.com",
+        subject: "Your code",
+        provider_message_id: "provider-v2-msg-1",
+        received_at: "2026-03-09T00:00:00.000Z",
+        text_excerpt: "Verification code is 123456",
+      }),
+    }),
+  );
+  assert.equal(inboundRes.status, 202);
+
+  const messagesRes = await app(
+    new Request(`http://localhost/v2/messages?mailbox_id=${allocation.mailbox_id}&limit=20`, {
+      method: "GET",
+      headers: { authorization: `Bearer ${verify.access_token}` },
+    }),
+  );
+  assert.equal(messagesRes.status, 200);
+  const messages = await messagesRes.json();
+  assert.ok(messages.items.length >= 1);
+  assert.equal(messages.items[0].parsed_status, "parsed");
+
+  const detailRes = await app(
+    new Request(`http://localhost/v2/messages/${messages.items[0].message_id}`, {
+      method: "GET",
+      headers: { authorization: `Bearer ${verify.access_token}` },
+    }),
+  );
+  assert.equal(detailRes.status, 200);
+  const detail = await detailRes.json();
+  assert.equal(detail.message_id, messages.items[0].message_id);
+  assert.equal(detail.otp_code, "123456");
+
+  const sendRes = await app(
+    new Request("http://localhost/v2/messages/send", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${verify.access_token}`,
+      },
+      body: JSON.stringify({
+        mailbox_id: allocation.mailbox_id,
+        mailbox_password: allocation.webmail_password,
+        to: ["dest@example.com"],
+        subject: "Hello from V2",
+        text: "Body",
+      }),
+    }),
+  );
+  assert.equal(sendRes.status, 202);
+  const send = await sendRes.json();
+  assert.equal(send.submission_status, "accepted");
+  assert.ok(send.send_attempt_id);
+
+  const attemptsRes = await app(
+    new Request("http://localhost/v2/send-attempts", {
+      method: "GET",
+      headers: { authorization: `Bearer ${verify.access_token}` },
+    }),
+  );
+  assert.equal(attemptsRes.status, 200);
+  const attempts = await attemptsRes.json();
+  assert.ok(attempts.items.length >= 1);
+  assert.equal(attempts.items[0].send_attempt_id, send.send_attempt_id);
+
+  const attemptDetailRes = await app(
+    new Request(`http://localhost/v2/send-attempts/${send.send_attempt_id}`, {
+      method: "GET",
+      headers: { authorization: `Bearer ${verify.access_token}` },
+    }),
+  );
+  assert.equal(attemptDetailRes.status, 200);
+  const attemptDetail = await attemptDetailRes.json();
+  assert.equal(attemptDetail.send_attempt_id, send.send_attempt_id);
+  assert.equal(attemptDetail.submission_status, "accepted");
+});
+
 test("fetch app issues webmail credentials for an existing tenant mailbox", async () => {
   const app = makeApp();
   const verify = await issueToken(app, "0xabc0000000000000000000000000000000000777");

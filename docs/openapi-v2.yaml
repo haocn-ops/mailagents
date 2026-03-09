@@ -72,6 +72,76 @@ components:
           type: string
           format: date-time
           nullable: true
+    Message:
+      type: object
+      required: [message_id, sender, sender_domain, subject, received_at, parsed_status]
+      properties:
+        message_id:
+          type: string
+        mailbox_id:
+          type: string
+          nullable: true
+        sender:
+          type: string
+        sender_domain:
+          type: string
+        subject:
+          type: string
+        raw_ref:
+          type: string
+          nullable: true
+        received_at:
+          type: string
+          format: date-time
+        otp_code:
+          type: string
+          nullable: true
+        verification_link:
+          type: string
+          nullable: true
+        parsed_status:
+          type: string
+    SendAttempt:
+      type: object
+      required: [send_attempt_id, mailbox_id, to, subject, submission_status, created_at, updated_at]
+      properties:
+        send_attempt_id:
+          type: string
+        mailbox_id:
+          type: string
+        to:
+          type: array
+          items:
+            type: string
+        subject:
+          type: string
+        submission_status:
+          type: string
+        accepted:
+          type: array
+          items:
+            type: string
+        rejected:
+          type: array
+          items:
+            type: string
+        message_id:
+          type: string
+          nullable: true
+        response:
+          type: string
+          nullable: true
+        envelope:
+          nullable: true
+        error:
+          type: string
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
     Webhook:
       type: object
       required: [webhook_id, event_types, target_url, status]
@@ -241,6 +311,97 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/UsageSummary'
+  /v2/messages:
+    get:
+      summary: List messages for a mailbox visible to the current tenant
+      parameters:
+        - in: query
+          name: mailbox_id
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: since
+          required: false
+          schema:
+            type: string
+            format: date-time
+        - in: query
+          name: limit
+          required: false
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Message list
+  /v2/messages/{message_id}:
+    get:
+      summary: Get message detail for the current tenant
+      parameters:
+        - in: path
+          name: message_id
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Message detail
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+  /v2/messages/send:
+    post:
+      summary: Submit an outbound message and return a send attempt handle
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [mailbox_id, mailbox_password, to, subject]
+              properties:
+                mailbox_id:
+                  type: string
+                mailbox_password:
+                  type: string
+                to:
+                  oneOf:
+                    - type: string
+                    - type: array
+                      items:
+                        type: string
+                subject:
+                  type: string
+                text:
+                  type: string
+                html:
+                  type: string
+      responses:
+        '202':
+          description: Send accepted and tracked as a send attempt
+  /v2/send-attempts:
+    get:
+      summary: List outbound send attempts for the current tenant
+      responses:
+        '200':
+          description: Send attempt list
+  /v2/send-attempts/{send_attempt_id}:
+    get:
+      summary: Get outbound send attempt detail
+      parameters:
+        - in: path
+          name: send_attempt_id
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Send attempt detail
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SendAttempt'
   /v2/billing/invoices:
     get:
       summary: List invoices for the current tenant

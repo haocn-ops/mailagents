@@ -17,6 +17,7 @@ export class MemoryStore {
       messages: new Map(),
       messageEvents: new Map(),
       webhooks: new Map(),
+      sendAttempts: new Map(),
       usageRecords: [],
       invoices: new Map(),
       riskEvents: new Map(),
@@ -1044,6 +1045,115 @@ export class MemoryStore {
     if (period) items = items.filter((invoice) => invoice.period === period);
     items.sort((a, b) => String(b.period).localeCompare(String(a.period)));
     return items;
+  }
+
+  async createSendAttempt({ tenantId, agentId, mailboxId, to, subject, text = "", html = "", requestId = null }) {
+    const attempt = {
+      id: randomUUID(),
+      tenantId,
+      agentId,
+      mailboxId,
+      to: [...to],
+      subject,
+      text,
+      html,
+      submissionStatus: "queued",
+      accepted: [],
+      rejected: [],
+      messageId: null,
+      response: null,
+      envelope: null,
+      error: null,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      requestId,
+    };
+    this.state.sendAttempts.set(attempt.id, attempt);
+    this._recordAudit({
+      tenantId,
+      agentId,
+      actorDid: this._getPrimaryDid(tenantId),
+      action: "send_attempt.created",
+      resourceType: "send_attempt",
+      resourceId: attempt.id,
+      requestId,
+      metadata: { ...attempt },
+    });
+    return this._sendAttemptResponse(attempt);
+  }
+
+  _sendAttemptResponse(attempt) {
+    return {
+      send_attempt_id: attempt.id,
+      mailbox_id: attempt.mailboxId,
+      to: [...attempt.to],
+      subject: attempt.subject,
+      submission_status: attempt.submissionStatus,
+      accepted: [...attempt.accepted],
+      rejected: [...attempt.rejected],
+      message_id: attempt.messageId,
+      response: attempt.response,
+      envelope: attempt.envelope,
+      error: attempt.error,
+      created_at: attempt.createdAt,
+      updated_at: attempt.updatedAt,
+    };
+  }
+
+  async completeSendAttempt(sendAttemptId, delivery, { requestId = null } = {}) {
+    const attempt = this.state.sendAttempts.get(sendAttemptId);
+    if (!attempt) return null;
+    attempt.submissionStatus = "accepted";
+    attempt.accepted = delivery?.accepted || [];
+    attempt.rejected = delivery?.rejected || [];
+    attempt.messageId = delivery?.messageId || null;
+    attempt.response = delivery?.response || null;
+    attempt.envelope = delivery?.envelope || null;
+    attempt.error = null;
+    attempt.updatedAt = new Date().toISOString();
+    this._recordAudit({
+      tenantId: attempt.tenantId,
+      agentId: attempt.agentId,
+      actorDid: this._getPrimaryDid(attempt.tenantId),
+      action: "send_attempt.completed",
+      resourceType: "send_attempt",
+      resourceId: attempt.id,
+      requestId,
+      metadata: { ...attempt },
+    });
+    return this._sendAttemptResponse(attempt);
+  }
+
+  async failSendAttempt(sendAttemptId, error, { requestId = null } = {}) {
+    const attempt = this.state.sendAttempts.get(sendAttemptId);
+    if (!attempt) return null;
+    attempt.submissionStatus = "failed";
+    attempt.error = error || "send_failed";
+    attempt.updatedAt = new Date().toISOString();
+    this._recordAudit({
+      tenantId: attempt.tenantId,
+      agentId: attempt.agentId,
+      actorDid: this._getPrimaryDid(attempt.tenantId),
+      action: "send_attempt.failed",
+      resourceType: "send_attempt",
+      resourceId: attempt.id,
+      requestId,
+      metadata: { ...attempt },
+    });
+    return this._sendAttemptResponse(attempt);
+  }
+
+  async listTenantSendAttempts(tenantId) {
+    return [...this.state.sendAttempts.values()]
+      .filter((attempt) => attempt.tenantId === tenantId)
+      .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)))
+      .map((attempt) => this._sendAttemptResponse(attempt));
+  }
+
+  async getTenantSendAttempt(tenantId, sendAttemptId) {
+    const attempt = this.state.sendAttempts.get(sendAttemptId);
+    if (!attempt || attempt.tenantId !== tenantId) return null;
+    return this._sendAttemptResponse(attempt);
   }
 
   async recordUsage({ tenantId, agentId, endpoint, quantity = 1, requestId }) {
