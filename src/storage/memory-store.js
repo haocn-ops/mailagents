@@ -33,6 +33,7 @@ export class MemoryStore {
       messageParseResultsV2: new Map(),
       sendAttempts: new Map(),
       sendAttemptEvents: new Map(),
+      webhookDeliveries: [],
     };
   }
 
@@ -882,6 +883,21 @@ export class MemoryStore {
     if (!webhook) return null;
     webhook.lastDeliveryAt = new Date().toISOString();
     webhook.lastStatusCode = statusCode;
+    this.state.webhookDeliveries.unshift({
+      id: randomUUID(),
+      tenantId: webhook.tenantId,
+      webhookId,
+      eventType: metadata.event_type || null,
+      resourceId: metadata.resource_id || null,
+      attemptNumber: Number(metadata.attempts || 1),
+      deliveryStatus: metadata.ok ? "delivered" : "failed",
+      responseCode: statusCode,
+      responseExcerpt: metadata.response_excerpt || null,
+      errorMessage: metadata.error_message || null,
+      requestId,
+      deliveredAt: new Date().toISOString(),
+      createdAt: new Date().toISOString(),
+    });
     this._recordAudit({
       tenantId: webhook.tenantId,
       actorDid: "system:webhook",
@@ -967,23 +983,23 @@ export class MemoryStore {
   }
 
   async listTenantWebhookDeliveries({ tenantId, page, pageSize, webhookId = null }) {
-    let items = this.state.auditLogs
-      .filter((entry) => entry.tenantId === tenantId && entry.action === "webhook.deliver" && entry.resourceType === "webhook")
+    let items = this.state.webhookDeliveries
+      .filter((entry) => entry.tenantId === tenantId)
       .map((entry) => {
-        const webhook = this.state.webhooks.get(entry.resourceId);
+        const webhook = this.state.webhooks.get(entry.webhookId);
         return {
           delivery_log_id: entry.id,
-          webhook_id: entry.resourceId,
+          webhook_id: entry.webhookId,
           target_url: webhook?.targetUrl || null,
-          event_type: entry.metadata?.event_type || null,
-          status_code: entry.metadata?.status_code ?? null,
-          attempts: entry.metadata?.attempts ?? null,
-          ok: entry.metadata?.ok ?? null,
-          delivery_id: entry.metadata?.delivery_id || null,
-          error_message: entry.metadata?.error_message || null,
-          response_excerpt: entry.metadata?.response_excerpt || null,
+          event_type: entry.eventType,
+          status_code: entry.responseCode,
+          attempts: entry.attemptNumber,
+          ok: entry.deliveryStatus === "delivered",
+          delivery_id: null,
+          error_message: entry.errorMessage,
+          response_excerpt: entry.responseExcerpt,
           request_id: entry.requestId,
-          delivered_at: entry.createdAt,
+          delivered_at: entry.deliveredAt,
         };
       });
     if (webhookId) items = items.filter((item) => item.webhook_id === webhookId);
@@ -1484,24 +1500,23 @@ export class MemoryStore {
   }
 
   async adminListWebhookDeliveries({ page, pageSize, tenantId = null, webhookId = null }) {
-    let items = this.state.auditLogs
-      .filter((entry) => entry.action === "webhook.deliver" && entry.resourceType === "webhook")
+    let items = this.state.webhookDeliveries
       .map((entry) => {
-        const webhook = this.state.webhooks.get(entry.resourceId);
+        const webhook = this.state.webhooks.get(entry.webhookId);
         return {
           delivery_log_id: entry.id,
           tenant_id: entry.tenantId,
-          webhook_id: entry.resourceId,
+          webhook_id: entry.webhookId,
           target_url: webhook?.targetUrl || null,
-          event_type: entry.metadata?.event_type || null,
-          status_code: entry.metadata?.status_code ?? null,
-          attempts: entry.metadata?.attempts ?? null,
-          ok: entry.metadata?.ok ?? null,
-          delivery_id: entry.metadata?.delivery_id || null,
-          error_message: entry.metadata?.error_message || null,
-          response_excerpt: entry.metadata?.response_excerpt || null,
+          event_type: entry.eventType,
+          status_code: entry.responseCode,
+          attempts: entry.attemptNumber,
+          ok: entry.deliveryStatus === "delivered",
+          delivery_id: null,
+          error_message: entry.errorMessage,
+          response_excerpt: entry.responseExcerpt,
           request_id: entry.requestId,
-          delivered_at: entry.createdAt,
+          delivered_at: entry.deliveredAt,
         };
       });
     if (tenantId) items = items.filter((item) => item.tenant_id === tenantId);

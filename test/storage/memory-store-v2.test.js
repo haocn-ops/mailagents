@@ -85,3 +85,39 @@ test("memory store mirrors parse results into V2 parse tables", async () => {
   assert.equal(parseResults[0].otpCode, "123456");
   assert.equal(parseResults[0].parseStatus, "parsed");
 });
+
+test("memory store persists webhook deliveries in first-class V2 state", async () => {
+  const store = new MemoryStore({
+    chainId: 84532,
+    challengeTtlMs: 300000,
+    mailboxDomain: "inbox.example.com",
+  });
+  const { identity } = await seedMailboxLease(store);
+
+  const webhook = await store.createWebhook({
+    tenantId: identity.tenantId,
+    eventTypes: ["otp.extracted"],
+    targetUrl: "https://example.com/hook",
+    secret: "1234567890abcdef",
+  });
+
+  await store.recordWebhookDelivery(webhook.id, {
+    statusCode: 503,
+    requestId: "req-1",
+    metadata: {
+      event_type: "otp.extracted",
+      resource_id: "message-1",
+      attempts: 3,
+      ok: false,
+      error_message: "Webhook returned HTTP 503",
+      response_excerpt: "upstream down",
+    },
+  });
+
+  const deliveries = store.getStateForTests().webhookDeliveries;
+  assert.equal(deliveries.length, 1);
+  assert.equal(deliveries[0].webhookId, webhook.id);
+  assert.equal(deliveries[0].resourceId, "message-1");
+  assert.equal(deliveries[0].deliveryStatus, "failed");
+  assert.equal(deliveries[0].errorMessage, "Webhook returned HTTP 503");
+});

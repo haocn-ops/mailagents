@@ -21,6 +21,7 @@ export function createWebhookDeliveryJob({ store, webhookDispatcher }) {
       requestId: payload.requestId || null,
       metadata: {
         event_type: payload.eventPayload?.event_type || null,
+        resource_id: payload.eventPayload?.message_id || payload.eventPayload?.mailbox_id || webhook.id,
         delivery_id: delivery.deliveryId,
         attempts: delivery.attempts,
         ok: delivery.ok,
