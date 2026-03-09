@@ -1,8 +1,11 @@
 import { createJwt } from "../auth.js";
 import { buildHmacPaymentProof } from "../payment.js";
 import { createNonce } from "../utils.js";
+import { createV1SystemRepository } from "../v1/system-repository.js";
 
 export function createV1SystemService({ store, runtimeConfig, siweService, getOverageChargeUsdc }) {
+  const repository = createV1SystemRepository({ store });
+
   return {
     createPaymentProof({ proofMethod, proofPath }) {
       const nowSec = Math.floor(Date.now() / 1000);
@@ -28,7 +31,7 @@ export function createV1SystemService({ store, runtimeConfig, siweService, getOv
     async createSiweChallenge(walletAddress) {
       const nonce = createNonce();
       const message = await siweService.createChallengeMessage(walletAddress, nonce);
-      await store.saveChallenge(walletAddress, nonce, message);
+      await repository.saveChallenge(walletAddress, nonce, message);
       return { nonce, message };
     },
 
@@ -36,10 +39,10 @@ export function createV1SystemService({ store, runtimeConfig, siweService, getOv
       const parsed = await siweService.parseMessage(message);
       const walletAddress = parsed.address;
       const nonce = parsed.nonce;
-      const challenge = await store.getChallenge(walletAddress);
+      const challenge = await repository.getChallenge(walletAddress);
 
       if (!challenge || challenge.nonce !== nonce || challenge.message !== message) {
-        return { ok: false, code: "CHALLENGE_MISMATCH", message: "challenge mismatch or expired" };
+        return { ok: false, message: "challenge mismatch or expired" };
       }
 
       const verified = await siweService.verifySignature({
@@ -49,11 +52,11 @@ export function createV1SystemService({ store, runtimeConfig, siweService, getOv
         expectedNonce: nonce,
       });
       if (!verified.ok) {
-        return { ok: false, code: "INVALID_SIGNATURE", message: verified.message || "invalid signature" };
+        return { ok: false, message: verified.message || "invalid signature" };
       }
 
-      await store.consumeChallenge(walletAddress);
-      const identity = await store.getOrCreateIdentity(walletAddress);
+      await repository.consumeChallenge(walletAddress);
+      const identity = await repository.getOrCreateIdentity(walletAddress);
       const token = createJwt(
         {
           tenant_id: identity.tenantId,
