@@ -2,8 +2,8 @@ import { createJwt, verifyJwt } from "./auth.js";
 import { createAdminRouteHandler } from "./admin/index.js";
 import { createConfig } from "./config.js";
 import { createMailBackendAdapter } from "./mail-backend/index.js";
+import { createInternalRouteHandler } from "./internal/index.js";
 import { buildHmacPaymentProof, createPaymentVerifier } from "./payment.js";
-import { parseInboundContent } from "./parser.js";
 import { createSiweService } from "./siwe.js";
 import { renderAdminDashboardHtml } from "./admin-ui.js";
 import { renderAgentsGuideHtml } from "./agents-guide-ui.js";
@@ -97,6 +97,13 @@ export function createFetchApp(deps = {}) {
     "POST /v2/mailboxes/leases",
     "POST /v2/webhooks",
   ]);
+  const handleInternalRoute = createInternalRouteHandler({
+    store,
+    requireInternalAuth,
+    jsonResponse,
+    readJsonBody,
+    webhookDispatcher,
+  });
   const handleV2Route = createV2RouteHandler({
     store,
     mailBackend,
@@ -534,6 +541,8 @@ export function createFetchApp(deps = {}) {
 
       const adminResponse = await handleAdminRoute({ method, path, request, requestId, requestUrl });
       if (adminResponse) return adminResponse;
+      const internalResponse = await handleInternalRoute({ method, path, request, requestId, requestUrl });
+      if (internalResponse) return internalResponse;
 
       if (method === "POST" && path === "/v1/mailboxes/allocate") {
         const auth = await requireAuth(request, requestId);
@@ -1020,261 +1029,211 @@ export function createFetchApp(deps = {}) {
         return jsonResponse(200, { items }, requestId);
       }
 
-      if (method === "POST" && path === "/internal/inbound/events") {
-        const auth = requireInternalAuth(request, requestId);
+      if (path.startsWith("/v1/admin/")) {
+        const auth = await requireAdminAuth(request, requestId);
         if (!auth.ok) return auth.response;
+        const paging = parsePaging(requestUrl);
+        const actorDid = auth.actorDid;
 
-        const body = await readJsonBody(request);
-        const mailboxAddress = String(body.address || "").trim().toLowerCase();
-        const sender = String(body.sender || "").trim().toLowerCase();
-        const senderDomain = String(body.sender_domain || "").trim().toLowerCase();
-        const subject = String(body.subject || "").trim();
-        const providerMessageId = String(body.provider_message_id || "").trim() || null;
-        const rawRef = String(body.raw_ref || "").trim() || null;
-        const receivedAt = String(body.received_at || "").trim() || new Date().toISOString();
-        const textExcerpt = String(body.text_excerpt || "").trim() || null;
-        const htmlExcerpt = String(body.html_excerpt || "").trim() || null;
-        const htmlBody = String(body.html_body || "").trim() || null;
-        const headers = body.headers && typeof body.headers === "object" ? body.headers : {};
-
-        if (!mailboxAddress || !senderDomain) {
-          return jsonResponse(
-            400,
-            { error: "bad_request", message: "address and sender_domain are required" },
-            requestId,
-          );
+        if (method === "GET" && path === "/v1/admin/overview/metrics") {
+          const metrics = await store.adminOverviewMetrics();
+          return jsonResponse(200, metrics, requestId);
         }
 
-        const mailbox = await store.findMailboxByAddress(mailboxAddress);
-        if (!mailbox) {
-          return jsonResponse(404, { error: "not_found", message: "Mailbox not found" }, requestId);
-        }
-
-        const ingested = await store.ingestInboundMessage({
-          tenantId: mailbox.tenantId,
-          mailboxId: mailbox.id,
-          providerMessageId,
-          sender,
-          senderDomain,
-          subject,
-          rawRef,
-          receivedAt,
-          payload: {
-            headers,
-            text_excerpt: textExcerpt,
-            html_excerpt: htmlExcerpt,
-            html_body: htmlBody,
-          },
-          requestId,
-        });
-
-        const parsed = parseInboundContent({
-          subject,
-          textExcerpt,
-          htmlExcerpt,
-          htmlBody,
-        });
-        await store.applyMessageParseResult({
-          messageId: ingested.messageId,
-          otpCode: parsed.otpCode,
-          verificationLink: parsed.verificationLink,
-          payload: {
-            parser: "builtin",
-            source: "mailu-internal-event",
-            parser_status: parsed.parserStatus,
-          },
-          requestId,
-        });
-
-        const eventType = parsed.parsed ? "otp.extracted" : "mail.received";
-        const message = await store.getMessage(ingested.messageId);
-        const webhooks = await store.listActiveWebhooksByEvent(mailbox.tenantId, eventType);
-        for (const webhook of webhooks) {
-          const delivery = await webhookDispatcher.dispatch({
-            webhook,
-            payload: {
-              event_type: eventType,
-              tenant_id: mailbox.tenantId,
-              mailbox_id: mailbox.id,
-              message_id: ingested.messageId,
-              sender,
-              sender_domain: senderDomain,
-              subject,
-              received_at: receivedAt,
-              otp_code: parsed.otpCode,
-              verification_link: parsed.verificationLink,
-              message,
-            },
+        if (method === "GET" && path === "/v1/admin/overview/timeseries") {
+          const bucket = requestUrl.searchParams.get("bucket") || "hour";
+          if (!["minute", "hour", "day"].includes(bucket)) {
+            return jsonResponse(400, { error: "bad_request", message: "bucket must be minute, hour or day" }, requestId);
+          }
+          const points = await store.adminOverviewTimeseries({
+            from: requestUrl.searchParams.get("from"),
+            to: requestUrl.searchParams.get("to"),
+            bucket,
           });
-          await store.recordWebhookDelivery(webhook.id, {
-            statusCode: delivery.statusCode,
-            requestId,
-            metadata: {
-              event_type: eventType,
-              delivery_id: delivery.deliveryId,
-              attempts: delivery.attempts,
-              ok: delivery.ok,
-            },
+          return jsonResponse(200, points, requestId);
+        }
+
+        if (method === "GET" && path === "/v1/admin/tenants") {
+          if (!paging.ok) return jsonResponse(400, { error: "bad_request", message: paging.message }, requestId);
+          const status = requestUrl.searchParams.get("status");
+          const result = await store.adminListTenants({ page: paging.page, pageSize: paging.pageSize, status });
+          return jsonResponse(200, result, requestId);
+        }
+
+        if (path.startsWith("/v1/admin/tenants/")) {
+          const tenantId = path.replace("/v1/admin/tenants/", "").trim();
+          if (!tenantId) {
+            return jsonResponse(400, { error: "bad_request", message: "tenant_id is required" }, requestId);
+          }
+
+          if (method === "GET") {
+            const tenant = await store.adminGetTenant(tenantId);
+            if (!tenant) {
+              return jsonResponse(404, { error: "not_found", message: "Tenant not found" }, requestId);
+            }
+            return jsonResponse(200, tenant, requestId);
+          }
+
+          if (method === "PATCH") {
+            const body = await readJsonBody(request);
+            const tenant = await store.adminPatchTenant(tenantId, body, { actorDid, requestId });
+            if (!tenant) {
+              return jsonResponse(404, { error: "not_found", message: "Tenant not found" }, requestId);
+            }
+            return jsonResponse(200, tenant, requestId);
+          }
+        }
+
+        if (method === "GET" && path === "/v1/admin/mailboxes") {
+          if (!paging.ok) return jsonResponse(400, { error: "bad_request", message: paging.message }, requestId);
+          const result = await store.adminListMailboxes({
+            page: paging.page,
+            pageSize: paging.pageSize,
+            status: requestUrl.searchParams.get("status"),
+            tenantId: requestUrl.searchParams.get("tenant_id"),
           });
+          return jsonResponse(200, result, requestId);
         }
 
-        return jsonResponse(
-          202,
-          {
-            status: "accepted",
-            tenant_id: ingested.tenantId,
-            mailbox_id: ingested.mailboxId,
-            message_id: ingested.messageId,
-          },
-          requestId,
-        );
-      }
-
-      if (method === "POST" && path === "/internal/mailboxes/provision") {
-        const auth = requireInternalAuth(request, requestId);
-        if (!auth.ok) return auth.response;
-
-        const body = await readJsonBody(request);
-        const mailboxAddress = String(body.address || "").trim().toLowerCase();
-        const providerRef = String(body.provider_ref || "").trim() || null;
-        if (!mailboxAddress) {
-          return jsonResponse(400, { error: "bad_request", message: "address is required" }, requestId);
+        if (path.startsWith("/v1/admin/mailboxes/") && path.endsWith("/freeze") && method === "POST") {
+          const mailboxId = path.slice("/v1/admin/mailboxes/".length, -"/freeze".length);
+          const body = await readJsonBody(request);
+          if (!String(body.reason || "").trim()) {
+            return jsonResponse(400, { error: "bad_request", message: "reason is required" }, requestId);
+          }
+          const result = await store.adminFreezeMailbox(mailboxId, {
+            reason: String(body.reason).trim(),
+            actorDid,
+            requestId,
+          });
+          if (!result) {
+            return jsonResponse(404, { error: "not_found", message: "Mailbox not found" }, requestId);
+          }
+          return jsonResponse(200, result, requestId);
         }
 
-        const mailbox = await store.findMailboxByAddress(mailboxAddress);
-        if (!mailbox) {
-          return jsonResponse(404, { error: "not_found", message: "Mailbox not found" }, requestId);
+        if (path.startsWith("/v1/admin/mailboxes/") && path.endsWith("/release") && method === "POST") {
+          const mailboxId = path.slice("/v1/admin/mailboxes/".length, -"/release".length);
+          const result = await store.adminReleaseMailbox(mailboxId, { actorDid, requestId });
+          if (!result) {
+            return jsonResponse(404, { error: "not_found", message: "Mailbox not found" }, requestId);
+          }
+          return jsonResponse(200, result, requestId);
         }
 
-        if (providerRef) {
-          await store.saveMailboxProviderRef(mailbox.id, providerRef);
-        }
-        await store.recordMailboxBackendEvent({
-          tenantId: mailbox.tenantId,
-          mailboxId: mailbox.id,
-          action: "mailbox.backend_provisioned",
-          requestId,
-          metadata: { provider_ref: providerRef },
-        });
-
-        return jsonResponse(
-          202,
-          {
-            status: "accepted",
-            tenant_id: mailbox.tenantId,
-            mailbox_id: mailbox.id,
-            provider_ref: providerRef,
-          },
-          requestId,
-        );
-      }
-
-      if (method === "POST" && path === "/internal/mailboxes/release") {
-        const auth = requireInternalAuth(request, requestId);
-        if (!auth.ok) return auth.response;
-
-        const body = await readJsonBody(request);
-        const mailboxAddress = String(body.address || "").trim().toLowerCase();
-        const providerRef = String(body.provider_ref || "").trim() || null;
-        if (!mailboxAddress) {
-          return jsonResponse(400, { error: "bad_request", message: "address is required" }, requestId);
+        if (method === "GET" && path === "/v1/admin/messages") {
+          if (!paging.ok) return jsonResponse(400, { error: "bad_request", message: paging.message }, requestId);
+          const result = await store.adminListMessages({
+            page: paging.page,
+            pageSize: paging.pageSize,
+            mailboxId: requestUrl.searchParams.get("mailbox_id"),
+            parsedStatus: requestUrl.searchParams.get("parsed_status"),
+          });
+          return jsonResponse(200, result, requestId);
         }
 
-        const mailbox = await store.findMailboxByAddress(mailboxAddress);
-        if (!mailbox) {
-          return jsonResponse(404, { error: "not_found", message: "Mailbox not found" }, requestId);
+        if (path.startsWith("/v1/admin/messages/") && path.endsWith("/reparse") && method === "POST") {
+          const messageId = path.slice("/v1/admin/messages/".length, -"/reparse".length);
+          const result = await store.adminReparseMessage(messageId, { actorDid, requestId });
+          if (!result) {
+            return jsonResponse(404, { error: "not_found", message: "Message not found" }, requestId);
+          }
+          return jsonResponse(202, result, requestId);
         }
 
-        if (providerRef) {
-          await store.saveMailboxProviderRef(mailbox.id, providerRef);
-        }
-        await store.recordMailboxBackendEvent({
-          tenantId: mailbox.tenantId,
-          mailboxId: mailbox.id,
-          action: "mailbox.backend_released",
-          requestId,
-          metadata: { provider_ref: providerRef },
-        });
-
-        return jsonResponse(
-          202,
-          {
-            status: "accepted",
-            tenant_id: mailbox.tenantId,
-            mailbox_id: mailbox.id,
-            provider_ref: providerRef,
-          },
-          requestId,
-        );
-      }
-
-      if (method === "GET" && path.startsWith("/internal/mailboxes/")) {
-        const auth = requireInternalAuth(request, requestId);
-        if (!auth.ok) return auth.response;
-
-        const mailboxAddress = decodeURIComponent(path.replace("/internal/mailboxes/", "")).trim().toLowerCase();
-        if (!mailboxAddress) {
-          return jsonResponse(400, { error: "bad_request", message: "address is required" }, requestId);
+        if (path.startsWith("/v1/admin/messages/") && path.endsWith("/replay-webhook") && method === "POST") {
+          const messageId = path.slice("/v1/admin/messages/".length, -"/replay-webhook".length);
+          const result = await store.adminReplayMessageWebhook(messageId, { actorDid, requestId });
+          if (!result) {
+            return jsonResponse(404, { error: "not_found", message: "Message not found" }, requestId);
+          }
+          return jsonResponse(202, result, requestId);
         }
 
-        const mailbox = await store.findMailboxByAddress(mailboxAddress);
-        if (!mailbox) {
-          return jsonResponse(404, { error: "not_found", message: "Mailbox not found" }, requestId);
+        if (method === "GET" && path === "/v1/admin/webhooks") {
+          if (!paging.ok) return jsonResponse(400, { error: "bad_request", message: paging.message }, requestId);
+          const result = await store.adminListWebhooks({ page: paging.page, pageSize: paging.pageSize });
+          return jsonResponse(200, result, requestId);
         }
 
-        const lease = await store.getActiveLeaseByMailboxId(mailbox.id);
-        return jsonResponse(
-          200,
-          {
-            mailbox_id: mailbox.id,
-            tenant_id: mailbox.tenantId,
-            address: mailbox.address,
-            status: mailbox.status,
-            provider_ref: mailbox.providerRef || null,
-            active_lease: lease
-              ? {
-                  lease_id: lease.id,
-                  agent_id: lease.agentId,
-                  purpose: lease.purpose,
-                  status: lease.status,
-                  started_at: lease.startedAt,
-                  expires_at: lease.expiresAt,
-                }
-              : null,
-          },
-          requestId,
-        );
-      }
-
-      if (method === "GET" && path.startsWith("/internal/messages/")) {
-        const auth = requireInternalAuth(request, requestId);
-        if (!auth.ok) return auth.response;
-
-        const messageId = decodeURIComponent(path.replace("/internal/messages/", "")).trim();
-        if (!messageId) {
-          return jsonResponse(400, { error: "bad_request", message: "message_id is required" }, requestId);
+        if (path.startsWith("/v1/admin/webhooks/") && path.endsWith("/replay") && method === "POST") {
+          const webhookId = path.slice("/v1/admin/webhooks/".length, -"/replay".length);
+          const body = await readJsonBody(request);
+          const result = await store.adminReplayWebhook(webhookId, {
+            from: body.from,
+            to: body.to,
+            actorDid,
+            requestId,
+          });
+          if (!result) {
+            return jsonResponse(404, { error: "not_found", message: "Webhook not found" }, requestId);
+          }
+          return jsonResponse(202, result, requestId);
         }
 
-        const message = await store.getMessage(messageId);
-        if (!message) {
-          return jsonResponse(404, { error: "not_found", message: "Message not found" }, requestId);
+        if (path.startsWith("/v1/admin/webhooks/") && path.endsWith("/rotate-secret") && method === "POST") {
+          const webhookId = path.slice("/v1/admin/webhooks/".length, -"/rotate-secret".length);
+          const result = await store.adminRotateWebhookSecret(webhookId, { actorDid, requestId });
+          if (!result) {
+            return jsonResponse(404, { error: "not_found", message: "Webhook not found" }, requestId);
+          }
+          return jsonResponse(200, result, requestId);
         }
 
-        return jsonResponse(
-          200,
-          {
-            message_id: message.messageId,
-            tenant_id: message.tenantId,
-            mailbox_id: message.mailboxId,
-            provider_message_id: message.providerMessageId || null,
-            sender: message.sender,
-            sender_domain: message.senderDomain,
-            subject: message.subject,
-            raw_ref: message.rawRef || null,
-            received_at: message.receivedAt,
-          },
-          requestId,
-        );
+        if (method === "GET" && path === "/v1/admin/invoices") {
+          if (!paging.ok) return jsonResponse(400, { error: "bad_request", message: paging.message }, requestId);
+          const result = await store.adminListInvoices({
+            page: paging.page,
+            pageSize: paging.pageSize,
+            period: requestUrl.searchParams.get("period"),
+          });
+          return jsonResponse(200, result, requestId);
+        }
+
+        if (path.startsWith("/v1/admin/invoices/") && path.endsWith("/issue") && method === "POST") {
+          const invoiceId = path.slice("/v1/admin/invoices/".length, -"/issue".length);
+          const result = await store.adminIssueInvoice(invoiceId, { actorDid, requestId });
+          if (!result) {
+            return jsonResponse(404, { error: "not_found", message: "Invoice not found" }, requestId);
+          }
+          return jsonResponse(200, result, requestId);
+        }
+
+        if (method === "GET" && path === "/v1/admin/risk/events") {
+          if (!paging.ok) return jsonResponse(400, { error: "bad_request", message: paging.message }, requestId);
+          const result = await store.adminListRiskEvents({ page: paging.page, pageSize: paging.pageSize });
+          return jsonResponse(200, result, requestId);
+        }
+
+        if (method === "POST" && path === "/v1/admin/risk/policies") {
+          const body = await readJsonBody(request);
+          const policyType = String(body.policy_type || "");
+          const value = String(body.value || "");
+          const action = String(body.action || "");
+          if (!policyType || !value || !action) {
+            return jsonResponse(400, { error: "bad_request", message: "policy_type, value and action are required" }, requestId);
+          }
+          const result = await store.adminUpsertRiskPolicy({
+            policyType,
+            value,
+            action,
+            actorDid,
+            requestId,
+          });
+          return jsonResponse(200, result, requestId);
+        }
+
+        if (method === "GET" && path === "/v1/admin/audit/logs") {
+          if (!paging.ok) return jsonResponse(400, { error: "bad_request", message: paging.message }, requestId);
+          const result = await store.adminListAuditLogs({
+            page: paging.page,
+            pageSize: paging.pageSize,
+            requestId: requestUrl.searchParams.get("request_id"),
+            tenantId: requestUrl.searchParams.get("tenant_id"),
+            actorDid: requestUrl.searchParams.get("actor_did"),
+          });
+          return jsonResponse(200, result, requestId);
+        }
       }
 
       return jsonResponse(404, { error: "not_found", message: "Route not found" }, requestId);

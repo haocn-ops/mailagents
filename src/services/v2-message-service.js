@@ -1,7 +1,9 @@
 import { createV2TenantReadModels } from "../v2/tenant-read-models.js";
+import { createV2TenantCommands } from "../v2/tenant-commands.js";
 
 export function createV2MessageService({ store, mailBackend }) {
   const readModels = createV2TenantReadModels({ store });
+  const commands = createV2TenantCommands({ store, mailBackend });
 
   return {
     async listMessages({ tenantId, mailboxId, since, limit }) {
@@ -13,48 +15,17 @@ export function createV2MessageService({ store, mailBackend }) {
     },
 
     async sendMessage({ tenantId, agentId, mailboxId, mailboxPassword, recipients, subject, text, html, requestId }) {
-      const mailbox = await store.getTenantMailbox(tenantId, mailboxId);
-      if (!mailbox) return null;
-
-      const attempt = await store.createSendAttempt({
+      return commands.sendMessage({
         tenantId,
         agentId,
         mailboxId,
-        to: recipients,
+        mailboxPassword,
+        recipients,
         subject,
         text,
         html,
         requestId,
       });
-
-      try {
-        const delivery = await mailBackend.sendMailboxMessage({
-          tenantId,
-          agentId,
-          mailboxId,
-          address: mailbox.address,
-          password: mailboxPassword,
-          to: recipients,
-          subject,
-          text,
-          html,
-        });
-        await store.completeSendAttempt(attempt.send_attempt_id, delivery, { requestId });
-      } catch (err) {
-        await store.failSendAttempt(attempt.send_attempt_id, err.message || "Mail backend send failed", { requestId });
-        err.sendAttemptId = attempt.send_attempt_id;
-        throw err;
-      }
-
-      const completedAttempt = await store.getTenantSendAttempt(tenantId, attempt.send_attempt_id);
-      return {
-        send_attempt_id: completedAttempt?.send_attempt_id || attempt.send_attempt_id,
-        submission_status: completedAttempt?.submission_status || "accepted",
-        accepted: completedAttempt?.accepted || [],
-        rejected: completedAttempt?.rejected || [],
-        message_id: completedAttempt?.message_id || null,
-        response: completedAttempt?.response || null,
-      };
     },
 
     async listSendAttempts(tenantId) {
