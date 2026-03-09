@@ -1,9 +1,12 @@
 import { parsePeriod } from "../utils.js";
+import { createV1TenantRepository } from "../v1/repository.js";
 
 export function createV1WebhookService({ store }) {
+  const repository = createV1TenantRepository({ store });
+
   return {
     async createWebhook({ tenantId, eventTypes, targetUrl, secret }) {
-      const webhook = await store.createWebhook({
+      const webhook = await repository.createWebhook({
         tenantId,
         eventTypes,
         targetUrl,
@@ -19,14 +22,14 @@ export function createV1WebhookService({ store }) {
     },
 
     async listWebhooks(tenantId) {
-      return store.listTenantWebhooks(tenantId);
+      return repository.listTenantWebhooks(tenantId);
     },
 
     async getUsageSummary(tenantId, period) {
       const parsed = parsePeriod(period);
       if (!parsed) return null;
 
-      const summary = await store.usageSummary(tenantId, parsed.start, parsed.end);
+      const summary = await repository.usageSummary(tenantId, parsed.start, parsed.end);
       return {
         period,
         api_calls: summary.api_calls,
@@ -37,7 +40,7 @@ export function createV1WebhookService({ store }) {
     },
 
     async getInvoice(tenantId, invoiceId) {
-      const invoice = await store.getInvoice(invoiceId, tenantId);
+      const invoice = await repository.getInvoice(invoiceId, tenantId);
       if (!invoice) return null;
 
       return {
@@ -53,7 +56,7 @@ export function createV1WebhookService({ store }) {
     },
 
     async listInvoices(tenantId, period) {
-      return store.listTenantInvoices(tenantId, period);
+      return repository.listTenantInvoices(tenantId, period);
     },
   };
 }

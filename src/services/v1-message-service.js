@@ -1,7 +1,11 @@
+import { createV1TenantRepository } from "../v1/repository.js";
+
 export function createV1MessageService({ store, mailBackend }) {
+  const repository = createV1TenantRepository({ store });
+
   return {
     async getLatestMessages({ tenantId, mailboxId, since, limit }) {
-      return store.getLatestMessages({
+      return repository.getLatestMessages({
         tenantId,
         mailboxId,
         since,
@@ -10,7 +14,7 @@ export function createV1MessageService({ store, mailBackend }) {
     },
 
     async sendMessage({ tenantId, agentId, mailboxId, recipients, subject, text, html, mailboxPassword }) {
-      const mailbox = await store.getTenantMailbox(tenantId, mailboxId);
+      const mailbox = await repository.getTenantMailbox(tenantId, mailboxId);
       if (!mailbox) return null;
 
       const delivery = await mailBackend.sendMailboxMessage({
@@ -37,7 +41,7 @@ export function createV1MessageService({ store, mailBackend }) {
     },
 
     async getMessageDetail(tenantId, messageId) {
-      return store.getTenantMessageDetail(tenantId, messageId);
+      return repository.getTenantMessageDetail(tenantId, messageId);
     },
   };
 }
