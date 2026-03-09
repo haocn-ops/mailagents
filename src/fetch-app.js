@@ -1,71 +1,30 @@
-import { verifyJwt } from "./auth.js";
 import { createAdminRouteHandler } from "./admin/index.js";
 import { createConfig } from "./config.js";
+import { chargeRequiredResponse, jsonResponse, parsePaging, readJsonBody } from "./http-helpers.js";
 import { createMailBackendAdapter } from "./mail-backend/index.js";
 import { createPaymentVerifier } from "./payment.js";
 import { createInternalRouteHandler } from "./internal/index.js";
+import { createRequestAuth } from "./request-auth.js";
+import { createRuntimeSettingsManager } from "./runtime-settings.js";
 import { createSiweService } from "./siwe.js";
 import { renderAdminDashboardHtml } from "./admin-ui.js";
 import { renderAgentsGuideHtml } from "./agents-guide-ui.js";
 import { renderUserAppHtml } from "./user-ui.js";
 import { getDefaultStore } from "./store.js";
-import { createRequestId, parseBearerToken } from "./utils.js";
+import { createRequestId } from "./utils.js";
 import { createV1RouteHandler } from "./v1/index.js";
 import { createV1SystemRouteHandler } from "./v1/system-routes.js";
 import { createV2RouteHandler } from "./v2/index.js";
 import { createWebhookDispatcher } from "./webhook-dispatcher.js";
 
-function jsonResponse(status, payload, requestId) {
-  const headers = new Headers({
-    "content-type": "application/json; charset=utf-8",
-    "x-request-id": requestId,
-  });
-  return new Response(JSON.stringify(payload), { status, headers });
-}
-
-function parsePaging(requestUrl) {
-  const page = Number(requestUrl.searchParams.get("page") || "1");
-  const pageSize = Number(requestUrl.searchParams.get("page_size") || "20");
-  if (!Number.isInteger(page) || page < 1) {
-    return { ok: false, message: "page must be >= 1" };
-  }
-  if (!Number.isInteger(pageSize) || pageSize < 1 || pageSize > 200) {
-    return { ok: false, message: "page_size must be 1..200" };
-  }
-  return { ok: true, page, pageSize };
-}
-
-function chargeRequiredResponse(requestId, amountUsdc, reasons) {
-  return jsonResponse(
-    402,
-    {
-      error: "payment_required",
-      message: "Free limit reached; payment is required to continue",
-      amount_usdc: amountUsdc,
-      reasons,
-    },
-    requestId,
-  );
-}
-
-async function readJsonBody(request) {
-  const text = await request.text();
-  if (!text) return {};
-  try {
-    return JSON.parse(text);
-  } catch {
-    throw new Error("Invalid JSON");
-  }
-}
-
 export function createFetchApp(deps = {}) {
   const runtimeConfig = deps.config || createConfig(process.env);
-  const runtimeSettings = {
-    overageChargeUsdc: Number(runtimeConfig.overageChargeUsdc || 0.001),
-    agentAllocateHourlyLimit: Number(runtimeConfig.agentAllocateHourlyLimit || 0),
-  };
-  let runtimeSettingsLoaded = false;
   const store = deps.store || getDefaultStore();
+  const runtimeSettings = createRuntimeSettingsManager({
+    store,
+    overageChargeUsdc: runtimeConfig.overageChargeUsdc,
+    agentAllocateHourlyLimit: runtimeConfig.agentAllocateHourlyLimit,
+  });
   const paymentVerifier =
     deps.paymentVerifier ||
     createPaymentVerifier({
@@ -99,6 +58,17 @@ export function createFetchApp(deps = {}) {
     "POST /v2/mailboxes/leases",
     "POST /v2/webhooks",
   ]);
+  const requestAuth = createRequestAuth({
+    store,
+    runtimeConfig,
+    paymentVerifier,
+    jsonResponse,
+    chargeRequiredResponse,
+    paidBypassTargets,
+    getOverageChargeUsdc,
+    getAgentAllocateHourlyLimit,
+  });
+  const { requireAuth, requireAdminAuth, requireInternalAuth, evaluateAccess } = requestAuth;
   const handleInternalRoute = createInternalRouteHandler({
     store,
     requireInternalAuth,
@@ -124,14 +94,7 @@ export function createFetchApp(deps = {}) {
     getOverageChargeUsdc,
     getAgentAllocateHourlyLimit,
     async updateRuntimeSettings({ overageChargeUsdc, agentAllocateHourlyLimit }) {
-      runtimeSettings.overageChargeUsdc = overageChargeUsdc;
-      runtimeSettings.agentAllocateHourlyLimit = agentAllocateHourlyLimit;
-      if (typeof store.updateRuntimeSettings === "function") {
-        await store.updateRuntimeSettings({
-          overage_charge_usdc: runtimeSettings.overageChargeUsdc,
-          agent_allocate_hourly_limit: runtimeSettings.agentAllocateHourlyLimit,
-        });
-      }
+      await runtimeSettings.update({ overageChargeUsdc, agentAllocateHourlyLimit });
     },
   });
   const handleV1Route = createV1RouteHandler({
@@ -155,214 +118,11 @@ export function createFetchApp(deps = {}) {
   });
 
   function getOverageChargeUsdc() {
-    return Number(runtimeSettings.overageChargeUsdc || 0);
+    return runtimeSettings.getOverageChargeUsdc();
   }
 
   function getAgentAllocateHourlyLimit() {
-    return Number(runtimeSettings.agentAllocateHourlyLimit || 0);
-  }
-
-  async function ensureRuntimeSettingsLoaded() {
-    if (runtimeSettingsLoaded) return;
-    if (typeof store.getRuntimeSettings !== "function") return;
-    const persisted = await store.getRuntimeSettings();
-    if (persisted?.overage_charge_usdc != null) {
-      runtimeSettings.overageChargeUsdc = Number(persisted.overage_charge_usdc);
-    }
-    if (persisted?.agent_allocate_hourly_limit != null) {
-      runtimeSettings.agentAllocateHourlyLimit = Number(persisted.agent_allocate_hourly_limit);
-    }
-    runtimeSettingsLoaded = true;
-  }
-
-  async function requireAuth(request, requestId) {
-    const token = parseBearerToken(request.headers.get("authorization"));
-    if (!token) {
-      return {
-        ok: false,
-        response: jsonResponse(401, { error: "unauthorized", message: "Unauthorized" }, requestId),
-      };
-    }
-
-    try {
-      const payload = verifyJwt(token, runtimeConfig.jwtSecret);
-      const ctx = await store.findTenantContext(payload.tenant_id, payload.agent_id);
-      if (!ctx) {
-        return {
-          ok: false,
-          response: jsonResponse(
-            403,
-            { error: "forbidden", message: "Tenant/agent context not found" },
-            requestId,
-          ),
-        };
-      }
-      if (ctx.tenant?.status && ctx.tenant.status !== "active") {
-        return {
-          ok: false,
-          response: jsonResponse(
-            403,
-            { error: "tenant_inactive", message: `Tenant is ${ctx.tenant.status}` },
-            requestId,
-          ),
-        };
-      }
-      if (ctx.agent?.status && ctx.agent.status !== "active") {
-        return {
-          ok: false,
-          response: jsonResponse(
-            403,
-            { error: "agent_inactive", message: `Agent is ${ctx.agent.status}` },
-            requestId,
-          ),
-        };
-      }
-      return { ok: true, payload };
-    } catch (err) {
-      return {
-        ok: false,
-        response: jsonResponse(401, { error: "unauthorized", message: err.message }, requestId),
-      };
-    }
-  }
-
-  function requireInternalAuth(request, requestId) {
-    if (!runtimeConfig.internalApiToken) {
-      return {
-        ok: false,
-        response: jsonResponse(
-          500,
-          { error: "internal_api_unconfigured", message: "INTERNAL_API_TOKEN is not configured" },
-          requestId,
-        ),
-      };
-    }
-
-    const token =
-      parseBearerToken(request.headers.get("authorization")) || request.headers.get("x-internal-token");
-    if (!token || token !== runtimeConfig.internalApiToken) {
-      return {
-        ok: false,
-        response: jsonResponse(401, { error: "unauthorized", message: "Invalid internal token" }, requestId),
-      };
-    }
-    return { ok: true };
-  }
-
-  async function requireAdminAuth(request, requestId) {
-    if (runtimeConfig.adminApiToken) {
-      const token =
-        parseBearerToken(request.headers.get("authorization")) || request.headers.get("x-admin-token");
-      if (!token || token !== runtimeConfig.adminApiToken) {
-        return {
-          ok: false,
-          response: jsonResponse(401, { error: "unauthorized", message: "Invalid admin token" }, requestId),
-        };
-      }
-      return { ok: true, actorDid: "system:admin-token" };
-    }
-
-    const auth = await requireAuth(request, requestId);
-    if (!auth.ok) return auth;
-    return { ok: true, actorDid: auth.payload.did, payload: auth.payload };
-  }
-
-  function requirePayment(request, requestId) {
-    const result = paymentVerifier.verify(request);
-    if (!result.ok) {
-      return {
-        ok: false,
-        response: jsonResponse(402, { error: result.code, message: result.message }, requestId),
-      };
-    }
-    return { ok: true };
-  }
-
-  async function evaluateAccess({
-    request,
-    requestId,
-    tenantId,
-    agentId,
-    endpoint,
-    checkAllocateHourly = false,
-    allocateHourlyEndpoints = ["POST /v1/mailboxes/allocate"],
-  }) {
-    const tenantPolicy = await store.getTenantPolicy(tenantId);
-    if (!tenantPolicy) {
-      return {
-        ok: false,
-        response: jsonResponse(403, { error: "forbidden", message: "Tenant not found" }, requestId),
-      };
-    }
-
-    if (tenantPolicy.status !== "active") {
-      return {
-        ok: false,
-        response: jsonResponse(403, { error: "tenant_inactive", message: `Tenant is ${tenantPolicy.status}` }, requestId),
-      };
-    }
-
-    const reasons = [];
-    const now = Date.now();
-    const qpsLimit = Number(tenantPolicy.quotas?.qps || 0);
-    if (qpsLimit > 0) {
-      const recentCalls = await store.countTenantUsageSince(tenantId, new Date(now - 1000));
-      if (recentCalls >= qpsLimit) {
-        reasons.push({
-          code: "tenant_qps",
-          limit: qpsLimit,
-          window: "1s",
-        });
-      }
-    }
-
-    const hourlyAllocateLimit = getAgentAllocateHourlyLimit();
-    if (checkAllocateHourly && hourlyAllocateLimit > 0) {
-      let recentAllocations = 0;
-      for (const allocateEndpoint of allocateHourlyEndpoints) {
-        recentAllocations += await store.countAgentEndpointUsageSince(
-          tenantId,
-          agentId,
-          allocateEndpoint,
-          new Date(now - 3600 * 1000),
-        );
-      }
-      if (recentAllocations >= hourlyAllocateLimit) {
-        reasons.push({
-          code: "agent_allocate_hourly",
-          limit: hourlyAllocateLimit,
-          window: "1h",
-        });
-      }
-    }
-
-    if (!reasons.length) {
-      return { ok: true, requiresCharge: false, reasons: [] };
-    }
-
-    if (!paidBypassTargets.has(endpoint)) {
-      return {
-        ok: false,
-        response: jsonResponse(429, { error: "rate_limited", message: "Rate limit exceeded", reasons }, requestId),
-      };
-    }
-
-    const pay = requirePayment(request, requestId);
-    if (!pay.ok) {
-      return {
-        ok: false,
-        response:
-          pay.response?.status === 402
-            ? chargeRequiredResponse(requestId, getOverageChargeUsdc(), reasons)
-            : pay.response,
-      };
-    }
-
-    return {
-      ok: true,
-      requiresCharge: true,
-      reasons,
-    };
+    return runtimeSettings.getAgentAllocateHourlyLimit();
   }
 
   return async function handleRequest(request) {
@@ -372,7 +132,7 @@ export function createFetchApp(deps = {}) {
     const path = requestUrl.pathname;
 
     try {
-      await ensureRuntimeSettingsLoaded();
+      await runtimeSettings.ensureLoaded();
 
       if (method === "GET" && path === "/healthz") {
         return jsonResponse(200, { status: "ok", service: "agent-mail-cloud" }, requestId);
