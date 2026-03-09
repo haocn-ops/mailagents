@@ -14,6 +14,10 @@ export function createV2WebhookService({ store }) {
       return readModels.listWebhooks(tenantId);
     },
 
+    async getWebhook(tenantId, webhookId) {
+      return readModels.getWebhook(tenantId, webhookId);
+    },
+
     async rotateWebhookSecret({ tenantId, webhookId, actorDid, requestId }) {
       return commands.rotateWebhookSecret({ tenantId, webhookId, actorDid, requestId });
     },

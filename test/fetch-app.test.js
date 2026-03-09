@@ -469,6 +469,18 @@ test("fetch app exposes v2 webhook, usage, and billing endpoints", async () => {
   assert.equal(webhooks.items.length, 1);
   assert.equal(webhooks.items[0].webhook_id, createdWebhook.webhook_id);
 
+  const webhookDetailRes = await app(
+    new Request(`http://localhost/v2/webhooks/${createdWebhook.webhook_id}`, {
+      method: "GET",
+      headers: { authorization: `Bearer ${verify.access_token}` },
+    }),
+  );
+  assert.equal(webhookDetailRes.status, 200);
+  const webhookDetail = await webhookDetailRes.json();
+  assert.equal(webhookDetail.webhook_id, createdWebhook.webhook_id);
+  assert.equal(webhookDetail.target_url, createdWebhook.target_url);
+  assert.equal(webhookDetail.last_delivery_at, null);
+
   const usageRes = await app(
     new Request("http://localhost/v2/usage/summary?period=2026-03", {
       method: "GET",
@@ -567,6 +579,18 @@ test("fetch app exposes v2 webhook rotate-secret and delivery history endpoints"
   assert.ok(deliveries.items.length >= 1);
   assert.equal(deliveries.items[0].webhook_id, webhook.webhook_id);
 
+  const webhookDetailRes = await app(
+    new Request(`http://localhost/v2/webhooks/${webhook.webhook_id}`, {
+      method: "GET",
+      headers: { authorization: `Bearer ${verify.access_token}` },
+    }),
+  );
+  assert.equal(webhookDetailRes.status, 200);
+  const webhookDetail = await webhookDetailRes.json();
+  assert.equal(webhookDetail.webhook_id, webhook.webhook_id);
+  assert.equal(webhookDetail.last_status_code, deliveries.items[0].status_code);
+  assert.ok(webhookDetail.last_delivery_at);
+
   const rotateRes = await app(
     new Request(`http://localhost/v2/webhooks/${webhook.webhook_id}/rotate-secret`, {
       method: "POST",
@@ -619,6 +643,18 @@ test("fetch app exposes v2 mailbox accounts and leases endpoints", async () => {
   const leases = await leasesRes.json();
   assert.equal(leases.items.length, 1);
   assert.equal(leases.items[0].lease_id, createdLease.lease_id);
+
+  const leaseDetailRes = await app(
+    new Request(`http://localhost/v2/mailboxes/leases/${createdLease.lease_id}`, {
+      method: "GET",
+      headers: { authorization: `Bearer ${verify.access_token}` },
+    }),
+  );
+  assert.equal(leaseDetailRes.status, 200);
+  const leaseDetail = await leaseDetailRes.json();
+  assert.equal(leaseDetail.lease_id, createdLease.lease_id);
+  assert.equal(leaseDetail.account_id, createdLease.account_id);
+  assert.equal(leaseDetail.address, createdLease.address);
 
   const resetRes = await app(
     new Request(`http://localhost/v2/mailboxes/accounts/${createdLease.account_id}/credentials/reset`, {
@@ -769,6 +805,67 @@ test("fetch app exposes v2 messages and send attempt endpoints", async () => {
   const attemptDetail = await attemptDetailRes.json();
   assert.equal(attemptDetail.send_attempt_id, send.send_attempt_id);
   assert.equal(attemptDetail.submission_status, "accepted");
+});
+
+test("fetch app records v2 message reads under v2 usage semantics", async () => {
+  const app = makeApp();
+  const verify = await issueToken(app, "0xabc0000000000000000000000000000000000a15");
+
+  const allocateRes = await app(
+    new Request("http://localhost/v1/mailboxes/allocate", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${verify.access_token}`,
+      },
+      body: JSON.stringify({ agent_id: verify.agent_id, purpose: "v2-usage-messages", ttl_hours: 1 }),
+    }),
+  );
+  assert.equal(allocateRes.status, 200);
+  const allocation = await allocateRes.json();
+
+  const inboundRes = await app(
+    new Request("http://localhost/internal/inbound/events", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-internal-token": "internal-secret",
+      },
+      body: JSON.stringify({
+        address: allocation.address,
+        sender: "usage@example.com",
+        sender_domain: "example.com",
+        subject: "Usage test",
+        provider_message_id: "provider-v2-usage-1",
+        received_at: "2026-03-09T00:00:00.000Z",
+        text_excerpt: "Verification code is 654321",
+      }),
+    }),
+  );
+  assert.equal(inboundRes.status, 202);
+
+  const messagesRes = await app(
+    new Request(`http://localhost/v2/messages?mailbox_id=${allocation.mailbox_id}&limit=20`, {
+      method: "GET",
+      headers: { authorization: `Bearer ${verify.access_token}` },
+    }),
+  );
+  assert.equal(messagesRes.status, 200);
+
+  const summaryRes = await app(
+    new Request("http://localhost/v2/usage/summary?period=2026-03", {
+      method: "GET",
+      headers: { authorization: `Bearer ${verify.access_token}` },
+    }),
+  );
+  assert.equal(summaryRes.status, 200);
+  const summary = await summaryRes.json();
+  assert.ok(summary.usage.message_parses >= 1);
+  assert.ok(
+    app.store.state.usageRecords.some(
+      (record) => record.endpoint === "GET /v2/messages" && record.tenantId === verify.tenant_id,
+    ),
+  );
 });
 
 test("fetch app issues webmail credentials for an existing tenant mailbox", async () => {

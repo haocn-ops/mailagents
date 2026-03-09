@@ -4,6 +4,7 @@ import {
   toV2MailboxAccount,
   toV2MailboxLease,
   toV2Message,
+  toV2SendAttempt,
 } from "./presenters.js";
 
 export function createV2TenantReadModels({ store }) {
@@ -31,6 +32,17 @@ export function createV2TenantReadModels({ store }) {
       return items;
     },
 
+    async getMailboxLease(tenantId, leaseId) {
+      const lease = await mailboxRepository.getTenantLeaseById(tenantId, leaseId);
+      if (!lease) return null;
+      const mailbox = await mailboxRepository.getTenantMailbox(tenantId, lease.mailboxId);
+      if (!mailbox) return null;
+      return toV2MailboxLease({
+        mailbox_id: mailbox.id,
+        address: mailbox.address,
+      }, lease);
+    },
+
     async listMessages({ tenantId, mailboxId, since, limit }) {
       const messages = await messageRepository.getLatestMessages({ tenantId, mailboxId, since, limit });
       if (messages === null) return null;
@@ -44,11 +56,14 @@ export function createV2TenantReadModels({ store }) {
     },
 
     async listSendAttempts(tenantId) {
-      return messageRepository.listTenantSendAttempts(tenantId);
+      const attempts = await messageRepository.listTenantSendAttempts(tenantId);
+      return attempts.map(toV2SendAttempt);
     },
 
     async getSendAttempt(tenantId, sendAttemptId) {
-      return messageRepository.getTenantSendAttempt(tenantId, sendAttemptId);
+      const attempt = await messageRepository.getTenantSendAttempt(tenantId, sendAttemptId);
+      if (!attempt) return null;
+      return toV2SendAttempt(attempt);
     },
   };
 }

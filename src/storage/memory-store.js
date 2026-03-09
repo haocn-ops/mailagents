@@ -971,7 +971,7 @@ export class MemoryStore {
     );
 
     const messageParses = records
-      .filter((r) => r.endpoint === "GET /v1/messages/latest")
+      .filter((r) => r.endpoint === "GET /v1/messages/latest" || r.endpoint === "GET /v2/messages")
       .reduce((acc, curr) => acc + Number(curr.quantity), 0);
 
     return {

@@ -157,6 +157,13 @@ components:
           format: uri
         status:
           type: string
+        last_delivery_at:
+          type: string
+          format: date-time
+          nullable: true
+        last_status_code:
+          type: integer
+          nullable: true
     UsageSummary:
       type: object
       required: [period, usage]
@@ -290,6 +297,22 @@ paths:
       responses:
         '201':
           description: Webhook created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Webhook'
+  /v2/webhooks/{webhook_id}:
+    get:
+      summary: Get webhook detail for the current tenant
+      parameters:
+        - in: path
+          name: webhook_id
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Webhook detail
           content:
             application/json:
               schema:

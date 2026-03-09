@@ -51,6 +51,7 @@ export function createFetchApp(deps = {}) {
     "POST /v1/mailboxes/allocate",
     "POST /v1/messages/send",
     "GET /v1/messages/latest",
+    "GET /v2/messages",
     "POST /v2/messages/send",
     "POST /v1/webhooks",
     "POST /v2/mailboxes/leases",
