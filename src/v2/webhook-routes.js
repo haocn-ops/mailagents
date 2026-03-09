@@ -1,4 +1,5 @@
 import { createWebhookService } from "../services/webhook-service.js";
+import { createV2Metering } from "./metering.js";
 
 export function createV2WebhookRouteHandler({
   store,
@@ -9,6 +10,7 @@ export function createV2WebhookRouteHandler({
   getOverageChargeUsdc,
 }) {
   const webhookService = createWebhookService({ store });
+  const metering = createV2Metering({ store, getOverageChargeUsdc });
 
   return async function handleV2WebhookRoute({ method, path, request, requestId, requestUrl }) {
     if (!path.startsWith("/v2/webhooks") && !path.startsWith("/v2/usage") && !path.startsWith("/v2/billing")) return null;
@@ -49,23 +51,13 @@ export function createV2WebhookRouteHandler({
         secret,
       });
 
-      await store.recordUsage({
+      await metering.recordUsageAndCharge({
         tenantId: auth.payload.tenant_id,
         agentId: auth.payload.agent_id,
         endpoint: "POST /v2/webhooks",
-        quantity: 1,
         requestId,
+        access,
       });
-      if (access.requiresCharge) {
-        await store.recordOverageCharge({
-          tenantId: auth.payload.tenant_id,
-          agentId: auth.payload.agent_id,
-          endpoint: "POST /v2/webhooks",
-          reasons: access.reasons,
-          amountUsdc: getOverageChargeUsdc(),
-          requestId,
-        });
-      }
 
       return jsonResponse(
         201,

@@ -1,4 +1,5 @@
 import { createMailboxService } from "../services/mailbox-service.js";
+import { createV2Metering } from "./metering.js";
 
 export function createV2MailboxRouteHandler({
   store,
@@ -10,6 +11,7 @@ export function createV2MailboxRouteHandler({
   getOverageChargeUsdc,
 }) {
   const mailboxService = createMailboxService({ store, mailBackend });
+  const metering = createV2Metering({ store, getOverageChargeUsdc });
 
   return async function handleV2MailboxRoute({ method, path, request, requestId }) {
     if (!path.startsWith("/v2/mailboxes/")) return null;
@@ -73,23 +75,13 @@ export function createV2MailboxRouteHandler({
         return jsonResponse(409, { error: "no_available_mailbox", message: "No available mailbox for current tenant" }, requestId);
       }
 
-      await store.recordUsage({
+      await metering.recordUsageAndCharge({
         tenantId: auth.payload.tenant_id,
         agentId: auth.payload.agent_id,
         endpoint: "POST /v2/mailboxes/leases",
-        quantity: 1,
         requestId,
+        access,
       });
-      if (access.requiresCharge) {
-        await store.recordOverageCharge({
-          tenantId: auth.payload.tenant_id,
-          agentId: auth.payload.agent_id,
-          endpoint: "POST /v2/mailboxes/leases",
-          reasons: access.reasons,
-          amountUsdc: getOverageChargeUsdc(),
-          requestId,
-        });
-      }
 
       return jsonResponse(201, result, requestId);
     }
@@ -109,11 +101,10 @@ export function createV2MailboxRouteHandler({
         return jsonResponse(404, { error: "not_found", message: "Lease not found" }, requestId);
       }
 
-      await store.recordUsage({
+      await metering.recordUsage({
         tenantId: auth.payload.tenant_id,
         agentId: auth.payload.agent_id,
         endpoint: "POST /v2/mailboxes/leases/{lease_id}/release",
-        quantity: 1,
         requestId,
       });
 
@@ -134,11 +125,10 @@ export function createV2MailboxRouteHandler({
         return jsonResponse(404, { error: "not_found", message: "Mailbox not found" }, requestId);
       }
 
-      await store.recordUsage({
+      await metering.recordUsage({
         tenantId: auth.payload.tenant_id,
         agentId: auth.payload.agent_id,
         endpoint: "POST /v2/mailboxes/accounts/{account_id}/credentials/reset",
-        quantity: 1,
         requestId,
       });
 

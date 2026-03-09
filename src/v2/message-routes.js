@@ -1,4 +1,5 @@
 import { createMessageService } from "../services/message-service.js";
+import { createV2Metering } from "./metering.js";
 
 export function createV2MessageRouteHandler({
   store,
@@ -10,6 +11,7 @@ export function createV2MessageRouteHandler({
   getOverageChargeUsdc,
 }) {
   const messageService = createMessageService({ store, mailBackend });
+  const metering = createV2Metering({ store, getOverageChargeUsdc });
 
   return async function handleV2MessageRoute({ method, path, request, requestId, requestUrl }) {
     if (!path.startsWith("/v2/messages") && !path.startsWith("/v2/send-attempts")) return null;
@@ -47,23 +49,13 @@ export function createV2MessageRouteHandler({
         return jsonResponse(404, { error: "not_found", message: "Mailbox not found" }, requestId);
       }
 
-      await store.recordUsage({
+      await metering.recordUsageAndCharge({
         tenantId: auth.payload.tenant_id,
         agentId: auth.payload.agent_id,
         endpoint: "GET /v1/messages/latest",
-        quantity: 1,
         requestId,
+        access,
       });
-      if (access.requiresCharge) {
-        await store.recordOverageCharge({
-          tenantId: auth.payload.tenant_id,
-          agentId: auth.payload.agent_id,
-          endpoint: "GET /v1/messages/latest",
-          reasons: access.reasons,
-          amountUsdc: getOverageChargeUsdc(),
-          requestId,
-        });
-      }
 
       return jsonResponse(200, { items: messages }, requestId);
     }
@@ -116,23 +108,13 @@ export function createV2MessageRouteHandler({
           return jsonResponse(404, { error: "not_found", message: "Mailbox not found" }, requestId);
         }
 
-        await store.recordUsage({
+        await metering.recordUsageAndCharge({
           tenantId: auth.payload.tenant_id,
           agentId: auth.payload.agent_id,
           endpoint: "POST /v2/messages/send",
-          quantity: 1,
           requestId,
+          access,
         });
-        if (access.requiresCharge) {
-          await store.recordOverageCharge({
-            tenantId: auth.payload.tenant_id,
-            agentId: auth.payload.agent_id,
-            endpoint: "POST /v2/messages/send",
-            reasons: access.reasons,
-            amountUsdc: getOverageChargeUsdc(),
-            requestId,
-          });
-        }
 
         return jsonResponse(202, result, requestId);
       } catch (err) {
