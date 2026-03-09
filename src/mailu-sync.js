@@ -1,5 +1,6 @@
 import { readFile, readdir, stat, writeFile, mkdir } from "node:fs/promises";
 import path from "node:path";
+import { buildAuthHeader, requestJson } from "./http-client.js";
 
 function parseHeaders(rawHeaders) {
   const lines = rawHeaders.split(/\r?\n/);
@@ -144,18 +145,19 @@ export async function syncMailuMaildir({
       headers,
     };
 
-    const response = await fetchImpl(`${agentsBaseUrl.replace(/\/$/, "")}/internal/inbound/events`, {
-      method: "POST",
-      headers: {
-        authorization: `Bearer ${internalApiToken}`,
-        "content-type": "application/json",
-      },
-      body: JSON.stringify(payload),
-    });
-
-    if (!response.ok) {
-      const detail = await response.text();
-      throw new Error(`inbound sync failed for ${item.filePath}: ${response.status} ${detail}`);
+    try {
+      await requestJson(`${agentsBaseUrl.replace(/\/$/, "")}/internal/inbound/events`, {
+        method: "POST",
+        headers: {
+          authorization: buildAuthHeader(internalApiToken),
+          "content-type": "application/json",
+        },
+        body: payload,
+        expectedStatuses: [202],
+        fetchImpl,
+      });
+    } catch (err) {
+      throw new Error(`inbound sync failed for ${item.filePath}: ${err.message}`);
     }
 
     state.files[item.filePath] = {

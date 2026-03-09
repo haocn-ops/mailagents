@@ -1,12 +1,5 @@
 import { randomBytes } from "node:crypto";
-
-function buildAuthHeader(token, scheme) {
-  if (!token) return "";
-  if (token.startsWith("Bearer ") || token.startsWith("Token ")) {
-    return token;
-  }
-  return scheme === "RAW" ? token : `Bearer ${token}`;
-}
+import { buildAuthHeader, requestJson } from "../http-client.js";
 
 // Transitional adapter: today it targets Mailu's REST API, but its semantic role
 // is "internal mail backend adapter" for the self-hosted Mailu fork.
@@ -59,30 +52,18 @@ export class MailuInternalAdapter {
 
   async _request(method, path, body, expected = [200]) {
     this._assertConfigured();
-    const response = await fetch(`${this.baseUrl}/api/v1${path}`, {
-      method,
-      headers: this._headers(),
-      body: body ? JSON.stringify(body) : undefined,
-    });
-
-    if (!expected.includes(response.status)) {
-      let detail = "";
-      try {
-        const payload = await response.json();
-        detail = payload.message || JSON.stringify(payload);
-      } catch {
-        detail = await response.text();
-      }
-      const err = new Error(`Mailu ${method} ${path} failed with ${response.status}${detail ? `: ${detail}` : ""}`);
-      err.status = response.status;
-      throw err;
-    }
-
-    if (response.status === 204) return null;
     try {
-      return await response.json();
-    } catch {
-      return null;
+      return await requestJson(`${this.baseUrl}/api/v1${path}`, {
+        method,
+        headers: this._headers(),
+        body,
+        expectedStatuses: expected,
+      });
+    } catch (err) {
+      const detail = err.message.replace(`${method} ${this.baseUrl}/api/v1${path} failed`, "").trim();
+      const wrapped = new Error(`Mailu ${method} ${path} failed${detail ? ` ${detail}` : ""}`);
+      wrapped.status = err.status;
+      throw wrapped;
     }
   }
 
