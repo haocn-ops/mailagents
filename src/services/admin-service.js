@@ -5,9 +5,8 @@ export function createAdminService({
   getOverageChargeUsdc,
   getAgentAllocateHourlyLimit,
   updateRuntimeSettings,
+  repository = createAdminRepository({ store }),
 }) {
-  const repository = createAdminRepository({ store });
-
   return {
     getLimitSettings() {
       return {
