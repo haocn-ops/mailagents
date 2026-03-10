@@ -241,6 +241,46 @@ paths:
                     items:
                       $ref: '#/components/schemas/MessageItem'
 
+  /v1/admin/send-attempts:
+    get:
+      tags: [Messages]
+      summary: List send attempts
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+        - in: query
+          name: tenant_id
+          schema:
+            type: string
+            format: uuid
+        - in: query
+          name: mailbox_id
+          schema:
+            type: string
+            format: uuid
+        - in: query
+          name: submission_status
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/SendAttemptItem'
+                  page:
+                    type: integer
+                  page_size:
+                    type: integer
+                  total:
+                    type: integer
+
   /v1/admin/messages/{message_id}/reparse:
     post:
       tags: [Messages]
@@ -280,6 +320,42 @@ paths:
                     type: array
                     items:
                       $ref: '#/components/schemas/WebhookItem'
+
+  /v1/admin/webhook-deliveries:
+    get:
+      tags: [Webhooks]
+      summary: List webhook delivery attempts
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+        - in: query
+          name: tenant_id
+          schema:
+            type: string
+            format: uuid
+        - in: query
+          name: webhook_id
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/WebhookDeliveryItem'
+                  page:
+                    type: integer
+                  page_size:
+                    type: integer
+                  total:
+                    type: integer
 
   /v1/admin/webhooks/{webhook_id}/replay:
     post:
@@ -647,6 +723,59 @@ components:
         otp_extracted:
           type: boolean
 
+    SendAttemptItem:
+      type: object
+      properties:
+        send_attempt_id:
+          type: string
+          format: uuid
+        tenant_id:
+          type: string
+          format: uuid
+        agent_id:
+          type: string
+          format: uuid
+          nullable: true
+        mailbox_id:
+          type: string
+          format: uuid
+          nullable: true
+        to:
+          type: array
+          items:
+            type: string
+        subject:
+          type: string
+        submission_status:
+          type: string
+        accepted:
+          type: array
+          items:
+            type: string
+        rejected:
+          type: array
+          items:
+            type: string
+        message_id:
+          type: string
+          nullable: true
+        response:
+          type: string
+          nullable: true
+        envelope:
+          nullable: true
+        error:
+          type: string
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+          nullable: true
+        updated_at:
+          type: string
+          format: date-time
+          nullable: true
+
     WebhookItem:
       type: object
       properties:
@@ -672,6 +801,41 @@ components:
           nullable: true
         last_status_code:
           type: integer
+          nullable: true
+
+    WebhookDeliveryItem:
+      type: object
+      properties:
+        webhook_id:
+          type: string
+          format: uuid
+        tenant_id:
+          type: string
+          format: uuid
+        delivery_id:
+          type: string
+          format: uuid
+        status_code:
+          type: integer
+          nullable: true
+        attempts:
+          type: integer
+          nullable: true
+        ok:
+          type: boolean
+          nullable: true
+        error_message:
+          type: string
+          nullable: true
+        response_excerpt:
+          type: string
+          nullable: true
+        request_id:
+          type: string
+          nullable: true
+        delivered_at:
+          type: string
+          format: date-time
           nullable: true
 
     InvoiceItem:

@@ -101,11 +101,18 @@ export function createFetchApp(deps = {}) {
   const handleV2Route = createV2RouteHandler({
     store,
     mailBackend,
+    queue,
     requireAuth,
+    requireAdminAuth,
     evaluateAccess,
     jsonResponse,
     readJsonBody,
+    parsePaging,
     getOverageChargeUsdc,
+    getAgentAllocateHourlyLimit,
+    async updateRuntimeSettings({ overageChargeUsdc, agentAllocateHourlyLimit }) {
+      await runtimeSettings.update({ overageChargeUsdc, agentAllocateHourlyLimit });
+    },
   });
   const handleAdminRoute = createAdminRouteHandler({
     store,

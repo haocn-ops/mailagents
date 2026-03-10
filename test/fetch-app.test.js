@@ -605,6 +605,74 @@ test("fetch app exposes v2 webhook rotate-secret and delivery history endpoints"
   assert.ok(rotated.secret.length >= 16);
 });
 
+test("fetch app exposes admin webhook delivery history", async () => {
+  const app = makeApp();
+  const verify = await issueToken(app, "0xabc0000000000000000000000000000000000a16");
+
+  const allocateRes = await app(
+    new Request("http://localhost/v1/mailboxes/allocate", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${verify.access_token}`,
+      },
+      body: JSON.stringify({ agent_id: verify.agent_id, purpose: "admin-webhook-history", ttl_hours: 1 }),
+    }),
+  );
+  assert.equal(allocateRes.status, 200);
+  const allocation = await allocateRes.json();
+
+  const webhookRes = await app(
+    new Request("http://localhost/v2/webhooks", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${verify.access_token}`,
+      },
+      body: JSON.stringify({
+        event_types: ["otp.extracted"],
+        target_url: "https://example.com/admin-webhook-history",
+        secret: "1234567890abcdef",
+      }),
+    }),
+  );
+  assert.equal(webhookRes.status, 201);
+  const webhook = await webhookRes.json();
+
+  const inboundRes = await app(
+    new Request("http://localhost/internal/inbound/events", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: "Bearer internal-secret",
+      },
+      body: JSON.stringify({
+        address: allocation.address,
+        sender: "service@example.com",
+        sender_domain: "example.com",
+        subject: "Your code",
+        provider_message_id: "provider-admin-webhook-1",
+        received_at: "2026-03-10T00:00:00.000Z",
+        text_excerpt: "Verification code is 111111",
+      }),
+    }),
+  );
+  assert.equal(inboundRes.status, 202);
+
+  const deliveriesRes = await app(
+    new Request(`http://localhost/v1/admin/webhook-deliveries?page=1&page_size=20&tenant_id=${verify.tenant_id}&webhook_id=${webhook.webhook_id}`, {
+      method: "GET",
+      headers: { authorization: `Bearer ${verify.access_token}` },
+    }),
+  );
+  assert.equal(deliveriesRes.status, 200);
+  const deliveries = await deliveriesRes.json();
+  assert.equal(deliveries.page, 1);
+  assert.ok(deliveries.items.length >= 1);
+  assert.equal(deliveries.items[0].tenant_id, verify.tenant_id);
+  assert.equal(deliveries.items[0].webhook_id, webhook.webhook_id);
+});
+
 test("fetch app scopes v2 webhook deliveries list to current tenant without webhook filter", async () => {
   const app = makeApp();
   const tenantA = await issueToken(app, "0xabc0000000000000000000000000000000000b01");
@@ -1337,6 +1405,182 @@ test("fetch app admin API exposes live overview and lists", async () => {
   const mailboxes = await mailboxesRes.json();
   assert.equal(mailboxes.items.find((item) => item.mailbox_id === allocation.mailbox_id).status, "leased");
   assert.match(mailboxes.items[0].address, /@inbox\.example\.com$/);
+
+  const sendRes = await app(
+    new Request("http://localhost/v2/messages/send", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${verify.access_token}`,
+        "x-payment-proof": "mock-proof",
+      },
+      body: JSON.stringify({
+        mailbox_id: allocation.mailbox_id,
+        mailbox_password: allocation.webmail_password,
+        to: "admin-send@example.com",
+        subject: "admin list send attempts",
+        text: "mail body",
+      }),
+    }),
+  );
+  assert.equal(sendRes.status, 202);
+
+  const attemptsRes = await app(
+    new Request(`http://localhost/v1/admin/send-attempts?page=1&page_size=20&tenant_id=${verify.tenant_id}&mailbox_id=${allocation.mailbox_id}&submission_status=accepted`, {
+      method: "GET",
+      headers: { authorization: `Bearer ${verify.access_token}` },
+    }),
+  );
+  assert.equal(attemptsRes.status, 200);
+  const attempts = await attemptsRes.json();
+  assert.ok(attempts.items.length >= 1);
+  assert.equal(attempts.items[0].tenant_id, verify.tenant_id);
+  assert.equal(attempts.items[0].mailbox_id, allocation.mailbox_id);
+  assert.equal(attempts.items[0].submission_status, "accepted");
+
+  const v2MetricsRes = await app(
+    new Request("http://localhost/v2/admin/overview/metrics", {
+      method: "GET",
+      headers: { authorization: `Bearer ${verify.access_token}` },
+    }),
+  );
+  assert.equal(v2MetricsRes.status, 200);
+
+  const v2RuntimeRes = await app(
+    new Request("http://localhost/v2/admin/settings/runtime", {
+      method: "GET",
+      headers: { authorization: `Bearer ${verify.access_token}` },
+    }),
+  );
+  assert.equal(v2RuntimeRes.status, 200);
+
+  const v2RuntimePatchRes = await app(
+    new Request("http://localhost/v2/admin/settings/runtime", {
+      method: "PATCH",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${verify.access_token}`,
+      },
+      body: JSON.stringify({ overage_charge_usdc: 0.0025, agent_allocate_hourly_limit: 7 }),
+    }),
+  );
+  assert.equal(v2RuntimePatchRes.status, 200);
+
+  const v2MessagesRes = await app(
+    new Request("http://localhost/v2/admin/messages?page=1&page_size=20", {
+      method: "GET",
+      headers: { authorization: `Bearer ${verify.access_token}` },
+    }),
+  );
+  assert.equal(v2MessagesRes.status, 200);
+
+  const v2AttemptsRes = await app(
+    new Request(`http://localhost/v2/admin/send-attempts?page=1&page_size=20&tenant_id=${verify.tenant_id}`, {
+      method: "GET",
+      headers: { authorization: `Bearer ${verify.access_token}` },
+    }),
+  );
+  assert.equal(v2AttemptsRes.status, 200);
+  const v2Attempts = await v2AttemptsRes.json();
+  assert.ok(v2Attempts.items.length >= 1);
+
+  const v2WebhooksRes = await app(
+    new Request("http://localhost/v2/admin/webhooks?page=1&page_size=20", {
+      method: "GET",
+      headers: { authorization: `Bearer ${verify.access_token}` },
+    }),
+  );
+  assert.equal(v2WebhooksRes.status, 200);
+
+  const v2TenantsRes = await app(
+    new Request("http://localhost/v2/admin/tenants?page=1&page_size=20", {
+      method: "GET",
+      headers: { authorization: `Bearer ${verify.access_token}` },
+    }),
+  );
+  assert.equal(v2TenantsRes.status, 200);
+  const v2Tenants = await v2TenantsRes.json();
+  assert.equal(v2Tenants.items[0].tenant_id, verify.tenant_id);
+
+  const v2TenantDetailRes = await app(
+    new Request(`http://localhost/v2/admin/tenants/${verify.tenant_id}`, {
+      method: "GET",
+      headers: { authorization: `Bearer ${verify.access_token}` },
+    }),
+  );
+  assert.equal(v2TenantDetailRes.status, 200);
+
+  const v2TenantPatchRes = await app(
+    new Request(`http://localhost/v2/admin/tenants/${verify.tenant_id}`, {
+      method: "PATCH",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${verify.access_token}`,
+      },
+      body: JSON.stringify({ quotas: { qps: 13, mailbox_limit: 17 } }),
+    }),
+  );
+  assert.equal(v2TenantPatchRes.status, 200);
+
+  const v2AccountsRes = await app(
+    new Request(`http://localhost/v2/admin/mailboxes/accounts?page=1&page_size=20&tenant_id=${verify.tenant_id}`, {
+      method: "GET",
+      headers: { authorization: `Bearer ${verify.access_token}` },
+    }),
+  );
+  assert.equal(v2AccountsRes.status, 200);
+  const v2Accounts = await v2AccountsRes.json();
+  assert.ok(v2Accounts.items.length >= 1);
+
+  const v2AccountDetailRes = await app(
+    new Request(`http://localhost/v2/admin/mailboxes/accounts/${allocation.mailbox_id}`, {
+      method: "GET",
+      headers: { authorization: `Bearer ${verify.access_token}` },
+    }),
+  );
+  assert.equal(v2AccountDetailRes.status, 200);
+
+  const v2LeasesRes = await app(
+    new Request(`http://localhost/v2/admin/mailboxes/leases?page=1&page_size=20&tenant_id=${verify.tenant_id}`, {
+      method: "GET",
+      headers: { authorization: `Bearer ${verify.access_token}` },
+    }),
+  );
+  assert.equal(v2LeasesRes.status, 200);
+
+  const v2AuditRes = await app(
+    new Request(`http://localhost/v2/admin/audit/logs?page=1&page_size=20&tenant_id=${verify.tenant_id}`, {
+      method: "GET",
+      headers: { authorization: `Bearer ${verify.access_token}` },
+    }),
+  );
+  assert.equal(v2AuditRes.status, 200);
+
+  const v2InvoicesRes = await app(
+    new Request("http://localhost/v2/admin/billing/invoices?page=1&page_size=20", {
+      method: "GET",
+      headers: { authorization: `Bearer ${verify.access_token}` },
+    }),
+  );
+  assert.equal(v2InvoicesRes.status, 200);
+
+  const v2RiskRes = await app(
+    new Request("http://localhost/v2/admin/risk/events?page=1&page_size=20", {
+      method: "GET",
+      headers: { authorization: `Bearer ${verify.access_token}` },
+    }),
+  );
+  assert.equal(v2RiskRes.status, 200);
+
+  const v2JobsRes = await app(
+    new Request("http://localhost/v2/admin/jobs", {
+      method: "GET",
+      headers: { authorization: `Bearer ${verify.access_token}` },
+    }),
+  );
+  assert.equal(v2JobsRes.status, 200);
+  const v2Jobs = await v2JobsRes.json();
+  assert.ok(Array.isArray(v2Jobs.items));
 });
 
 test("fetch app admin actions mutate live resources", async () => {

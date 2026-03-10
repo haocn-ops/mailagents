@@ -2,7 +2,7 @@ openapi: 3.1.0
 info:
   title: Mailagents Admin API V2
   version: 0.1.0-alpha
-  summary: Proposed V2 admin API for the Mailagents control plane
+  summary: Current V2 admin preview API for the Mailagents control plane
 servers:
   - url: https://api.mailagents.net
 security:
@@ -38,6 +38,17 @@ paths:
     patch:
       tags: [Settings]
       summary: Update runtime settings
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                overage_charge_usdc:
+                  type: number
+                agent_allocate_hourly_limit:
+                  type: integer
       responses:
         '200':
           description: Runtime settings updated
@@ -45,6 +56,19 @@ paths:
     get:
       tags: [Tenants]
       summary: List tenants
+      parameters:
+        - in: query
+          name: page
+          schema:
+            type: integer
+        - in: query
+          name: page_size
+          schema:
+            type: integer
+        - in: query
+          name: status
+          schema:
+            type: string
       responses:
         '200':
           description: Tenants returned
@@ -69,6 +93,19 @@ paths:
     get:
       tags: [Mailbox Accounts]
       summary: List mailbox accounts
+      parameters:
+        - in: query
+          name: page
+          schema:
+            type: integer
+        - in: query
+          name: page_size
+          schema:
+            type: integer
+        - in: query
+          name: tenant_id
+          schema:
+            type: string
       responses:
         '200':
           description: Mailbox accounts returned
@@ -85,6 +122,19 @@ paths:
     get:
       tags: [Mailbox Leases]
       summary: List mailbox leases
+      parameters:
+        - in: query
+          name: page
+          schema:
+            type: integer
+        - in: query
+          name: page_size
+          schema:
+            type: integer
+        - in: query
+          name: tenant_id
+          schema:
+            type: string
       responses:
         '200':
           description: Mailbox leases returned
@@ -92,6 +142,23 @@ paths:
     get:
       tags: [Messages]
       summary: List messages
+      parameters:
+        - in: query
+          name: page
+          schema:
+            type: integer
+        - in: query
+          name: page_size
+          schema:
+            type: integer
+        - in: query
+          name: mailbox_id
+          schema:
+            type: string
+        - in: query
+          name: parsed_status
+          schema:
+            type: string
       responses:
         '200':
           description: Messages returned
@@ -99,6 +166,27 @@ paths:
     get:
       tags: [Send Attempts]
       summary: List send attempts
+      parameters:
+        - in: query
+          name: page
+          schema:
+            type: integer
+        - in: query
+          name: page_size
+          schema:
+            type: integer
+        - in: query
+          name: tenant_id
+          schema:
+            type: string
+        - in: query
+          name: mailbox_id
+          schema:
+            type: string
+        - in: query
+          name: submission_status
+          schema:
+            type: string
       responses:
         '200':
           description: Send attempts returned
@@ -106,6 +194,15 @@ paths:
     get:
       tags: [Webhooks]
       summary: List webhooks
+      parameters:
+        - in: query
+          name: page
+          schema:
+            type: integer
+        - in: query
+          name: page_size
+          schema:
+            type: integer
       responses:
         '200':
           description: Webhooks returned
@@ -113,6 +210,19 @@ paths:
     get:
       tags: [Billing]
       summary: List invoices
+      parameters:
+        - in: query
+          name: page
+          schema:
+            type: integer
+        - in: query
+          name: page_size
+          schema:
+            type: integer
+        - in: query
+          name: period
+          schema:
+            type: string
       responses:
         '200':
           description: Invoices returned
@@ -120,6 +230,15 @@ paths:
     get:
       tags: [Risk]
       summary: List risk events
+      parameters:
+        - in: query
+          name: page
+          schema:
+            type: integer
+        - in: query
+          name: page_size
+          schema:
+            type: integer
       responses:
         '200':
           description: Risk events returned
@@ -127,6 +246,27 @@ paths:
     get:
       tags: [Audit]
       summary: List audit logs
+      parameters:
+        - in: query
+          name: page
+          schema:
+            type: integer
+        - in: query
+          name: page_size
+          schema:
+            type: integer
+        - in: query
+          name: request_id
+          schema:
+            type: string
+        - in: query
+          name: tenant_id
+          schema:
+            type: string
+        - in: query
+          name: actor_did
+          schema:
+            type: string
       responses:
         '200':
           description: Audit logs returned
