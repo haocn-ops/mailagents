@@ -221,6 +221,16 @@ export class MemoryStore {
     };
   }
 
+  async getTenantCreatedAt(tenantId) {
+    const tenant = this.state.tenants.get(tenantId);
+    return tenant?.createdAt || null;
+  }
+
+  async hasPrimaryWalletIdentity(tenantId) {
+    const tenant = this.state.tenants.get(tenantId);
+    return Boolean(tenant?.walletAddress);
+  }
+
   async getRuntimeSettings() {
     return { ...this.state.runtimeSettings };
   }
@@ -937,6 +947,17 @@ export class MemoryStore {
       .reduce((sum, record) => sum + Number(record.quantity || 0), 0);
   }
 
+  async countTenantEndpointUsageSince(tenantId, endpoint, since) {
+    return this.state.usageRecords
+      .filter(
+        (record) =>
+          record.tenantId === tenantId &&
+          record.endpoint === endpoint &&
+          new Date(record.occurredAt) >= since,
+      )
+      .reduce((sum, record) => sum + Number(record.quantity || 0), 0);
+  }
+
   _getOrCreateCurrentInvoice(tenantId) {
     const now = new Date();
     const periodStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)).toISOString().slice(0, 10);
@@ -1071,10 +1092,11 @@ export class MemoryStore {
         status: tenant.status,
         qps: this._getTenantQuota(tenant.id).qps,
         mailbox_limit: this._getTenantQuota(tenant.id).mailbox_limit,
-        primary_did: tenant.did,
+        primary_did: tenant.walletAddress ? tenant.did : null,
         active_agents: activeAgents,
         active_mailboxes: activeMailboxes,
         monthly_usage: Number(this._tenantMonthlyUsage(tenant.id).toFixed(2)),
+        created_at: tenant.createdAt,
         updated_at: tenant.updatedAt || tenant.createdAt,
       };
     });

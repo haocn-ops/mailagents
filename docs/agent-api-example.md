@@ -69,6 +69,10 @@ curl -s http://localhost:3000/v1/messages/send \
   -d '{"mailbox_id":"<mailbox_id>","to":"receiver@example.com","subject":"agent send api","text":"hello from agent api","mailbox_password":"<webmail_password>"}'
 ```
 
+Cooldown rule:
+- If the tenant has no bound wallet identity and is within 24 hours of creation, sending is capped at 10 emails.
+- When the limit is hit, the API responds with `429` and `error="cooldown_limit"` and suggests binding a wallet.
+
 The API returns:
 
 - `from`

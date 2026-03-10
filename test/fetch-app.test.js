@@ -1195,6 +1195,108 @@ test("fetch app sends mail through the backend adapter", async () => {
   assert.match(sent.message_id, /^noop:/);
 });
 
+test("fetch app enforces cooldown on v1 send for unbound tenants", async () => {
+  const app = makeApp();
+  const verify = await issueToken(app, "0xabc0000000000000000000000000000000000666");
+
+  const tenant = app.store.state.tenants.get(verify.tenant_id);
+  tenant.walletAddress = null;
+
+  const allocateRes = await app(
+    new Request("http://localhost/v1/mailboxes/allocate", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${verify.access_token}`,
+        "x-payment-proof": "mock-proof",
+      },
+      body: JSON.stringify({ agent_id: verify.agent_id, purpose: "cooldown-v1", ttl_hours: 1 }),
+    }),
+  );
+  assert.equal(allocateRes.status, 200);
+  const allocation = await allocateRes.json();
+
+  const sendRequest = () =>
+    app(
+      new Request("http://localhost/v1/messages/send", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${verify.access_token}`,
+          "x-payment-proof": "mock-proof",
+        },
+        body: JSON.stringify({
+          mailbox_id: allocation.mailbox_id,
+          to: "receiver@example.com",
+          subject: "hello",
+          text: "mail body",
+          mailbox_password: allocation.webmail_password,
+        }),
+      }),
+    );
+
+  for (let i = 0; i < 10; i += 1) {
+    const res = await sendRequest();
+    assert.equal(res.status, 200);
+  }
+
+  const limitedRes = await sendRequest();
+  assert.equal(limitedRes.status, 429);
+  const limitedBody = await limitedRes.json();
+  assert.equal(limitedBody.error, "cooldown_limit");
+});
+
+test("fetch app enforces cooldown on v2 send for unbound tenants", async () => {
+  const app = makeApp();
+  const verify = await issueToken(app, "0xabc0000000000000000000000000000000000777");
+
+  const tenant = app.store.state.tenants.get(verify.tenant_id);
+  tenant.walletAddress = null;
+
+  const allocateRes = await app(
+    new Request("http://localhost/v1/mailboxes/allocate", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${verify.access_token}`,
+        "x-payment-proof": "mock-proof",
+      },
+      body: JSON.stringify({ agent_id: verify.agent_id, purpose: "cooldown-v2", ttl_hours: 1 }),
+    }),
+  );
+  assert.equal(allocateRes.status, 200);
+  const allocation = await allocateRes.json();
+
+  const sendRequest = () =>
+    app(
+      new Request("http://localhost/v2/messages/send", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${verify.access_token}`,
+          "x-payment-proof": "mock-proof",
+        },
+        body: JSON.stringify({
+          mailbox_id: allocation.mailbox_id,
+          mailbox_password: allocation.webmail_password,
+          to: "receiver@example.com",
+          subject: "hello",
+          text: "mail body",
+        }),
+      }),
+    );
+
+  for (let i = 0; i < 10; i += 1) {
+    const res = await sendRequest();
+    assert.equal(res.status, 202);
+  }
+
+  const limitedRes = await sendRequest();
+  assert.equal(limitedRes.status, 429);
+  const limitedBody = await limitedRes.json();
+  assert.equal(limitedBody.error, "cooldown_limit");
+});
+
 test("fetch app requires dedicated admin token when configured", async () => {
   const cfg = createConfig({
     JWT_SECRET: "test-secret",

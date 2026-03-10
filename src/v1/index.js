@@ -31,6 +31,7 @@ export function createV1RouteHandler({
     readJsonBody,
   });
   const handleMessageRoute = createV1MessageRouteHandler({
+    store,
     messageService,
     authz,
     metering,

@@ -631,6 +631,9 @@ components:
           type: integer
         monthly_usage:
           type: number
+        created_at:
+          type: string
+          format: date-time
         updated_at:
           type: string
           format: date-time

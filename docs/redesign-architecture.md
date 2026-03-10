@@ -231,6 +231,8 @@ Recommended split:
 - billing engine records usage
 - payment integration settles account-level balances
 
+Entitlement should include a cold-start cooldown: if a tenant has no bound wallet identity and is within 24 hours of creation, cap outbound send at 10 messages and return `429 cooldown_limit` with a bind-wallet hint.
+
 If x402 remains useful at the transport layer, keep it behind the API gateway. The control plane and frontend should think in terms of entitlement, not raw proofs.
 
 ## 9. Deployment Recommendation

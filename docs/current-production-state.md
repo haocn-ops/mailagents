@@ -34,6 +34,7 @@ Wallet logins require:
 - MetaMask or compatible injected wallet
 - the configured chain
 - SIWE signature verification
+- Cold-start cooldown: unbound tenants are limited to 10 outbound sends in their first 24 hours
 
 Protected mailbox/message actions require:
 
