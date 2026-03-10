@@ -274,6 +274,26 @@ export class PostgresStore {
     };
   }
 
+  async getTenantCreatedAt(tenantId) {
+    const result = await this._query(
+      `select created_at from tenants where id = $1 limit 1`,
+      [tenantId],
+    );
+    if (result.rowCount === 0) return null;
+    return result.rows[0].created_at?.toISOString?.() || null;
+  }
+
+  async hasPrimaryWalletIdentity(tenantId) {
+    const result = await this._query(
+      `select 1
+         from wallet_identities
+        where tenant_id = $1 and is_primary = true
+        limit 1`,
+      [tenantId],
+    );
+    return result.rowCount > 0;
+  }
+
   async getRuntimeSettings() {
     const result = await this._query(
       `select key, value
@@ -1367,6 +1387,18 @@ export class PostgresStore {
     return Number(result.rows[0].total);
   }
 
+  async countTenantEndpointUsageSince(tenantId, endpoint, since) {
+    const result = await this._query(
+      `select coalesce(sum(quantity), 0) as total
+         from usage_records
+        where tenant_id = $1
+          and endpoint = $2
+          and occurred_at >= $3`,
+      [tenantId, endpoint, since.toISOString()],
+    );
+    return Number(result.rows[0].total);
+  }
+
   async recordOverageCharge({ tenantId, agentId, endpoint, reasons, amountUsdc, requestId }) {
     return this._withTx(async (client) => {
       const now = new Date();
@@ -1547,6 +1579,7 @@ export class PostgresStore {
       `select t.id as tenant_id,
               t.name,
               t.status,
+              t.created_at,
               wi.did as primary_did,
               tq.qps,
               tq.mailbox_limit,
@@ -1584,6 +1617,7 @@ export class PostgresStore {
         active_agents: Number(row.active_agents),
         active_mailboxes: Number(row.active_mailboxes),
         monthly_usage: Number(row.monthly_usage),
+        created_at: row.created_at.toISOString(),
         updated_at: row.updated_at.toISOString(),
       })),
       page,
@@ -1596,6 +1630,7 @@ export class PostgresStore {
       `select t.id as tenant_id,
               t.name,
               t.status,
+              t.created_at,
               t.updated_at,
               wi.did as primary_did,
               tq.qps,
@@ -1632,6 +1667,7 @@ export class PostgresStore {
       active_agents: Number(row.active_agents),
       active_mailboxes: Number(row.active_mailboxes),
       monthly_usage: Number(row.monthly_usage),
+      created_at: row.created_at.toISOString(),
       updated_at: row.updated_at.toISOString(),
       quotas: {
         qps: Number(row.qps || 120),

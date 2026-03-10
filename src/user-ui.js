@@ -1038,7 +1038,7 @@ export function renderUserAppHtml() {
       }
 
       var payHeaders = await paymentHeaders("POST", "/v1/messages/send", true);
-      var sent = await fetchJson("/v1/messages/send", {
+      var res = await fetch(apiBase() + "/v1/messages/send", {
         method: "POST",
         headers: Object.assign(authHeaders(false), payHeaders),
         body: JSON.stringify({
@@ -1049,9 +1049,19 @@ export function renderUserAppHtml() {
           mailbox_password: creds.password
         })
       });
-      els.sendJson.textContent = JSON.stringify(sent, null, 2);
-      addLog("sent mail from " + sent.from + " to " + sent.accepted.join(", "));
-      return sent;
+      var payload = await res.json().catch(function() { return {}; });
+      if (!res.ok) {
+        if (res.status === 429 && payload && payload.error === "cooldown_limit") {
+          setWalletNote("Send limit reached for new accounts. Bind a wallet to remove the 24h cooldown.");
+          addLog("cooldown limit hit; prompt wallet bind");
+          els.sendJson.textContent = JSON.stringify(payload, null, 2);
+          throw new Error(payload.message || "cooldown limit reached");
+        }
+        throw new Error((payload && (payload.message || payload.error)) || ("HTTP " + res.status));
+      }
+      els.sendJson.textContent = JSON.stringify(payload, null, 2);
+      addLog("sent mail from " + payload.from + " to " + payload.accepted.join(", "));
+      return payload;
     }
 
     async function openMessageDetail(messageId) {

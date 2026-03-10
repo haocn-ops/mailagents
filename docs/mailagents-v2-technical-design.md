@@ -299,6 +299,7 @@ Responsibilities:
 - evaluate free limits
 - decide whether a request is allowed
 - hide low-level payment proof details from product-facing flows
+- enforce cold-start cooldowns (e.g., unbound tenants limited to 10 sends in their first 24 hours)
 
 ## 11. Job Design
 

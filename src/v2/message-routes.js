@@ -4,6 +4,46 @@ import { createV2Metering } from "./metering.js";
 import { createV2Responses } from "./responses.js";
 import { parseMessageListQuery, parseRequiredPathParam, parseSendMessageBody } from "./validation.js";
 
+const COOLDOWN_WINDOW_MS = 24 * 60 * 60 * 1000;
+const COOLDOWN_SEND_LIMIT = 10;
+
+async function enforceSendCooldown({ store, tenantId, endpoint, requestId, responses }) {
+  if (!store) return null;
+  if (typeof store.getTenantCreatedAt !== "function") return null;
+  if (typeof store.hasPrimaryWalletIdentity !== "function") return null;
+  if (typeof store.countTenantEndpointUsageSince !== "function") return null;
+
+  const [createdAtRaw, walletBound] = await Promise.all([
+    store.getTenantCreatedAt(tenantId),
+    store.hasPrimaryWalletIdentity(tenantId),
+  ]);
+
+  if (walletBound) return null;
+  if (!createdAtRaw) return null;
+
+  const createdAtMs = new Date(createdAtRaw).getTime();
+  if (!Number.isFinite(createdAtMs)) return null;
+  if (Date.now() - createdAtMs > COOLDOWN_WINDOW_MS) return null;
+
+  const sentCount = await store.countTenantEndpointUsageSince(
+    tenantId,
+    endpoint,
+    new Date(createdAtMs),
+  );
+  if (sentCount < COOLDOWN_SEND_LIMIT) return null;
+
+  return responses.rateLimited(
+    requestId,
+    "cooldown_limit",
+    "新帳號 24 小時內最多發送 10 封，請先綁定錢包以解除限制。",
+    {
+      limit: COOLDOWN_SEND_LIMIT,
+      window: "24h",
+      action: "bind_wallet",
+    },
+  );
+}
+
 export function createV2MessageRouteHandler({
   store,
   mailBackend,
@@ -70,6 +110,15 @@ export function createV2MessageRouteHandler({
         endpoint: "POST /v2/messages/send",
       });
       if (!access.ok) return access.response;
+
+      const cooldown = await enforceSendCooldown({
+        store,
+        tenantId: auth.payload.tenant_id,
+        endpoint: "POST /v2/messages/send",
+        requestId,
+        responses,
+      });
+      if (cooldown) return cooldown;
 
       const body = await readJsonBody(request);
       const parsed = parseSendMessageBody(body);

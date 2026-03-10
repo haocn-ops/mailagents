@@ -547,6 +547,28 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/SendResult'
+        '429':
+          description: Cooldown limit reached
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: cooldown_limit
+                  message:
+                    type: string
+                    example: 新帳號 24 小時內最多發送 10 封，請先綁定錢包以解除限制。
+                  limit:
+                    type: integer
+                    example: 10
+                  window:
+                    type: string
+                    example: 24h
+                  action:
+                    type: string
+                    example: bind_wallet
   /v2/send-attempts:
     get:
       summary: List outbound send attempts for the current tenant

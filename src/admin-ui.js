@@ -269,6 +269,29 @@ export function renderAdminDashboardHtml({ adminTokenRequired = false } = {}) {
       return body;
     }
 
+    function formatCooldown(item) {
+      if (!item || !item.created_at) return "n/a";
+      if (item.primary_did) return "n/a";
+      var createdAt = new Date(item.created_at).getTime();
+      if (!Number.isFinite(createdAt)) return "n/a";
+      var remainingMs = (24 * 60 * 60 * 1000) - (Date.now() - createdAt);
+      if (remainingMs <= 0) return "expired";
+      var remainingMins = Math.ceil(remainingMs / 60000);
+      var hours = Math.floor(remainingMins / 60);
+      var mins = remainingMins % 60;
+      return (hours ? hours + "h " : "") + mins + "m";
+    }
+
+    function decorateTenants(items) {
+      return (items || []).map(function(item) {
+        var bound = Boolean(item.primary_did);
+        return Object.assign({}, item, {
+          wallet_bound: bound ? "yes" : "no",
+          cooldown_remaining: formatCooldown(item),
+        });
+      });
+    }
+
     async function ping() {
       try {
         var body = await fetchJson("/healthz");
@@ -349,18 +372,22 @@ export function renderAdminDashboardHtml({ adminTokenRequired = false } = {}) {
 
     async function loadTables() {
       var tenants = await fetchJson("/v1/admin/tenants?page=1&page_size=50", { headers: authHeaders() });
+      var tenantItems = decorateTenants(tenants.items);
       renderTable("tbl-tenants", [
         { key: "tenant_id", label: "tenant_id" },
         { key: "name", label: "name" },
         { key: "status", label: "status" },
         { key: "qps", label: "qps" },
         { key: "mailbox_limit", label: "mailbox_limit" },
+        { key: "wallet_bound", label: "wallet_bound" },
+        { key: "cooldown_remaining", label: "cooldown_remaining" },
         { key: "primary_did", label: "primary_did" },
         { key: "active_agents", label: "active_agents" },
         { key: "active_mailboxes", label: "active_mailboxes" },
         { key: "monthly_usage", label: "monthly_usage" },
+        { key: "created_at", label: "created_at" },
         { key: "updated_at", label: "updated_at" }
-      ], tenants.items || [], [
+      ], tenantItems, [
         { name: "tenant.edit", label: "Edit Limits", idKey: "tenant_id" },
         { name: "tenant.disable", label: "Suspend", idKey: "tenant_id" }
       ]);
@@ -523,7 +550,14 @@ export function renderAdminDashboardHtml({ adminTokenRequired = false } = {}) {
         document.getElementById("tenant-status").value = tenant.status || "active";
         document.getElementById("tenant-qps").value = tenant.quotas && tenant.quotas.qps != null ? tenant.quotas.qps : "";
         document.getElementById("tenant-mailbox-limit").value = tenant.quotas && tenant.quotas.mailbox_limit != null ? tenant.quotas.mailbox_limit : "";
-        addLog("tenant loaded: " + tenant.tenant_id);
+        addLog(
+          "tenant loaded: " +
+          tenant.tenant_id +
+          " wallet_bound=" +
+          String(Boolean(tenant.primary_did)) +
+          " cooldown_remaining=" +
+          formatCooldown(tenant),
+        );
         document.querySelectorAll(".nav button").forEach(function(item) { item.classList.remove("active"); });
         document.querySelectorAll(".panel").forEach(function(item) { item.classList.remove("active"); });
         var settingsBtn = Array.from(document.querySelectorAll(".nav button")).find(function(item) { return item.textContent === "Settings"; });
