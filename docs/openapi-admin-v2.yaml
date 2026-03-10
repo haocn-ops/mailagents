@@ -231,6 +231,14 @@ paths:
           name: page_size
           schema:
             type: integer
+        - in: query
+          name: tenant_id
+          schema:
+            type: string
+        - in: query
+          name: webhook_id
+          schema:
+            type: string
       responses:
         '200':
           description: Webhooks returned

@@ -1506,7 +1506,7 @@ test("fetch app admin API exposes live overview and lists", async () => {
   assert.ok(Array.isArray(v2WebhookDeliveries.items));
 
   const v2WebhooksRes = await app(
-    new Request("http://localhost/v2/admin/webhooks?page=1&page_size=20", {
+    new Request(`http://localhost/v2/admin/webhooks?page=1&page_size=20&tenant_id=${verify.tenant_id}`, {
       method: "GET",
       headers: { authorization: `Bearer ${verify.access_token}` },
     }),

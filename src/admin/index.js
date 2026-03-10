@@ -218,7 +218,12 @@ export function createAdminRouteHandler({
 
     if (method === "GET" && path === "/v1/admin/webhooks") {
       if (!paging.ok) return responses.badRequest(requestId, paging.message);
-      const result = await adminService.adminListWebhooks({ page: paging.page, pageSize: paging.pageSize });
+      const result = await adminService.adminListWebhooks({
+        page: paging.page,
+        pageSize: paging.pageSize,
+        tenantId: requestUrl.searchParams.get("tenant_id"),
+        webhookId: requestUrl.searchParams.get("webhook_id"),
+      });
       return responses.ok(requestId, result);
     }
 
