@@ -234,7 +234,7 @@ export function renderAgentsGuideHtml() {
           <div class="step">
             <div class="step-num">1</div>
             <h3>Request a SIWE challenge</h3>
-            <pre class="code">curl -s "$API_BASE/v1/auth/siwe/challenge" \\
+            <pre class="code">curl -s "$API_BASE/v2/auth/siwe/challenge" \\
   -H 'content-type: application/json' \\
   -d '{"wallet_address":"0xYOUR_WALLET"}'</pre>
             <p>Sign the returned <code>message</code> using the live wallet on the configured chain.</p>
@@ -242,7 +242,7 @@ export function renderAgentsGuideHtml() {
           <div class="step">
             <div class="step-num">2</div>
             <h3>Verify the signature and store the session</h3>
-            <pre class="code">curl -s "$API_BASE/v1/auth/siwe/verify" \\
+            <pre class="code">curl -s "$API_BASE/v2/auth/siwe/verify" \\
   -H 'content-type: application/json' \\
   -d '{"message":"&lt;challenge_message&gt;","signature":"&lt;wallet_signature&gt;"}'</pre>
             <p>Persist <code>access_token</code>, <code>agent_id</code>, <code>tenant_id</code>, and <code>did</code>.</p>
@@ -250,20 +250,20 @@ export function renderAgentsGuideHtml() {
           <div class="step">
             <div class="step-num">3</div>
             <h3>Allocate a mailbox</h3>
-            <pre class="code">curl -s "$API_BASE/v1/mailboxes/allocate" \\
+            <pre class="code">curl -s "$API_BASE/v2/mailboxes/leases" \\
   -H 'content-type: application/json' \\
   -H 'authorization: Bearer &lt;access_token&gt;' \\
   -H 'x-payment-proof: &lt;x_payment_proof&gt;' \\
   -d '{"agent_id":"&lt;agent_id&gt;","purpose":"signup","ttl_hours":1}'</pre>
-            <p>Persist <code>mailbox_id</code>, <code>address</code>, <code>expires_at</code>, and any issued login details.</p>
+            <p>Persist <code>lease_id</code>, <code>mailbox_id</code>, <code>account_id</code>, <code>address</code>, <code>expires_at</code>, and any issued login details.</p>
           </div>
           <div class="step">
             <div class="step-num">4</div>
             <h3>Ask the backend for a payment proof (when over free limits)</h3>
-            <pre class="code">curl -s "$API_BASE/v1/payments/proof" \\
+            <pre class="code">curl -s "$API_BASE/v2/payments/proof" \\
   -H 'content-type: application/json' \\
   -H 'authorization: Bearer &lt;access_token&gt;' \\
-  -d '{"method":"POST","path":"/v1/mailboxes/allocate"}'</pre>
+  -d '{"method":"POST","path":"/v2/mailboxes/leases"}'</pre>
             <p>Use the returned <code>x_payment_proof</code> value exactly as the <code>x-payment-proof</code> header.</p>
           </div>
         </div>
@@ -293,10 +293,10 @@ export function renderAgentsGuideHtml() {
         <div class="callout">
           <strong>Endpoints that may require payment proofs after free limits.</strong>
           <ul>
-            <li><code>POST /v1/mailboxes/allocate</code></li>
-            <li><code>GET /v1/messages/latest</code></li>
-            <li><code>POST /v1/messages/send</code></li>
-            <li><code>POST /v1/webhooks</code></li>
+            <li><code>POST /v2/mailboxes/leases</code></li>
+            <li><code>GET /v2/messages</code></li>
+            <li><code>POST /v2/messages/send</code></li>
+            <li><code>POST /v2/webhooks</code></li>
           </ul>
         </div>
       </article>
@@ -306,48 +306,46 @@ export function renderAgentsGuideHtml() {
       <article class="panel">
         <h2>Read, Send, Release</h2>
         <h3>Fetch latest messages</h3>
-        <pre class="code">curl -s "$API_BASE/v1/payments/proof" \\
+        <pre class="code">curl -s "$API_BASE/v2/payments/proof" \\
   -H 'content-type: application/json' \\
   -H 'authorization: Bearer &lt;access_token&gt;' \\
-  -d '{"method":"GET","path":"/v1/messages/latest"}'</pre>
-        <pre class="code">curl -s "$API_BASE/v1/messages/latest?mailbox_id=&lt;mailbox_id&gt;&amp;limit=10" \\
+  -d '{"method":"GET","path":"/v2/messages"}'</pre>
+        <pre class="code">curl -s "$API_BASE/v2/messages?mailbox_id=&lt;mailbox_id&gt;&amp;limit=10" \\
   -H 'authorization: Bearer &lt;access_token&gt;' \\
   -H 'x-payment-proof: &lt;latest_messages_proof&gt;'</pre>
 
         <h3>Rotate credentials only if the user wants a new password</h3>
         <p>If the allocate response already returned <code>webmail_password</code>, agents can send mail with that password directly. Use reset only for explicit rotation or password recovery.</p>
-        <pre class="code">curl -s "$API_BASE/v1/mailboxes/credentials/reset" \\
+        <pre class="code">curl -s "$API_BASE/v2/mailboxes/accounts/&lt;account_id&gt;/credentials/reset" \\
   -H 'content-type: application/json' \\
-  -H 'authorization: Bearer &lt;access_token&gt;' \\
-  -d '{"mailbox_id":"&lt;mailbox_id&gt;"}'</pre>
+  -H 'authorization: Bearer &lt;access_token&gt;'</pre>
 
         <h3>Send mail through the live HTTP API</h3>
-        <pre class="code">curl -s "$API_BASE/v1/payments/proof" \\
+        <pre class="code">curl -s "$API_BASE/v2/payments/proof" \\
   -H 'content-type: application/json' \\
   -H 'authorization: Bearer &lt;access_token&gt;' \\
-  -d '{"method":"POST","path":"/v1/messages/send"}'</pre>
-        <pre class="code">curl -s "$API_BASE/v1/messages/send" \\
+  -d '{"method":"POST","path":"/v2/messages/send"}'</pre>
+        <pre class="code">curl -s "$API_BASE/v2/messages/send" \\
   -H 'content-type: application/json' \\
   -H 'authorization: Bearer &lt;access_token&gt;' \\
   -H 'x-payment-proof: &lt;send_proof&gt;' \\
   -d '{"mailbox_id":"&lt;mailbox_id&gt;","to":"receiver@example.com","subject":"agent send api","text":"hello from production agent","mailbox_password":"&lt;webmail_password&gt;"}'</pre>
 
         <h3>Release the mailbox when done</h3>
-        <pre class="code">curl -s "$API_BASE/v1/mailboxes/release" \\
+        <pre class="code">curl -s "$API_BASE/v2/mailboxes/leases/&lt;lease_id&gt;/release" \\
   -H 'content-type: application/json' \\
-  -H 'authorization: Bearer &lt;access_token&gt;' \\
-  -d '{"mailbox_id":"&lt;mailbox_id&gt;"}'</pre>
+  -H 'authorization: Bearer &lt;access_token&gt;'</pre>
       </article>
 
       <article class="panel">
         <h2>Agent Operating Checklist</h2>
         <ol>
-          <li>Start with <code>/v1/meta/runtime</code> or the live UI to confirm current chain and auth mode.</li>
+          <li>Start with <code>/v2/meta/runtime</code> or the live UI to confirm current chain and auth mode.</li>
           <li>Use a real browser wallet for SIWE signing. Keep chain alignment with the runtime metadata.</li>
           <li>When you are over free limits, request a fresh payment proof immediately before each protected call; proofs are short-lived.</li>
-          <li>Read from <code>/v1/messages/latest</code> for parsed OTP and verification-link workflows.</li>
+          <li>Read from <code>/v2/messages</code> for parsed OTP and verification-link workflows.</li>
           <li>Issue or reset mailbox credentials before using Webmail, SMTP, or the send API.</li>
-          <li>Create webhooks through <code>POST /v1/webhooks</code> when downstream automation needs push delivery.</li>
+          <li>Create webhooks through <code>POST /v2/webhooks</code> when downstream automation needs push delivery.</li>
           <li>Open <code>/admin</code> when you need operator visibility into tenants, webhooks, invoices, risk events, or audit logs.</li>
           <li>Release the mailbox after the run so the lease does not remain occupied unnecessarily.</li>
         </ol>
@@ -356,7 +354,7 @@ export function renderAgentsGuideHtml() {
         <ul>
           <li><code>https://api.mailagents.net/app</code></li>
           <li><code>https://api.mailagents.net/admin</code></li>
-          <li><code>https://api.mailagents.net/v1/meta/runtime</code></li>
+          <li><code>https://api.mailagents.net/v2/meta/runtime</code></li>
           <li><code>https://inbox.mailagents.net/webmail/</code></li>
         </ul>
 

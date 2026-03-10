@@ -16,6 +16,7 @@ import { getDefaultStore } from "./store.js";
 import { createV1RouteHandler } from "./v1/index.js";
 import { createV1SystemRouteHandler } from "./v1/system-routes.js";
 import { createV2RouteHandler } from "./v2/index.js";
+import { createV2SystemRouteHandler } from "./v2/system-routes.js";
 import { createWebhookDispatcher } from "./webhook-dispatcher.js";
 
 export function createFetchApp(deps = {}) {
@@ -145,6 +146,16 @@ export function createFetchApp(deps = {}) {
     paidBypassTargets,
     getOverageChargeUsdc,
   });
+  const handleV2SystemRoute = createV2SystemRouteHandler({
+    store,
+    runtimeConfig,
+    siweService,
+    requireAuth,
+    jsonResponse,
+    readJsonBody,
+    paidBypassTargets,
+    getOverageChargeUsdc,
+  });
 
   function getOverageChargeUsdc() {
     return runtimeSettings.getOverageChargeUsdc();
@@ -159,6 +170,7 @@ export function createFetchApp(deps = {}) {
     if (path === "/v1/meta/runtime") return true;
     if (path === "/v1/payments/proof") return true;
     if (path.startsWith("/v1/auth/")) return true;
+    if (path.startsWith("/v1/admin/")) return true;
     return false;
   }
 
@@ -170,6 +182,9 @@ export function createFetchApp(deps = {}) {
 
       const publicResponse = await handlePublicRoute({ method, path, requestId });
       if (publicResponse) return publicResponse;
+
+      const v2SystemResponse = await handleV2SystemRoute({ method, path, request, requestId, requestUrl });
+      if (v2SystemResponse) return v2SystemResponse;
 
       if (path.startsWith("/v1/") && !isV1SystemPath(path)) {
         return jsonResponse(410, { error: "gone", message: "v1 endpoints are deprecated; use v2" }, requestId);
