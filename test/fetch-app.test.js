@@ -1478,7 +1478,7 @@ test("fetch app admin API exposes live overview and lists", async () => {
   assert.equal(v2RuntimePatchRes.status, 200);
 
   const v2MessagesRes = await app(
-    new Request("http://localhost/v2/admin/messages?page=1&page_size=20", {
+    new Request(`http://localhost/v2/admin/messages?page=1&page_size=20&tenant_id=${verify.tenant_id}`, {
       method: "GET",
       headers: { authorization: `Bearer ${verify.access_token}` },
     }),
