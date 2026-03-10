@@ -249,15 +249,6 @@ export function renderAgentsGuideHtml() {
           </div>
           <div class="step">
             <div class="step-num">3</div>
-            <h3>Ask the backend for a payment proof (when over free limits)</h3>
-            <pre class="code">curl -s "$API_BASE/v1/payments/proof" \\
-  -H 'content-type: application/json' \\
-  -H 'authorization: Bearer &lt;access_token&gt;' \\
-  -d '{"method":"POST","path":"/v1/mailboxes/allocate"}'</pre>
-            <p>Use the returned <code>x_payment_proof</code> value exactly as the <code>x-payment-proof</code> header.</p>
-          </div>
-          <div class="step">
-            <div class="step-num">4</div>
             <h3>Allocate a mailbox</h3>
             <pre class="code">curl -s "$API_BASE/v1/mailboxes/allocate" \\
   -H 'content-type: application/json' \\
@@ -265,6 +256,15 @@ export function renderAgentsGuideHtml() {
   -H 'x-payment-proof: &lt;x_payment_proof&gt;' \\
   -d '{"agent_id":"&lt;agent_id&gt;","purpose":"signup","ttl_hours":1}'</pre>
             <p>Persist <code>mailbox_id</code>, <code>address</code>, <code>expires_at</code>, and any issued login details.</p>
+          </div>
+          <div class="step">
+            <div class="step-num">4</div>
+            <h3>Ask the backend for a payment proof (when over free limits)</h3>
+            <pre class="code">curl -s "$API_BASE/v1/payments/proof" \\
+  -H 'content-type: application/json' \\
+  -H 'authorization: Bearer &lt;access_token&gt;' \\
+  -d '{"method":"POST","path":"/v1/mailboxes/allocate"}'</pre>
+            <p>Use the returned <code>x_payment_proof</code> value exactly as the <code>x-payment-proof</code> header.</p>
           </div>
         </div>
       </article>
