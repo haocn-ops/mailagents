@@ -162,6 +162,7 @@ test("v2 webhook read models and commands can run against injected repositories"
   const commands = createV2WebhookCommands({ store: {}, repository });
 
   const deliveries = await readModels.listWebhookDeliveries({ tenantId: "tenant-1", webhookId: "wh-1" });
+  const delivery = await readModels.getWebhookDelivery({ tenantId: "tenant-1", deliveryId: "wd-1" });
   const rotated = await commands.rotateWebhookSecret({
     tenantId: "tenant-1",
     webhookId: "wh-1",
@@ -170,9 +171,11 @@ test("v2 webhook read models and commands can run against injected repositories"
   });
 
   assert.equal(deliveries[0].delivery_id, "wd-1");
+  assert.equal(delivery.delivery_id, "wd-1");
   assert.equal(rotated.webhook_id, "wh-1");
   assert.deepEqual(calls, [
     ["list-deliveries", "tenant-1", "wh-1"],
+    ["list-deliveries", "tenant-1", undefined],
     ["get-webhook", "tenant-1", "wh-1"],
     ["rotate", "tenant-1", "wh-1", { actorDid: "did:example:admin", requestId: "req-1" }],
   ]);
