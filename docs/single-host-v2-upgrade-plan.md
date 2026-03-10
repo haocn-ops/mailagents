@@ -69,6 +69,35 @@ If Redis is configured, run the worker process on the same host:
 npm run worker:start
 ```
 
+To keep the worker running after logout, use a simple `systemd` service.
+
+Example unit file (`/etc/systemd/system/mailagents-worker.service`):
+
+```ini
+[Unit]
+Description=Mailagents job worker
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/mailagents
+EnvironmentFile=/opt/mailagents/.env.production
+ExecStart=/usr/bin/npm run worker:start
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Then run:
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now mailagents-worker
+sudo systemctl status mailagents-worker
+```
+
 ### Step 5: Verify
 
 Minimum checks:
