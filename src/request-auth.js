@@ -121,7 +121,7 @@ export function createRequestAuth({
     agentId,
     endpoint,
     checkAllocateHourly = false,
-    allocateHourlyEndpoints = ["POST /v1/mailboxes/allocate"],
+    allocateHourlyEndpoints = ["POST /v2/mailboxes/leases"],
   }) {
     const tenantPolicy = await store.getTenantPolicy(tenantId);
     if (!tenantPolicy) {

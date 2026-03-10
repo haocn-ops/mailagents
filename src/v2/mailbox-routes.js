@@ -74,7 +74,7 @@ export function createV2MailboxRouteHandler({
         agentId: parsed.agentId,
         endpoint: "POST /v2/mailboxes/leases",
         checkAllocateHourly: true,
-        allocateHourlyEndpoints: ["POST /v1/mailboxes/allocate", "POST /v2/mailboxes/leases"],
+        allocateHourlyEndpoints: ["POST /v2/mailboxes/leases"],
       });
       if (!access.ok) return access.response;
 
