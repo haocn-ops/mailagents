@@ -20,6 +20,7 @@
 - [Current Production State](./current-production-state.md)
 - [Agent API Example](./agent-api-example.md)
 - [Single-Host Deployment](./single-host-deployment.md)
+- [Single-Host V2 Upgrade Plan](./single-host-v2-upgrade-plan.md)
 - [Admin Dashboard Design](./admin-dashboard.md)
 - [Business API Contract](./openapi.yaml)
 - [V2 Preview API Contract](./openapi-v2.yaml)
@@ -50,17 +51,18 @@
 13. `mailu-colocated-rewrite.md` - adapt the generated Mailu baseline to a host already running Nginx
 14. `mailu-cert-renewal.md` - keep Mailu mail TLS in sync with host Let's Encrypt renewal
 15. `single-host-deployment.md` - one-place deployment path on a VPS or cloud host
-16. `project-retrospective.md` - implementation review, key corrections, and final product shape
-17. `current-production-state.md` - live capabilities, runtime mode, and current deployment caveats
-18. `agent-api-example.md` - minimal agent workflow for sign-in, allocate, read, send, and release
-19. `openapi.yaml` - business API contract
-20. `openapi-v2.yaml` - current V2 preview contract implemented on top of the main control plane
-21. `admin-dashboard.md` - dashboard IA and operation flows
-22. `openapi-admin.yaml` - admin API contract
-23. `mailagents-v2-technical-design.md` - integrated V2 technical design and migration target
-24. `openapi-admin-v2.yaml` - proposed V2 admin API contract
-25. `db-migration-v2.sql` - additive V2 schema migration draft
-26. `sprint-1-implementation-plan.md` - first implementation sprint breakdown
-27. `sprint-2-implementation-plan.md` - second implementation sprint focused on V2 route hardening, read-model split, parser jobs, and webhook persistence
-28. `pr-sprint-1-v2-foundation.md` - reviewer-oriented summary of the Sprint 1 implementation branch
-29. `db/schema.sql` - current schema implementation
+16. `single-host-v2-upgrade-plan.md` - upgrade path from V1 single-host to V2-capable control plane
+17. `project-retrospective.md` - implementation review, key corrections, and final product shape
+18. `current-production-state.md` - live capabilities, runtime mode, and current deployment caveats
+19. `agent-api-example.md` - minimal agent workflow for sign-in, allocate, read, send, and release
+20. `openapi.yaml` - business API contract
+21. `openapi-v2.yaml` - current V2 preview contract implemented on top of the main control plane
+22. `admin-dashboard.md` - dashboard IA and operation flows
+23. `openapi-admin.yaml` - admin API contract
+24. `mailagents-v2-technical-design.md` - integrated V2 technical design and migration target
+25. `openapi-admin-v2.yaml` - proposed V2 admin API contract
+26. `db-migration-v2.sql` - additive V2 schema migration draft
+27. `sprint-1-implementation-plan.md` - first implementation sprint breakdown
+28. `sprint-2-implementation-plan.md` - second implementation sprint focused on V2 route hardening, read-model split, parser jobs, and webhook persistence
+29. `pr-sprint-1-v2-foundation.md` - reviewer-oriented summary of the Sprint 1 implementation branch
+30. `db/schema.sql` - current schema implementation
