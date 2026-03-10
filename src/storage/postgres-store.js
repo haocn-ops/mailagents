@@ -1794,9 +1794,13 @@ export class PostgresStore {
     });
   }
 
-  async adminListMessages({ page, pageSize, mailboxId, parsedStatus }) {
+  async adminListMessages({ page, pageSize, tenantId = null, mailboxId, parsedStatus }) {
     const values = [];
     const filters = [];
+    if (tenantId) {
+      values.push(tenantId);
+      filters.push(`mb.tenant_id = $${values.length}`);
+    }
     if (mailboxId) {
       values.push(mailboxId);
       filters.push(`m.mailbox_id = $${values.length}`);
@@ -1805,6 +1809,7 @@ export class PostgresStore {
     const result = await this._query(
       `select m.id as message_id,
               m.mailbox_id,
+              mb.tenant_id,
               m.sender_domain,
               m.subject,
               m.received_at,
@@ -1819,6 +1824,7 @@ export class PostgresStore {
                 select 1 from message_events me where me.message_id = m.id and me.event_type = 'otp.extracted' and me.otp_code is not null
               ) as otp_extracted
          from messages m
+         join mailboxes mb on mb.id = m.mailbox_id
          ${where}
          order by m.received_at desc`,
       values,
@@ -1826,6 +1832,7 @@ export class PostgresStore {
     let items = result.rows.map((row) => ({
       message_id: row.message_id,
       mailbox_id: row.mailbox_id,
+      tenant_id: row.tenant_id,
       sender_domain: row.sender_domain,
       subject: row.subject,
       received_at: row.received_at.toISOString(),

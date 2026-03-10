@@ -1217,8 +1217,9 @@ export class MemoryStore {
     return { status: "released" };
   }
 
-  async adminListMessages({ page, pageSize, mailboxId, parsedStatus }) {
+  async adminListMessages({ page, pageSize, tenantId = null, mailboxId, parsedStatus }) {
     let items = [...this.state.messages.values()].map((message) => {
+      const mailbox = this.state.mailboxes.get(message.mailboxId);
       const event = this.state.messageEvents.get(message.id);
       const status = !event
         ? "pending"
@@ -1230,6 +1231,7 @@ export class MemoryStore {
       return {
         message_id: message.id,
         mailbox_id: message.mailboxId,
+        tenant_id: mailbox?.tenantId || null,
         sender_domain: message.senderDomain,
         subject: message.subject,
         received_at: message.receivedAt,
@@ -1237,6 +1239,7 @@ export class MemoryStore {
         otp_extracted: Boolean(event?.otpCode),
       };
     });
+    if (tenantId) items = items.filter((message) => message.tenant_id === tenantId);
     if (mailboxId) items = items.filter((message) => message.mailbox_id === mailboxId);
     if (parsedStatus) items = items.filter((message) => message.parsed_status === parsedStatus);
     items.sort((a, b) => new Date(b.received_at) - new Date(a.received_at));

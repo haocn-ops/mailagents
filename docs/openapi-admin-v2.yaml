@@ -152,6 +152,10 @@ paths:
           schema:
             type: integer
         - in: query
+          name: tenant_id
+          schema:
+            type: string
+        - in: query
           name: mailbox_id
           schema:
             type: string

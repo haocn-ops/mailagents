@@ -58,6 +58,7 @@ export function createV2AdminRouteHandler({
       const result = await adminService.adminListMessages({
         page: paging.page,
         pageSize: paging.pageSize,
+        tenantId: requestUrl.searchParams.get("tenant_id"),
         mailboxId: requestUrl.searchParams.get("mailbox_id"),
         parsedStatus: requestUrl.searchParams.get("parsed_status"),
       });
