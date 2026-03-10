@@ -1881,6 +1881,64 @@ test("fetch app supports worker-separated parse flow when queue runs in manual m
   assert.equal(parsedMessage.otp_code, "912345");
 });
 
+test("fetch app reports queued parse job when redis backend is configured", async () => {
+  const cfg = createConfig({
+    JWT_SECRET: "test-secret",
+    INTERNAL_API_TOKEN: "internal-secret",
+    BASE_CHAIN_ID: "84532",
+    MAILBOX_DOMAIN: "inbox.example.com",
+    SIWE_MODE: "mock",
+    PAYMENT_MODE: "mock",
+    QUEUE_BACKEND: "redis",
+  });
+  const store = new MemoryStore({
+    chainId: cfg.baseChainId,
+    challengeTtlMs: cfg.siweChallengeTtlMs,
+    mailboxDomain: cfg.mailboxDomain,
+    webhookSecretEncryptionKey: cfg.webhookSecretEncryptionKey,
+  });
+  const queue = createJobQueue({ mode: "manual" });
+  const app = createFetchApp({ config: cfg, store, queue });
+  const verify = await issueToken(app, "0xabc0000000000000000000000000000000000ff3");
+
+  const allocateRes = await app(
+    new Request("http://localhost/v1/mailboxes/allocate", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${verify.access_token}`,
+        "x-payment-proof": "mock-proof",
+      },
+      body: JSON.stringify({ agent_id: verify.agent_id, purpose: "redis-producer-mode", ttl_hours: 1 }),
+    }),
+  );
+  assert.equal(allocateRes.status, 200);
+  const allocation = await allocateRes.json();
+
+  const inboundRes = await app(
+    new Request("http://localhost/internal/inbound/events", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: "Bearer internal-secret",
+      },
+      body: JSON.stringify({
+        address: allocation.address,
+        provider_message_id: "mailu-msg-redis-producer",
+        sender: "notify@example.com",
+        sender_domain: "example.com",
+        subject: "Redis producer queue",
+        received_at: new Date().toISOString(),
+        raw_ref: "mailu://raw/redis-producer",
+        text_excerpt: "Your code is 111222",
+      }),
+    }),
+  );
+  assert.equal(inboundRes.status, 202);
+  const inbound = await inboundRes.json();
+  assert.equal(inbound.parse_job?.status, "queued");
+});
+
 test("fetch app deduplicates internal inbound events by provider message id", async () => {
   const app = makeApp();
   const verify = await issueToken(app, "0xabc0000000000000000000000000000000000dde");
