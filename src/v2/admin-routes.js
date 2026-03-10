@@ -162,6 +162,8 @@ export function createV2AdminRouteHandler({
       const result = await adminService.adminListWebhooks({
         page: paging.page,
         pageSize: paging.pageSize,
+        tenantId: requestUrl.searchParams.get("tenant_id"),
+        webhookId: requestUrl.searchParams.get("webhook_id"),
       });
       return responses.ok(requestId, result);
     }

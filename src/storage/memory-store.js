@@ -1313,8 +1313,8 @@ export class MemoryStore {
     return { status: "accepted" };
   }
 
-  async adminListWebhooks({ page, pageSize }) {
-    const items = [...this.state.webhooks.values()]
+  async adminListWebhooks({ page, pageSize, tenantId = null, webhookId = null }) {
+    let items = [...this.state.webhooks.values()]
       .map((webhook) => ({
         webhook_id: webhook.id,
         tenant_id: webhook.tenantId,
@@ -1325,6 +1325,8 @@ export class MemoryStore {
         last_status_code: webhook.lastStatusCode,
       }))
       .sort((a, b) => String(a.target_url).localeCompare(String(b.target_url)));
+    if (tenantId) items = items.filter((item) => item.tenant_id === tenantId);
+    if (webhookId) items = items.filter((item) => item.webhook_id === webhookId);
     return this._paginate(items, page, pageSize);
   }
 

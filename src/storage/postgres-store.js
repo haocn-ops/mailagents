@@ -1914,12 +1914,25 @@ export class PostgresStore {
     return { status: "accepted" };
   }
 
-  async adminListWebhooks({ page, pageSize }) {
+  async adminListWebhooks({ page, pageSize, tenantId = null, webhookId = null }) {
+    const values = [];
+    const filters = [];
+    if (tenantId) {
+      values.push(tenantId);
+      filters.push(`tenant_id = $${values.length}`);
+    }
+    if (webhookId) {
+      values.push(webhookId);
+      filters.push(`id = $${values.length}`);
+    }
+    const where = filters.length ? `where ${filters.join(" and ")}` : "";
     const result = await this._query(
       `select id as webhook_id, tenant_id, target_url, event_types, status, created_at
               , last_delivery_at, last_status_code
          from webhooks
+         ${where}
         order by created_at desc`,
+      values,
     );
     return this._paginate(
       result.rows.map((row) => ({
