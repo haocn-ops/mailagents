@@ -24,8 +24,7 @@ export function createV2WebhookReadModels({
     },
 
     async getWebhookDelivery({ tenantId, deliveryId }) {
-      const items = await repository.listTenantWebhookDeliveries(tenantId, {});
-      const delivery = items.find((item) => item.delivery_id === deliveryId);
+      const delivery = await repository.getTenantWebhookDelivery(tenantId, deliveryId);
       if (!delivery) return null;
       return toV2WebhookDelivery(delivery);
     },

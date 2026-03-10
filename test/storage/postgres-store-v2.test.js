@@ -97,6 +97,98 @@ test("postgres store falls back to audit logs when webhook_deliveries table is u
   ]);
 });
 
+test("postgres store fetches webhook delivery detail from webhook_deliveries table when available", async () => {
+  const store = new PostgresStore({
+    chainId: 84532,
+    challengeTtlMs: 300000,
+    mailboxDomain: "inbox.example.com",
+  });
+
+  let captured = null;
+  store._loadV2TableAvailability = async () => ({ webhook_deliveries: true });
+  store._query = async (text, values) => {
+    captured = { text, values };
+    return {
+      rowCount: 1,
+      rows: [
+        {
+          webhook_id: "wh_detail_1",
+          delivery_id: "del_detail_1",
+          status_code: 201,
+          attempts: 2,
+          ok: true,
+          error_message: null,
+          response_excerpt: null,
+          request_id: "req_detail_1",
+          delivered_at: new Date("2026-03-10T04:00:00.000Z"),
+        },
+      ],
+    };
+  };
+
+  const delivery = await store.getTenantWebhookDelivery("tenant_detail_1", "del_detail_1");
+
+  assert.ok(captured.text.includes("from webhook_deliveries wd"));
+  assert.deepEqual(captured.values, ["tenant_detail_1", "del_detail_1"]);
+  assert.deepEqual(delivery, {
+    webhook_id: "wh_detail_1",
+    delivery_id: "del_detail_1",
+    status_code: 201,
+    attempts: 2,
+    ok: true,
+    error_message: null,
+    response_excerpt: null,
+    request_id: "req_detail_1",
+    delivered_at: "2026-03-10T04:00:00.000Z",
+  });
+});
+
+test("postgres store fetches webhook delivery detail from audit logs when table is unavailable", async () => {
+  const store = new PostgresStore({
+    chainId: 84532,
+    challengeTtlMs: 300000,
+    mailboxDomain: "inbox.example.com",
+  });
+
+  let captured = null;
+  store._loadV2TableAvailability = async () => ({ webhook_deliveries: false });
+  store._query = async (text, values) => {
+    captured = { text, values };
+    return {
+      rowCount: 1,
+      rows: [
+        {
+          webhook_id: "wh_detail_2",
+          delivery_id: "audit_detail_2",
+          status_code: 500,
+          attempts: 1,
+          ok: false,
+          error_message: "Webhook request failed",
+          response_excerpt: null,
+          request_id: "req_detail_2",
+          delivered_at: new Date("2026-03-10T05:00:00.000Z"),
+        },
+      ],
+    };
+  };
+
+  const delivery = await store.getTenantWebhookDelivery("tenant_detail_2", "audit_detail_2");
+
+  assert.ok(captured.text.includes("from audit_logs al"));
+  assert.deepEqual(captured.values, ["tenant_detail_2", "audit_detail_2"]);
+  assert.deepEqual(delivery, {
+    webhook_id: "wh_detail_2",
+    delivery_id: "audit_detail_2",
+    status_code: 500,
+    attempts: 1,
+    ok: false,
+    error_message: "Webhook request failed",
+    response_excerpt: null,
+    request_id: "req_detail_2",
+    delivered_at: "2026-03-10T05:00:00.000Z",
+  });
+});
+
 test("postgres store recordWebhookDelivery writes first-class delivery record when table exists", async () => {
   const store = new PostgresStore({
     chainId: 84532,

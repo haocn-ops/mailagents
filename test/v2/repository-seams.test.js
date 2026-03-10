@@ -143,6 +143,17 @@ test("v2 webhook read models and commands can run against injected repositories"
         delivered_at: "2026-03-10T00:00:00Z",
       }];
     },
+    async getTenantWebhookDelivery(tenantId, deliveryId) {
+      calls.push(["get-delivery", tenantId, deliveryId]);
+      return {
+        delivery_id: deliveryId,
+        webhook_id: "wh-1",
+        attempts: 1,
+        ok: true,
+        status_code: 200,
+        delivered_at: "2026-03-10T00:00:00Z",
+      };
+    },
     async getTenantWebhook(tenantId, webhookId) {
       calls.push(["get-webhook", tenantId, webhookId]);
       return {
@@ -175,7 +186,7 @@ test("v2 webhook read models and commands can run against injected repositories"
   assert.equal(rotated.webhook_id, "wh-1");
   assert.deepEqual(calls, [
     ["list-deliveries", "tenant-1", "wh-1"],
-    ["list-deliveries", "tenant-1", undefined],
+    ["get-delivery", "tenant-1", "wd-1"],
     ["get-webhook", "tenant-1", "wh-1"],
     ["rotate", "tenant-1", "wh-1", { actorDid: "did:example:admin", requestId: "req-1" }],
   ]);

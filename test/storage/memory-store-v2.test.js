@@ -129,6 +129,11 @@ test("memory store persists webhook deliveries in first-class V2 state", async (
   assert.equal(listed[0].ok, false);
   assert.equal(listed[0].error_message, "Webhook returned HTTP 503");
   assert.equal(listed[0].request_id, "req-1");
+
+  const detail = await store.getTenantWebhookDelivery(identity.tenantId, listed[0].delivery_id);
+  assert.ok(detail);
+  assert.equal(detail.delivery_id, listed[0].delivery_id);
+  assert.equal(detail.webhook_id, webhook.id);
 });
 
 test("memory store exposes admin webhook deliveries with tenant and webhook filters", async () => {
