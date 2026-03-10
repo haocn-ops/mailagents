@@ -154,6 +154,14 @@ export function createFetchApp(deps = {}) {
     return runtimeSettings.getAgentAllocateHourlyLimit();
   }
 
+  function isV1SystemPath(path) {
+    if (!path || !path.startsWith("/v1/")) return false;
+    if (path === "/v1/meta/runtime") return true;
+    if (path === "/v1/payments/proof") return true;
+    if (path.startsWith("/v1/auth/")) return true;
+    return false;
+  }
+
   return async function handleRequest(request) {
     const { requestId, method, requestUrl, path } = createRequestContext(request);
 
@@ -162,6 +170,10 @@ export function createFetchApp(deps = {}) {
 
       const publicResponse = await handlePublicRoute({ method, path, requestId });
       if (publicResponse) return publicResponse;
+
+      if (path.startsWith("/v1/") && !isV1SystemPath(path)) {
+        return jsonResponse(410, { error: "gone", message: "v1 endpoints are deprecated; use v2" }, requestId);
+      }
 
       const v2Response = await handleV2Route({ method, path, request, requestId, requestUrl });
       if (v2Response) return v2Response;
