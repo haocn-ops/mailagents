@@ -35,8 +35,7 @@ function toInternalMessage(message) {
   };
 }
 
-export function createInternalService({ store, queue }) {
-  const repository = createInternalRepository({ store });
+export function createInternalService({ store, queue, repository = createInternalRepository({ store }) }) {
 
   return {
     async ingestInboundEvent({
