@@ -176,6 +176,43 @@ test("memory store exposes admin webhook deliveries with tenant and webhook filt
   assert.equal(listed.items[0].request_id, "req-admin-1");
 });
 
+test("memory store filters admin webhooks by tenant and webhook id", async () => {
+  const store = new MemoryStore({
+    chainId: 84532,
+    challengeTtlMs: 300000,
+    mailboxDomain: "inbox.example.com",
+  });
+  const { identity } = await seedMailboxLease(store);
+
+  const otherIdentity = await store.getOrCreateIdentity("0xabc0000000000000000000000000000000000555");
+
+  const primary = await store.createWebhook({
+    tenantId: identity.tenantId,
+    eventTypes: ["otp.extracted"],
+    targetUrl: "https://example.com/primary-hook",
+    secret: "1234567890abcdef",
+  });
+  await store.createWebhook({
+    tenantId: otherIdentity.tenantId,
+    eventTypes: ["otp.extracted"],
+    targetUrl: "https://example.com/other-hook",
+    secret: "1234567890abcdef",
+  });
+
+  const byTenant = await store.adminListWebhooks({ page: 1, pageSize: 20, tenantId: identity.tenantId });
+  assert.equal(byTenant.items.length, 1);
+  assert.equal(byTenant.items[0].tenant_id, identity.tenantId);
+
+  const byId = await store.adminListWebhooks({
+    page: 1,
+    pageSize: 20,
+    tenantId: identity.tenantId,
+    webhookId: primary.id,
+  });
+  assert.equal(byId.items.length, 1);
+  assert.equal(byId.items[0].webhook_id, primary.id);
+});
+
 test("memory store exposes admin send attempts with filters", async () => {
   const store = new MemoryStore({
     chainId: 84532,

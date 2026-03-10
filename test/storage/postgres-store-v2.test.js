@@ -326,6 +326,46 @@ test("postgres store lists admin webhook deliveries from webhook_deliveries tabl
   ]);
 });
 
+test("postgres store filters admin webhooks by tenant and webhook id", async () => {
+  const store = new PostgresStore({
+    chainId: 84532,
+    challengeTtlMs: 300000,
+    mailboxDomain: "inbox.example.com",
+  });
+
+  let captured = null;
+  store._query = async (text, values) => {
+    captured = { text, values };
+    return {
+      rows: [
+        {
+          webhook_id: "wh_filter_1",
+          tenant_id: "tenant_filter_1",
+          target_url: "https://example.com/filter-hook",
+          event_types: ["otp.extracted"],
+          status: "active",
+          last_delivery_at: null,
+          last_status_code: null,
+        },
+      ],
+    };
+  };
+
+  const result = await store.adminListWebhooks({
+    page: 1,
+    pageSize: 20,
+    tenantId: "tenant_filter_1",
+    webhookId: "wh_filter_1",
+  });
+
+  assert.ok(captured.text.includes("from webhooks"));
+  assert.ok(captured.text.includes("where"));
+  assert.deepEqual(captured.values, ["tenant_filter_1", "wh_filter_1"]);
+  assert.equal(result.page, 1);
+  assert.equal(result.items.length, 1);
+  assert.equal(result.items[0].webhook_id, "wh_filter_1");
+});
+
 test("postgres store lists admin webhook deliveries from audit logs when table is unavailable", async () => {
   const store = new PostgresStore({
     chainId: 84532,
