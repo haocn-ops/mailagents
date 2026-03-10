@@ -111,7 +111,7 @@ export function renderAdminDashboardHtml({ adminTokenRequired = false } = {}) {
       <section class="panel" data-panel="Settings">
         <article class="card">
           <h3>Tenant Limits</h3>
-          <p class="hint">Edit tenant status and rate limits via <code>/v1/admin/tenants/{tenant_id}</code>.</p>
+          <p class="hint">Edit tenant status and rate limits via <code>/v2/admin/tenants/{tenant_id}</code>.</p>
           <div class="settings-grid">
             <input id="tenant-id" placeholder="tenant_id" />
             <select id="tenant-status">
@@ -139,7 +139,7 @@ export function renderAdminDashboardHtml({ adminTokenRequired = false } = {}) {
         </article>
         <article class="card">
           <h3>Risk Policy Writer</h3>
-          <p class="hint">Writes directly to <code>/v1/admin/risk/policies</code>.</p>
+          <p class="hint">Writes directly to <code>/v2/admin/risk/policies</code>.</p>
           <div class="settings-grid">
             <select id="policy-type">
               <option value="domain_denylist">domain_denylist</option>
@@ -269,6 +269,15 @@ export function renderAdminDashboardHtml({ adminTokenRequired = false } = {}) {
       return body;
     }
 
+    async function paymentHeaders(method, path) {
+      var proof = await fetchJson("/v2/payments/proof", {
+        method: "POST",
+        headers: authHeaders(),
+        body: JSON.stringify({ method: method, path: path })
+      });
+      return { "x-payment-proof": proof.x_payment_proof };
+    }
+
     function formatCooldown(item) {
       if (!item || !item.created_at) return "n/a";
       if (item.primary_did) return "n/a";
@@ -336,9 +345,13 @@ export function renderAdminDashboardHtml({ adminTokenRequired = false } = {}) {
     async function runFlow() {
       try {
         var verify = await adminLogin();
-        var alloc = await fetchJson("/v1/mailboxes/allocate", {
+        if (verify && verify.mode === "admin-token") {
+          throw new Error("admin-token mode does not support mailbox flow");
+        }
+        var payHeaders = await paymentHeaders("POST", "/v2/mailboxes/leases");
+        var alloc = await fetchJson("/v2/mailboxes/leases", {
           method: "POST",
-          headers: Object.assign({}, authHeaders(), { "x-payment-proof": "mock-proof" }),
+          headers: Object.assign({}, authHeaders(), payHeaders),
           body: JSON.stringify({ agent_id: verify.agent_id, purpose: "admin-flow", ttl_hours: 1 })
         });
         addLog("flow ok tenant=" + verify.tenant_id + " mailbox=" + alloc.mailbox_id);
@@ -350,8 +363,8 @@ export function renderAdminDashboardHtml({ adminTokenRequired = false } = {}) {
 
     async function loadOverview() {
       var runtime = await fetchJson("/v2/meta/runtime", { headers: authHeaders() });
-      var metrics = await fetchJson("/v1/admin/overview/metrics", { headers: authHeaders() });
-      var timeseries = await fetchJson("/v1/admin/overview/timeseries?bucket=hour", { headers: authHeaders() });
+      var metrics = await fetchJson("/v2/admin/overview/metrics", { headers: authHeaders() });
+      var timeseries = await fetchJson("/v2/admin/overview/timeseries?bucket=hour", { headers: authHeaders() });
       renderMetrics(metrics);
       drawBars(timeseries.points || []);
       document.getElementById("tenant-overage").value = String(runtime.overage_charge_usdc == null ? "" : runtime.overage_charge_usdc);
@@ -371,7 +384,7 @@ export function renderAdminDashboardHtml({ adminTokenRequired = false } = {}) {
     }
 
     async function loadTables() {
-      var tenants = await fetchJson("/v1/admin/tenants?page=1&page_size=50", { headers: authHeaders() });
+      var tenants = await fetchJson("/v2/admin/tenants?page=1&page_size=50", { headers: authHeaders() });
       var tenantItems = decorateTenants(tenants.items);
       renderTable("tbl-tenants", [
         { key: "tenant_id", label: "tenant_id" },
@@ -392,7 +405,7 @@ export function renderAdminDashboardHtml({ adminTokenRequired = false } = {}) {
         { name: "tenant.disable", label: "Suspend", idKey: "tenant_id" }
       ]);
 
-      var mailboxes = await fetchJson("/v1/admin/mailboxes?page=1&page_size=50", { headers: authHeaders() });
+      var mailboxes = await fetchJson("/v2/admin/mailboxes/accounts?page=1&page_size=50", { headers: authHeaders() });
       renderTable("tbl-mailboxes", [
         { key: "mailbox_id", label: "mailbox_id" },
         { key: "address", label: "address" },
@@ -406,7 +419,7 @@ export function renderAdminDashboardHtml({ adminTokenRequired = false } = {}) {
         { name: "mailbox.release", label: "Release", idKey: "mailbox_id" }
       ]);
 
-      var messages = await fetchJson("/v1/admin/messages?page=1&page_size=50", { headers: authHeaders() });
+      var messages = await fetchJson("/v2/admin/messages?page=1&page_size=50", { headers: authHeaders() });
       renderTable("tbl-messages", [
         { key: "message_id", label: "message_id" },
         { key: "mailbox_id", label: "mailbox_id" },
@@ -420,7 +433,7 @@ export function renderAdminDashboardHtml({ adminTokenRequired = false } = {}) {
         { name: "message.replay", label: "Replay Webhook", idKey: "message_id" }
       ]);
 
-      var webhooks = await fetchJson("/v1/admin/webhooks?page=1&page_size=50", { headers: authHeaders() });
+      var webhooks = await fetchJson("/v2/admin/webhooks?page=1&page_size=50", { headers: authHeaders() });
       renderTable("tbl-webhooks", [
         { key: "webhook_id", label: "webhook_id" },
         { key: "tenant_id", label: "tenant_id" },
@@ -437,7 +450,7 @@ export function renderAdminDashboardHtml({ adminTokenRequired = false } = {}) {
         { name: "webhook.rotate", label: "Rotate Secret", idKey: "webhook_id" }
       ]);
 
-      var invoices = await fetchJson("/v1/admin/invoices?page=1&page_size=50", { headers: authHeaders() });
+      var invoices = await fetchJson("/v2/admin/billing/invoices?page=1&page_size=50", { headers: authHeaders() });
       renderTable("tbl-billing", [
         { key: "invoice_id", label: "invoice_id" },
         { key: "tenant_id", label: "tenant_id" },
@@ -449,7 +462,7 @@ export function renderAdminDashboardHtml({ adminTokenRequired = false } = {}) {
         { name: "invoice.issue", label: "Issue", idKey: "invoice_id" }
       ]);
 
-      var risk = await fetchJson("/v1/admin/risk/events?page=1&page_size=50", { headers: authHeaders() });
+      var risk = await fetchJson("/v2/admin/risk/events?page=1&page_size=50", { headers: authHeaders() });
       renderTable("tbl-risk", [
         { key: "event_id", label: "event_id" },
         { key: "tenant_id", label: "tenant_id" },
@@ -459,7 +472,7 @@ export function renderAdminDashboardHtml({ adminTokenRequired = false } = {}) {
         { key: "occurred_at", label: "occurred_at" }
       ], risk.items || []);
 
-      var audit = await fetchJson("/v1/admin/audit/logs?page=1&page_size=50", { headers: authHeaders() });
+      var audit = await fetchJson("/v2/admin/audit/logs?page=1&page_size=50", { headers: authHeaders() });
       renderTable("tbl-audit", [
         { key: "log_id", label: "log_id" },
         { key: "timestamp", label: "timestamp" },
@@ -480,7 +493,7 @@ export function renderAdminDashboardHtml({ adminTokenRequired = false } = {}) {
         var id = button.dataset.id;
         var action = button.dataset.action;
         if (action === "tenant.disable") {
-          await fetchJson("/v1/admin/tenants/" + id, {
+          await fetchJson("/v2/admin/tenants/" + id, {
             method: "PATCH",
             headers: authHeaders(),
             body: JSON.stringify({ status: "suspended" })
@@ -488,25 +501,25 @@ export function renderAdminDashboardHtml({ adminTokenRequired = false } = {}) {
         } else if (action === "tenant.edit") {
           await loadTenantSettings(id);
         } else if (action === "mailbox.freeze") {
-          await fetchJson("/v1/admin/mailboxes/" + id + "/freeze", {
+          await fetchJson("/v2/admin/mailboxes/" + id + "/freeze", {
             method: "POST",
             headers: authHeaders(),
             body: JSON.stringify({ reason: "dashboard freeze" })
           });
         } else if (action === "mailbox.release") {
-          await fetchJson("/v1/admin/mailboxes/" + id + "/release", {
+          await fetchJson("/v2/admin/mailboxes/" + id + "/release", {
             method: "POST",
             headers: authHeaders(),
             body: "{}"
           });
         } else if (action === "message.reparse") {
-          await fetchJson("/v1/admin/messages/" + id + "/reparse", {
+          await fetchJson("/v2/admin/messages/" + id + "/reparse", {
             method: "POST",
             headers: authHeaders(),
             body: "{}"
           });
         } else if (action === "message.replay") {
-          await fetchJson("/v1/admin/messages/" + id + "/replay-webhook", {
+          await fetchJson("/v2/admin/messages/" + id + "/replay-webhook", {
             method: "POST",
             headers: authHeaders(),
             body: "{}"
@@ -514,20 +527,20 @@ export function renderAdminDashboardHtml({ adminTokenRequired = false } = {}) {
         } else if (action === "webhook.replay") {
           var now = new Date();
           var from = new Date(now.getTime() - 3600 * 1000).toISOString();
-          await fetchJson("/v1/admin/webhooks/" + id + "/replay", {
+          await fetchJson("/v2/admin/webhooks/" + id + "/replay", {
             method: "POST",
             headers: authHeaders(),
             body: JSON.stringify({ from: from, to: now.toISOString() })
           });
         } else if (action === "webhook.rotate") {
-          var rotated = await fetchJson("/v1/admin/webhooks/" + id + "/rotate-secret", {
+          var rotated = await fetchJson("/v2/admin/webhooks/" + id + "/rotate-secret", {
             method: "POST",
             headers: authHeaders(),
             body: "{}"
           });
           addLog("webhook secret rotated: " + rotated.secret);
         } else if (action === "invoice.issue") {
-          await fetchJson("/v1/admin/invoices/" + id + "/issue", {
+          await fetchJson("/v2/admin/billing/invoices/" + id + "/issue", {
             method: "POST",
             headers: authHeaders(),
             body: "{}"
@@ -545,7 +558,7 @@ export function renderAdminDashboardHtml({ adminTokenRequired = false } = {}) {
         await ensureToken();
         var tenantId = id || document.getElementById("tenant-id").value.trim();
         if (!tenantId) throw new Error("tenant_id is required");
-        var tenant = await fetchJson("/v1/admin/tenants/" + tenantId, { headers: authHeaders() });
+        var tenant = await fetchJson("/v2/admin/tenants/" + tenantId, { headers: authHeaders() });
         document.getElementById("tenant-id").value = tenant.tenant_id;
         document.getElementById("tenant-status").value = tenant.status || "active";
         document.getElementById("tenant-qps").value = tenant.quotas && tenant.quotas.qps != null ? tenant.quotas.qps : "";
@@ -584,7 +597,7 @@ export function renderAdminDashboardHtml({ adminTokenRequired = false } = {}) {
           if (qpsValue) payload.quotas.qps = Number(qpsValue);
           if (mailboxLimitValue) payload.quotas.mailbox_limit = Number(mailboxLimitValue);
         }
-        await fetchJson("/v1/admin/tenants/" + tenantId, {
+        await fetchJson("/v2/admin/tenants/" + tenantId, {
           method: "PATCH",
           headers: authHeaders(),
           body: JSON.stringify(payload)
@@ -605,7 +618,7 @@ export function renderAdminDashboardHtml({ adminTokenRequired = false } = {}) {
         if (overageValue) payload.overage_charge_usdc = Number(overageValue);
         if (allocateHourlyValue) payload.agent_allocate_hourly_limit = Number(allocateHourlyValue);
         if (!Object.keys(payload).length) throw new Error("at least one runtime limit is required");
-        var updated = await fetchJson("/v1/admin/settings/limits", {
+        var updated = await fetchJson("/v2/admin/settings/runtime", {
           method: "PATCH",
           headers: authHeaders(),
           body: JSON.stringify(payload)
@@ -622,7 +635,7 @@ export function renderAdminDashboardHtml({ adminTokenRequired = false } = {}) {
     async function savePolicy() {
       try {
         await ensureToken();
-        await fetchJson("/v1/admin/risk/policies", {
+        await fetchJson("/v2/admin/risk/policies", {
           method: "POST",
           headers: authHeaders(),
           body: JSON.stringify({
