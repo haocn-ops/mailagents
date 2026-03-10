@@ -32,4 +32,16 @@ test("createConfig uses extracted parsers for lists and booleans", () => {
   assert.equal(config.mailSmtpSecure, true);
   assert.equal(config.mailProvider, "mailu");
   assert.equal(config.queueBackend, "redis");
+  assert.equal(config.queueJobAttempts, 3);
+  assert.equal(config.queueJobBackoffMs, 1000);
+});
+
+test("createConfig accepts queue retry overrides", () => {
+  const config = createConfig({
+    QUEUE_JOB_ATTEMPTS: "5",
+    QUEUE_JOB_BACKOFF_MS: "2500",
+  });
+
+  assert.equal(config.queueJobAttempts, 5);
+  assert.equal(config.queueJobBackoffMs, 2500);
 });
