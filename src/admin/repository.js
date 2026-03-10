@@ -24,6 +24,10 @@ export function createAdminRepository({ store }) {
       return store.adminListMailboxes(args);
     },
 
+    adminGetMailboxAccount(accountId) {
+      return store.adminGetMailboxAccount(accountId);
+    },
+
     adminFreezeMailbox(mailboxId, context) {
       return store.adminFreezeMailbox(mailboxId, context);
     },
@@ -36,6 +40,10 @@ export function createAdminRepository({ store }) {
       return store.adminListMessages(args);
     },
 
+    adminListSendAttempts(args) {
+      return store.adminListSendAttempts(args);
+    },
+
     adminReparseMessage(messageId, context) {
       return store.adminReparseMessage(messageId, context);
     },
@@ -46,6 +54,10 @@ export function createAdminRepository({ store }) {
 
     adminListWebhooks(args) {
       return store.adminListWebhooks(args);
+    },
+
+    adminListWebhookDeliveries(args) {
+      return store.adminListWebhookDeliveries(args);
     },
 
     adminReplayWebhook(webhookId, args) {

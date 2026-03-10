@@ -1118,6 +1118,21 @@ export class MemoryStore {
     return this._paginate(items, page, pageSize);
   }
 
+  async adminGetMailboxAccount(accountId) {
+    const mailbox = this.state.mailboxes.get(accountId);
+    if (!mailbox) return null;
+    const lease = this._currentLeaseByMailbox(mailbox.id);
+    return {
+      mailbox_id: mailbox.id,
+      address: mailbox.address,
+      type: mailbox.type || "alias",
+      status: mailbox.status,
+      tenant_id: mailbox.tenantId,
+      agent_id: lease?.agentId || null,
+      lease_expires_at: lease?.expiresAt || null,
+    };
+  }
+
   async listMailboxesForReconcile() {
     return [...this.state.mailboxes.values()]
       .map((mailbox) => {
@@ -1210,6 +1225,31 @@ export class MemoryStore {
     return this._paginate(items, page, pageSize);
   }
 
+  async adminListSendAttempts({ page, pageSize, tenantId = null, mailboxId = null, submissionStatus = null }) {
+    let items = [...this.state.sendAttempts.values()].map((attempt) => ({
+      send_attempt_id: attempt.id,
+      tenant_id: attempt.tenantId,
+      agent_id: attempt.agentId,
+      mailbox_id: attempt.mailboxId,
+      to: [...attempt.to],
+      subject: attempt.subject,
+      submission_status: attempt.submissionStatus,
+      accepted: [...attempt.accepted],
+      rejected: [...attempt.rejected],
+      message_id: attempt.messageId,
+      response: attempt.response,
+      envelope: attempt.envelope,
+      error: attempt.error,
+      created_at: attempt.createdAt,
+      updated_at: attempt.updatedAt,
+    }));
+    if (tenantId) items = items.filter((item) => item.tenant_id === tenantId);
+    if (mailboxId) items = items.filter((item) => item.mailbox_id === mailboxId);
+    if (submissionStatus) items = items.filter((item) => item.submission_status === submissionStatus);
+    items.sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
+    return this._paginate(items, page, pageSize);
+  }
+
   async adminReparseMessage(messageId, { actorDid, requestId }) {
     const message = this.state.messages.get(messageId);
     if (!message) return null;
@@ -1264,6 +1304,25 @@ export class MemoryStore {
         last_status_code: webhook.lastStatusCode,
       }))
       .sort((a, b) => String(a.target_url).localeCompare(String(b.target_url)));
+    return this._paginate(items, page, pageSize);
+  }
+
+  async adminListWebhookDeliveries({ page, pageSize, tenantId = null, webhookId = null }) {
+    let items = this.state.webhookDeliveries.map((entry) => ({
+      webhook_id: entry.webhookId,
+      tenant_id: entry.tenantId,
+      delivery_id: entry.id,
+      status_code: entry.statusCode ?? null,
+      attempts: entry.attempts ?? null,
+      ok: entry.ok ?? null,
+      error_message: entry.errorMessage || null,
+      response_excerpt: entry.responseExcerpt || null,
+      request_id: entry.requestId || null,
+      delivered_at: entry.deliveredAt || null,
+    }));
+    if (tenantId) items = items.filter((item) => item.tenant_id === tenantId);
+    if (webhookId) items = items.filter((item) => item.webhook_id === webhookId);
+    items.sort((a, b) => String(b.delivered_at).localeCompare(String(a.delivered_at)));
     return this._paginate(items, page, pageSize);
   }
 

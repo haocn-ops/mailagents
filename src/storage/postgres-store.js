@@ -1656,6 +1656,34 @@ export class PostgresStore {
     );
   }
 
+  async adminGetMailboxAccount(accountId) {
+    const result = await this._query(
+      `select m.id as mailbox_id,
+              m.address,
+              m.type,
+              m.status,
+              m.tenant_id,
+              l.agent_id,
+              l.expires_at as lease_expires_at
+         from mailboxes m
+         left join mailbox_leases l on l.mailbox_id = m.id and l.status = 'active'
+        where m.id = $1
+        limit 1`,
+      [accountId],
+    );
+    if (result.rowCount === 0) return null;
+    const row = result.rows[0];
+    return {
+      mailbox_id: row.mailbox_id,
+      address: row.address,
+      type: row.type,
+      status: row.status,
+      tenant_id: row.tenant_id,
+      agent_id: row.agent_id,
+      lease_expires_at: row.lease_expires_at ? row.lease_expires_at.toISOString() : null,
+    };
+  }
+
   async listMailboxesForReconcile() {
     const result = await this._query(
       `select m.id as mailbox_id,
@@ -1752,6 +1780,34 @@ export class PostgresStore {
     return this._paginate(items, page, pageSize);
   }
 
+  async adminListSendAttempts({ page, pageSize, tenantId = null, mailboxId = null, submissionStatus = null }) {
+    const values = [];
+    const filters = [`resource_type = 'send_attempt'`];
+    if (tenantId) {
+      values.push(tenantId);
+      filters.push(`tenant_id = $${values.length}`);
+    }
+    const result = await this._query(
+      `select distinct on (resource_id) tenant_id, agent_id, resource_id, metadata, created_at
+         from audit_logs
+        where ${filters.join(" and ")}
+        order by resource_id, created_at desc`,
+      values,
+    );
+
+    let items = result.rows
+      .map((row) => ({
+        tenant_id: row.tenant_id,
+        agent_id: row.agent_id,
+        ...this._sendAttemptFromAuditRow(row),
+      }))
+      .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
+
+    if (mailboxId) items = items.filter((item) => item.mailbox_id === mailboxId);
+    if (submissionStatus) items = items.filter((item) => item.submission_status === submissionStatus);
+    return this._paginate(items, page, pageSize);
+  }
+
   async adminReparseMessage(messageId, { actorDid, requestId }) {
     return this._withTx(async (client) => {
       const result = await this._query(`select id from messages where id = $1 limit 1`, [messageId], client);
@@ -1811,6 +1867,76 @@ export class PostgresStore {
         status: row.status,
         last_delivery_at: row.last_delivery_at ? row.last_delivery_at.toISOString() : null,
         last_status_code: row.last_status_code,
+      })),
+      page,
+      pageSize,
+    );
+  }
+
+  async adminListWebhookDeliveries({ page, pageSize, tenantId = null, webhookId = null }) {
+    const tables = await this._loadV2TableAvailability();
+    const values = [];
+    const filters = [];
+
+    if (tenantId) {
+      values.push(tenantId);
+      filters.push(tables.webhook_deliveries ? `w.tenant_id = $${values.length}` : `al.tenant_id = $${values.length}`);
+    }
+    if (webhookId) {
+      values.push(webhookId);
+      filters.push(tables.webhook_deliveries ? `wd.webhook_id = $${values.length}` : `al.resource_id = $${values.length}`);
+    }
+
+    const where = filters.length ? `where ${filters.join(" and ")}` : "";
+    const result = await this._query(
+      tables.webhook_deliveries
+        ? `select wd.webhook_id,
+                  w.tenant_id,
+                  wd.id as delivery_id,
+                  wd.response_code as status_code,
+                  wd.attempt_number as attempts,
+                  wd.delivery_status = 'delivered' as ok,
+                  wd.error_message,
+                  wd.response_excerpt,
+                  wd.request_id,
+                  wd.delivered_at
+             from webhook_deliveries wd
+             join webhooks w on w.id = wd.webhook_id
+             ${where}
+            order by wd.created_at desc`
+        : `select al.resource_id as webhook_id,
+                  al.tenant_id,
+                  al.id as delivery_id,
+                  nullif(al.metadata->>'status_code', '')::int as status_code,
+                  nullif(al.metadata->>'attempts', '')::int as attempts,
+                  case
+                    when al.metadata ? 'ok' then (al.metadata->>'ok')::boolean
+                    else null
+                  end as ok,
+                  al.metadata->>'error_message' as error_message,
+                  al.metadata->>'response_excerpt' as response_excerpt,
+                  coalesce(al.request_id, al.metadata->>'request_id') as request_id,
+                  al.created_at as delivered_at
+             from audit_logs al
+             ${where}
+               ${where ? "and" : "where"} al.action = 'webhook.deliver'
+               and al.resource_type = 'webhook'
+            order by al.created_at desc`,
+      values,
+    );
+
+    return this._paginate(
+      result.rows.map((row) => ({
+        webhook_id: row.webhook_id,
+        tenant_id: row.tenant_id,
+        delivery_id: row.delivery_id,
+        status_code: row.status_code ?? null,
+        attempts: row.attempts ?? null,
+        ok: row.ok ?? null,
+        error_message: row.error_message || null,
+        response_excerpt: row.response_excerpt || null,
+        request_id: row.request_id || null,
+        delivered_at: row.delivered_at ? row.delivered_at.toISOString() : null,
       })),
       page,
       pageSize,
