@@ -142,6 +142,28 @@ components:
         updated_at:
           type: string
           format: date-time
+    SendResult:
+      type: object
+      required: [send_attempt_id, submission_status, accepted, rejected]
+      properties:
+        send_attempt_id:
+          type: string
+        submission_status:
+          type: string
+        accepted:
+          type: array
+          items:
+            type: string
+        rejected:
+          type: array
+          items:
+            type: string
+        message_id:
+          type: string
+          nullable: true
+        response:
+          type: string
+          nullable: true
     Webhook:
       type: object
       required: [webhook_id, event_types, target_url, status]
@@ -465,6 +487,16 @@ paths:
       responses:
         '200':
           description: Message list
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Message'
   /v2/messages/{message_id}:
     get:
       summary: Get message detail for the current tenant
@@ -511,12 +543,26 @@ paths:
       responses:
         '202':
           description: Send accepted and tracked as a send attempt
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SendResult'
   /v2/send-attempts:
     get:
       summary: List outbound send attempts for the current tenant
       responses:
         '200':
           description: Send attempt list
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/SendAttempt'
   /v2/send-attempts/{send_attempt_id}:
     get:
       summary: Get outbound send attempt detail
