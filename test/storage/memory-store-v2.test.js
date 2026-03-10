@@ -105,6 +105,7 @@ test("memory store persists webhook deliveries in first-class V2 state", async (
     statusCode: 503,
     requestId: "req-1",
     metadata: {
+      delivery_id: "delivery-1",
       event_type: "otp.extracted",
       resource_id: "message-1",
       attempts: 3,
@@ -129,6 +130,7 @@ test("memory store persists webhook deliveries in first-class V2 state", async (
   assert.equal(listed[0].ok, false);
   assert.equal(listed[0].error_message, "Webhook returned HTTP 503");
   assert.equal(listed[0].request_id, "req-1");
+  assert.equal(listed[0].delivery_id, "delivery-1");
 
   const detail = await store.getTenantWebhookDelivery(identity.tenantId, listed[0].delivery_id);
   assert.ok(detail);

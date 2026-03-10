@@ -1,4 +1,4 @@
-import { randomBytes } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { encryptSecret, hashSecret, normalizeAddress } from "../utils.js";
 
 export class PostgresStore {
@@ -810,11 +810,13 @@ export class PostgresStore {
       );
       if (result.rowCount === 0) return null;
       if (tables.webhook_deliveries) {
+        const deliveryId = metadata.delivery_id || randomUUID();
         await this._query(
           `insert into webhook_deliveries
-            (webhook_id, event_type, resource_id, attempt_number, delivery_status, response_code, response_excerpt, error_message, request_id, delivered_at)
-           values ($1, $2, $3, $4, $5, $6, $7, $8, $9, now())`,
+            (id, webhook_id, event_type, resource_id, attempt_number, delivery_status, response_code, response_excerpt, error_message, request_id, delivered_at)
+           values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, now())`,
           [
+            deliveryId,
             webhookId,
             metadata.event_type || "unknown",
             metadata.resource_id || webhookId,

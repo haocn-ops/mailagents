@@ -594,7 +594,7 @@ export class MemoryStore {
     if (!webhook) return null;
     webhook.lastDeliveryAt = new Date().toISOString();
     webhook.lastStatusCode = statusCode;
-    const deliveryId = randomUUID();
+    const deliveryId = metadata.delivery_id || randomUUID();
     const deliveredAt = new Date().toISOString();
     this._recordAudit({
       tenantId: webhook.tenantId,
