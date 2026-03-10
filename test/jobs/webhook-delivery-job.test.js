@@ -112,3 +112,40 @@ test("webhook delivery job records thrown dispatcher error and rethrows", async 
   assert.equal(recorded.payload.metadata.ok, false);
   assert.equal(recorded.payload.metadata.error_message, "network timeout");
 });
+
+test("webhook delivery job can run against injected repository seam", async () => {
+  let recorded = null;
+  const repository = {
+    async getWebhook(webhookId) {
+      assert.equal(webhookId, "webhook-seam");
+      return {
+        id: "webhook-seam",
+        targetUrl: "https://example.com/hook",
+      };
+    },
+    async recordWebhookDelivery(webhookId, payload) {
+      recorded = { webhookId, payload };
+    },
+  };
+  const webhookDispatcher = {
+    async dispatch() {
+      return {
+        ok: true,
+        statusCode: 202,
+        attempts: 1,
+        deliveryId: "delivery-seam",
+      };
+    },
+  };
+
+  const job = createWebhookDeliveryJob({ webhookDispatcher, repository });
+  const result = await job({
+    webhookId: "webhook-seam",
+    requestId: "req-seam",
+    eventPayload: { event_type: "mail.received", message_id: "message-seam" },
+  });
+
+  assert.equal(result.webhookId, "webhook-seam");
+  assert.equal(result.delivery.statusCode, 202);
+  assert.equal(recorded.webhookId, "webhook-seam");
+});
