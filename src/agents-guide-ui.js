@@ -216,9 +216,10 @@ export function renderAgentsGuideHtml() {
 
     <section class="meta-grid">
       <article class="panel"><div class="k">API Base</div><div class="v">api.mailagents.net</div><p>All production API calls should target <code>https://api.mailagents.net</code>.</p></article>
-      <article class="panel"><div class="k">Auth Mode</div><div class="v">SIWE strict</div><p>Agents must sign the SIWE challenge with a real wallet. Do not assume mock signatures work in production.</p></article>
-      <article class="panel"><div class="k">Payment Mode</div><div class="v">HMAC proof</div><p>Protected mailbox and message endpoints require a short-lived payment proof issued by the backend.</p></article>
-      <article class="panel"><div class="k">Mail Domain</div><div class="v">inbox.mailagents.net</div><p>Allocated mailboxes, Webmail login, and SMTP/IMAP credentials are issued against the live mail domain.</p></article>
+          <article class="panel"><div class="k">Auth Mode</div><div class="v">SIWE strict</div><p>Agents must sign the SIWE challenge with a real wallet. Do not assume mock signatures work in production.</p></article>
+          <article class="panel"><div class="k">Payment Mode</div><div class="v">HMAC proof</div><p>Protected mailbox and message endpoints require a short-lived payment proof issued by the backend.</p></article>
+          <article class="panel"><div class="k">Mail Domain</div><div class="v">inbox.mailagents.net</div><p>Allocated mailboxes, Webmail login, and SMTP/IMAP credentials are issued against the live mail domain.</p></article>
+          <article class="panel"><div class="k">Cooldown</div><div class="v">10 / 24h</div><p>If a tenant is created without a bound wallet identity, outbound send is capped at 10 messages in the first 24 hours. Bind a wallet to remove the cooldown.</p></article>
     </section>
 
     <section class="section-grid">
