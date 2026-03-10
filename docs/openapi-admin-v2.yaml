@@ -190,6 +190,30 @@ paths:
       responses:
         '200':
           description: Send attempts returned
+  /v2/admin/webhook-deliveries:
+    get:
+      tags: [Webhooks]
+      summary: List webhook deliveries
+      parameters:
+        - in: query
+          name: page
+          schema:
+            type: integer
+        - in: query
+          name: page_size
+          schema:
+            type: integer
+        - in: query
+          name: tenant_id
+          schema:
+            type: string
+        - in: query
+          name: webhook_id
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Webhook deliveries returned
   /v2/admin/webhooks:
     get:
       tags: [Webhooks]

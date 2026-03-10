@@ -145,6 +145,17 @@ export function createV2AdminRouteHandler({
       return responses.ok(requestId, result);
     }
 
+    if (method === "GET" && path === "/v2/admin/webhook-deliveries") {
+      if (!paging.ok) return responses.badRequest(requestId, paging.message);
+      const result = await adminService.adminListWebhookDeliveries({
+        page: paging.page,
+        pageSize: paging.pageSize,
+        tenantId: requestUrl.searchParams.get("tenant_id"),
+        webhookId: requestUrl.searchParams.get("webhook_id"),
+      });
+      return responses.ok(requestId, result);
+    }
+
     if (method === "GET" && path === "/v2/admin/webhooks") {
       if (!paging.ok) return responses.badRequest(requestId, paging.message);
       const result = await adminService.adminListWebhooks({

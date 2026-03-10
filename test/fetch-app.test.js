@@ -1495,6 +1495,16 @@ test("fetch app admin API exposes live overview and lists", async () => {
   const v2Attempts = await v2AttemptsRes.json();
   assert.ok(v2Attempts.items.length >= 1);
 
+  const v2WebhookDeliveriesRes = await app(
+    new Request(`http://localhost/v2/admin/webhook-deliveries?page=1&page_size=20&tenant_id=${verify.tenant_id}`, {
+      method: "GET",
+      headers: { authorization: `Bearer ${verify.access_token}` },
+    }),
+  );
+  assert.equal(v2WebhookDeliveriesRes.status, 200);
+  const v2WebhookDeliveries = await v2WebhookDeliveriesRes.json();
+  assert.ok(Array.isArray(v2WebhookDeliveries.items));
+
   const v2WebhooksRes = await app(
     new Request("http://localhost/v2/admin/webhooks?page=1&page_size=20", {
       method: "GET",
