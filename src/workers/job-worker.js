@@ -26,6 +26,8 @@ const queue = createJobQueue({
   redisUrl: config.queueRedisUrl,
   prefix: config.queuePrefix,
   mode: config.queueBackend === "redis" ? "worker" : "manual",
+  defaultAttempts: config.queueJobAttempts,
+  defaultBackoffMs: config.queueJobBackoffMs,
 });
 
 queue.register(MAILBOX_PROVISION_JOB, createMailboxProvisionJob({ store, mailBackend }));

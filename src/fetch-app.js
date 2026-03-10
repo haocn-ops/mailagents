@@ -57,6 +57,8 @@ export function createFetchApp(deps = {}) {
       redisUrl: runtimeConfig.queueRedisUrl,
       prefix: runtimeConfig.queuePrefix,
       mode: runtimeConfig.queueBackend === "redis" ? "producer" : "inline",
+      defaultAttempts: runtimeConfig.queueJobAttempts,
+      defaultBackoffMs: runtimeConfig.queueJobBackoffMs,
     });
 
   queue.register(MESSAGE_PARSE_JOB, createMessageParseJob({ store, queue }));
