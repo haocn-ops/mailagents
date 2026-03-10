@@ -94,3 +94,47 @@ test("message parse job skips webhook enqueue when message is missing", async ()
   assert.equal(queriedWebhooks, false);
   assert.equal(enqueued, false);
 });
+
+test("message parse job can run against injected repository seam", async () => {
+  const enqueued = [];
+  const repository = {
+    async applyMessageParseResult(payload) {
+      assert.equal(payload.messageId, "message-seam");
+    },
+    async getMessage(messageId) {
+      assert.equal(messageId, "message-seam");
+      return { messageId };
+    },
+    async listActiveWebhooksByEvent(tenantId, eventType) {
+      assert.equal(tenantId, "tenant-seam");
+      assert.equal(eventType, "otp.extracted");
+      return [{ id: "webhook-seam" }];
+    },
+  };
+  const queue = {
+    async enqueue(type, payload) {
+      enqueued.push({ type, payload });
+      return { id: "job-seam", status: "queued" };
+    },
+  };
+
+  const job = createMessageParseJob({ queue, repository });
+  const result = await job({
+    tenantId: "tenant-seam",
+    mailboxId: "mailbox-seam",
+    messageId: "message-seam",
+    sender: "notify@example.com",
+    senderDomain: "example.com",
+    subject: "Code 987654",
+    receivedAt: "2026-03-10T00:00:00.000Z",
+    textExcerpt: "verify here",
+    htmlExcerpt: "",
+    htmlBody: "",
+    requestId: "req-seam",
+  });
+
+  assert.equal(result.messageId, "message-seam");
+  assert.equal(result.eventType, "otp.extracted");
+  assert.equal(enqueued.length, 1);
+  assert.equal(enqueued[0].payload.webhookId, "webhook-seam");
+});

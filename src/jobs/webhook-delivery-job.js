@@ -1,8 +1,14 @@
+import { createInternalRepository } from "../internal/repository.js";
+
 export const WEBHOOK_DELIVERY_JOB = "webhook.deliver";
 
-export function createWebhookDeliveryJob({ store, webhookDispatcher }) {
+export function createWebhookDeliveryJob({
+  store,
+  webhookDispatcher,
+  repository = createInternalRepository({ store }),
+}) {
   return async function webhookDeliveryJob(payload) {
-    const webhook = await store.getWebhook(payload.webhookId);
+    const webhook = await repository.getWebhook(payload.webhookId);
     if (!webhook) {
       return {
         webhookId: payload.webhookId,
@@ -18,7 +24,7 @@ export function createWebhookDeliveryJob({ store, webhookDispatcher }) {
         payload: payload.eventPayload,
       });
     } catch (err) {
-      await store.recordWebhookDelivery(webhook.id, {
+      await repository.recordWebhookDelivery(webhook.id, {
         statusCode: null,
         requestId: payload.requestId || null,
         metadata: {
@@ -34,7 +40,7 @@ export function createWebhookDeliveryJob({ store, webhookDispatcher }) {
       throw err;
     }
 
-    await store.recordWebhookDelivery(webhook.id, {
+    await repository.recordWebhookDelivery(webhook.id, {
       statusCode: delivery.statusCode,
       requestId: payload.requestId || null,
       metadata: {

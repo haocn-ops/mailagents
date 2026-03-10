@@ -16,6 +16,10 @@ export function createInternalRepository({ store }) {
       return store.getMessage(messageId);
     },
 
+    getWebhook(webhookId) {
+      return store.getWebhook(webhookId);
+    },
+
     listActiveWebhooksByEvent(tenantId, eventType) {
       return store.listActiveWebhooksByEvent(tenantId, eventType);
     },
