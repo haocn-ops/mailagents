@@ -24,6 +24,15 @@ If using Redis for queues:
 
 - Redis is reachable from the control plane and worker processes.
 - `QUEUE_BACKEND=redis` and `QUEUE_REDIS_URL` are set.
+- `QUEUE_PREFIX`, `QUEUE_JOB_ATTEMPTS`, and `QUEUE_JOB_BACKOFF_MS` are reviewed.
+
+Suggested queue defaults:
+
+- `QUEUE_BACKEND=redis`
+- `QUEUE_REDIS_URL=redis://redis:6379`
+- `QUEUE_PREFIX=mailagents`
+- `QUEUE_JOB_ATTEMPTS=3`
+- `QUEUE_JOB_BACKOFF_MS=1000`
 
 ## 3. Deployment Plan
 
@@ -69,7 +78,7 @@ Minimum checks:
 - V2 `GET /v2/messages` and `POST /v2/messages/send` return `200/202`
 - Webhook delivery history is visible in `/v2/webhooks/deliveries`
 - Admin endpoints still require `ADMIN_API_TOKEN`
- - If `webhooks.secret_enc` was introduced, rotate one existing webhook secret via `POST /v1/admin/webhooks/{webhook_id}/rotate-secret` and confirm signed delivery headers
+- If `webhooks.secret_enc` was introduced, rotate one existing webhook secret via `POST /v1/admin/webhooks/{webhook_id}/rotate-secret` and confirm signed delivery headers
 
 For mail cutover, follow `docs/mailu-cutover-checklist.md`.
 
