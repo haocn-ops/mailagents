@@ -226,7 +226,9 @@ test("postgres store recordWebhookDelivery writes first-class delivery record wh
   });
 
   assert.deepEqual(result, { webhookId: "wh_3" });
-  assert.ok(calls.some((call) => call.text.includes("insert into webhook_deliveries")));
+  const insertCall = calls.find((call) => call.text.includes("insert into webhook_deliveries"));
+  assert.ok(insertCall);
+  assert.equal(insertCall.values[0], "del_3");
   assert.equal(audits.length, 1);
   assert.equal(audits[0].tenantId, "tenant_3");
   assert.equal(audits[0].action, "webhook.deliver");
