@@ -22,5 +22,12 @@ export function createV2WebhookReadModels({
       const items = await repository.listTenantWebhookDeliveries(tenantId, { webhookId });
       return items.map(toV2WebhookDelivery);
     },
+
+    async getWebhookDelivery({ tenantId, deliveryId }) {
+      const items = await repository.listTenantWebhookDeliveries(tenantId, {});
+      const delivery = items.find((item) => item.delivery_id === deliveryId);
+      if (!delivery) return null;
+      return toV2WebhookDelivery(delivery);
+    },
   };
 }

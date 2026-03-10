@@ -409,6 +409,22 @@ paths:
                     type: array
                     items:
                       $ref: '#/components/schemas/WebhookDelivery'
+  /v2/webhooks/deliveries/{delivery_id}:
+    get:
+      summary: Get webhook delivery detail for the current tenant
+      parameters:
+        - in: path
+          name: delivery_id
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Webhook delivery detail
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookDelivery'
   /v2/usage/summary:
     get:
       summary: Get tenant usage summary for a billing period

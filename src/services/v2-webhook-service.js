@@ -27,5 +27,9 @@ export function createV2WebhookService({
     async listWebhookDeliveries({ tenantId, webhookId }) {
       return readModels.listWebhookDeliveries({ tenantId, webhookId });
     },
+
+    async getWebhookDelivery({ tenantId, deliveryId }) {
+      return readModels.getWebhookDelivery({ tenantId, deliveryId });
+    },
   };
 }

@@ -580,6 +580,17 @@ test("fetch app exposes v2 webhook rotate-secret and delivery history endpoints"
   assert.ok(deliveries.items.length >= 1);
   assert.equal(deliveries.items[0].webhook_id, webhook.webhook_id);
 
+  const deliveryDetailRes = await app(
+    new Request(`http://localhost/v2/webhooks/deliveries/${deliveries.items[0].delivery_id}`, {
+      method: "GET",
+      headers: { authorization: `Bearer ${verify.access_token}` },
+    }),
+  );
+  assert.equal(deliveryDetailRes.status, 200);
+  const deliveryDetail = await deliveryDetailRes.json();
+  assert.equal(deliveryDetail.delivery_id, deliveries.items[0].delivery_id);
+  assert.equal(deliveryDetail.webhook_id, webhook.webhook_id);
+
   const webhookDetailRes = await app(
     new Request(`http://localhost/v2/webhooks/${webhook.webhook_id}`, {
       method: "GET",
