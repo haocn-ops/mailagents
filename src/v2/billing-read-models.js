@@ -2,8 +2,10 @@ import { parsePeriod } from "../utils.js";
 import { createV2BillingRepository } from "./billing-repository.js";
 import { toV2Invoice } from "./presenters.js";
 
-export function createV2BillingReadModels({ store }) {
-  const repository = createV2BillingRepository({ store });
+export function createV2BillingReadModels({
+  store,
+  repository = createV2BillingRepository({ store }),
+}) {
 
   return {
     async getUsageSummary({ tenantId, period }) {

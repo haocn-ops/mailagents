@@ -1,8 +1,10 @@
 import { createV2WebhookRepository } from "./webhook-repository.js";
 import { toV2Webhook } from "./presenters.js";
 
-export function createV2WebhookCommands({ store }) {
-  const repository = createV2WebhookRepository({ store });
+export function createV2WebhookCommands({
+  store,
+  repository = createV2WebhookRepository({ store }),
+}) {
 
   return {
     async createWebhook({ tenantId, eventTypes, targetUrl, secret }) {

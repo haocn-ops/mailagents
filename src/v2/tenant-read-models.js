@@ -7,9 +7,11 @@ import {
   toV2SendAttempt,
 } from "./presenters.js";
 
-export function createV2TenantReadModels({ store }) {
-  const mailboxRepository = createV2MailboxRepository({ store });
-  const messageRepository = createV2MessageRepository({ store });
+export function createV2TenantReadModels({
+  store,
+  mailboxRepository = createV2MailboxRepository({ store }),
+  messageRepository = createV2MessageRepository({ store }),
+}) {
 
   return {
     async listMailboxAccounts(tenantId) {
