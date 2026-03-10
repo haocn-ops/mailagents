@@ -1,9 +1,12 @@
 import { createV2TenantReadModels } from "../v2/tenant-read-models.js";
 import { createV2TenantCommands } from "../v2/tenant-commands.js";
 
-export function createV2MessageService({ store, mailBackend }) {
-  const readModels = createV2TenantReadModels({ store });
-  const commands = createV2TenantCommands({ store, mailBackend });
+export function createV2MessageService({
+  store,
+  mailBackend,
+  readModels = createV2TenantReadModels({ store }),
+  commands = createV2TenantCommands({ store, mailBackend }),
+}) {
 
   return {
     async listMessages({ tenantId, mailboxId, since, limit }) {
