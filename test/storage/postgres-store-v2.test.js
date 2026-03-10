@@ -215,6 +215,7 @@ test("postgres store recordWebhookDelivery writes first-class delivery record wh
     statusCode: 202,
     requestId: "req_3",
     metadata: {
+      delivery_id: "del_3",
       event_type: "otp.extracted",
       resource_id: "msg_3",
       attempts: 2,
