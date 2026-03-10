@@ -756,6 +756,24 @@ export class MemoryStore {
       .sort((a, b) => String(b.delivered_at).localeCompare(String(a.delivered_at)));
   }
 
+  async getTenantWebhookDelivery(tenantId, deliveryId) {
+    const entry = this.state.webhookDeliveries.find(
+      (item) => item.tenantId === tenantId && item.id === deliveryId,
+    );
+    if (!entry) return null;
+    return {
+      webhook_id: entry.webhookId,
+      delivery_id: entry.id,
+      status_code: entry.statusCode ?? null,
+      attempts: entry.attempts ?? null,
+      ok: entry.ok ?? null,
+      error_message: entry.errorMessage || null,
+      response_excerpt: entry.responseExcerpt || null,
+      request_id: entry.requestId || null,
+      delivered_at: entry.deliveredAt || null,
+    };
+  }
+
   async getInvoice(invoiceId, tenantId) {
     const invoice = this.state.invoices.get(invoiceId);
     if (!invoice || invoice.tenantId !== tenantId) return null;

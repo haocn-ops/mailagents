@@ -1065,6 +1065,60 @@ export class PostgresStore {
     }));
   }
 
+  async getTenantWebhookDelivery(tenantId, deliveryId) {
+    const tables = await this._loadV2TableAvailability();
+    const values = [tenantId, deliveryId];
+    const result = await this._query(
+      tables.webhook_deliveries
+        ? `select wd.webhook_id,
+                  wd.id as delivery_id,
+                  wd.response_code as status_code,
+                  wd.attempt_number as attempts,
+                  wd.delivery_status = 'delivered' as ok,
+                  wd.error_message,
+                  wd.response_excerpt,
+                  wd.request_id,
+                  wd.delivered_at
+             from webhook_deliveries wd
+             join webhooks w on w.id = wd.webhook_id
+            where w.tenant_id = $1
+              and wd.id = $2
+            limit 1`
+        : `select al.resource_id as webhook_id,
+                  al.id as delivery_id,
+                  nullif(al.metadata->>'status_code', '')::int as status_code,
+                  nullif(al.metadata->>'attempts', '')::int as attempts,
+                  case
+                    when al.metadata ? 'ok' then (al.metadata->>'ok')::boolean
+                    else null
+                  end as ok,
+                  al.metadata->>'error_message' as error_message,
+                  al.metadata->>'response_excerpt' as response_excerpt,
+                  coalesce(al.request_id, al.metadata->>'request_id') as request_id,
+                  al.created_at as delivered_at
+             from audit_logs al
+            where al.tenant_id = $1
+              and al.id = $2
+              and al.action = 'webhook.deliver'
+              and al.resource_type = 'webhook'
+            limit 1`,
+      values,
+    );
+    if (result.rowCount === 0) return null;
+    const row = result.rows[0];
+    return {
+      webhook_id: row.webhook_id,
+      delivery_id: row.delivery_id,
+      status_code: row.status_code ?? null,
+      attempts: row.attempts ?? null,
+      ok: row.ok ?? null,
+      error_message: row.error_message || null,
+      response_excerpt: row.response_excerpt || null,
+      request_id: row.request_id || null,
+      delivered_at: row.delivered_at ? row.delivered_at.toISOString() : null,
+    };
+  }
+
   async getInvoice(invoiceId, tenantId) {
     const result = await this._query(
       `select id, tenant_id, period_start, period_end, amount_usdc, status, statement_hash, settlement_tx_hash
