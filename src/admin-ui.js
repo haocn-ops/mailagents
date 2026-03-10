@@ -312,12 +312,12 @@ export function renderAdminDashboardHtml({ adminTokenRequired = false } = {}) {
         return { mode: "admin-token" };
       }
       var wallet = "0xabc0000000000000000000000000000000000666";
-      var challenge = await fetchJson("/v1/auth/siwe/challenge", {
+      var challenge = await fetchJson("/v2/auth/siwe/challenge", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ wallet_address: wallet })
       });
-      var verify = await fetchJson("/v1/auth/siwe/verify", {
+      var verify = await fetchJson("/v2/auth/siwe/verify", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ message: challenge.message, signature: "0xdev" })
@@ -349,7 +349,7 @@ export function renderAdminDashboardHtml({ adminTokenRequired = false } = {}) {
     }
 
     async function loadOverview() {
-      var runtime = await fetchJson("/v1/meta/runtime", { headers: authHeaders() });
+      var runtime = await fetchJson("/v2/meta/runtime", { headers: authHeaders() });
       var metrics = await fetchJson("/v1/admin/overview/metrics", { headers: authHeaders() });
       var timeseries = await fetchJson("/v1/admin/overview/timeseries?bucket=hour", { headers: authHeaders() });
       renderMetrics(metrics);

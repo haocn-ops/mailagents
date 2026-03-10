@@ -23,7 +23,7 @@ export function createPublicRouteHandler({
       return jsonResponse(200, { status: "ok", service: "agent-mail-cloud" }, requestId);
     }
 
-    if (method === "GET" && path === "/v1/meta/runtime") {
+    if (method === "GET" && (path === "/v1/meta/runtime" || path === "/v2/meta/runtime")) {
       return jsonResponse(
         200,
         {
