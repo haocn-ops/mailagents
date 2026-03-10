@@ -206,7 +206,7 @@ export function renderAgentsGuideHtml() {
     <section class="hero">
       <div class="eyebrow">Production Agents Guide</div>
       <h1>Operate the live mail system, not the test scaffold.</h1>
-      <p class="lead">This guide is the production operating contract for agents. Use the live endpoints, assume strict wallet authentication, request short-lived HMAC payment proofs before protected calls, and always release mailboxes when the workflow is complete.</p>
+      <p class="lead">This guide is the production operating contract for agents. Use the live endpoints, assume strict wallet authentication, request short-lived HMAC payment proofs when you are over free limits, and always release mailboxes when the workflow is complete.</p>
       <div class="hero-actions">
         <a class="primary" href="https://api.mailagents.net/app">Open User App</a>
         <a class="secondary" href="https://api.mailagents.net/admin">Open Admin Dashboard</a>
@@ -217,7 +217,7 @@ export function renderAgentsGuideHtml() {
     <section class="meta-grid">
       <article class="panel"><div class="k">API Base</div><div class="v">api.mailagents.net</div><p>All production API calls should target <code>https://api.mailagents.net</code>.</p></article>
           <article class="panel"><div class="k">Auth Mode</div><div class="v">SIWE strict</div><p>Agents must sign the SIWE challenge with a real wallet. Do not assume mock signatures work in production.</p></article>
-          <article class="panel"><div class="k">Payment Mode</div><div class="v">HMAC proof</div><p>Protected mailbox and message endpoints require a short-lived payment proof issued by the backend.</p></article>
+          <article class="panel"><div class="k">Payment Mode</div><div class="v">HMAC proof</div><p>When free limits are exceeded, protected endpoints require a short-lived payment proof issued by the backend.</p></article>
           <article class="panel"><div class="k">Mail Domain</div><div class="v">inbox.mailagents.net</div><p>Allocated mailboxes, Webmail login, and SMTP/IMAP credentials are issued against the live mail domain.</p></article>
           <article class="panel"><div class="k">Cooldown</div><div class="v">10 / 24h</div><p>If a tenant is created without a bound wallet identity, outbound send is capped at 10 messages in the first 24 hours. Bind a wallet to remove the cooldown.</p></article>
     </section>
@@ -249,7 +249,7 @@ export function renderAgentsGuideHtml() {
           </div>
           <div class="step">
             <div class="step-num">3</div>
-            <h3>Ask the backend for a payment proof</h3>
+            <h3>Ask the backend for a payment proof (when over free limits)</h3>
             <pre class="code">curl -s "$API_BASE/v1/payments/proof" \\
   -H 'content-type: application/json' \\
   -H 'authorization: Bearer &lt;access_token&gt;' \\
@@ -291,7 +291,7 @@ export function renderAgentsGuideHtml() {
           </ul>
         </div>
         <div class="callout">
-          <strong>Protected endpoints.</strong>
+          <strong>Endpoints that may require payment proofs after free limits.</strong>
           <ul>
             <li><code>POST /v1/mailboxes/allocate</code></li>
             <li><code>GET /v1/messages/latest</code></li>
@@ -344,7 +344,7 @@ export function renderAgentsGuideHtml() {
         <ol>
           <li>Start with <code>/v1/meta/runtime</code> or the live UI to confirm current chain and auth mode.</li>
           <li>Use a real browser wallet for SIWE signing. Keep chain alignment with the runtime metadata.</li>
-          <li>Request a fresh payment proof immediately before each protected call; proofs are short-lived.</li>
+          <li>When you are over free limits, request a fresh payment proof immediately before each protected call; proofs are short-lived.</li>
           <li>Read from <code>/v1/messages/latest</code> for parsed OTP and verification-link workflows.</li>
           <li>Issue or reset mailbox credentials before using Webmail, SMTP, or the send API.</li>
           <li>Create webhooks through <code>POST /v1/webhooks</code> when downstream automation needs push delivery.</li>
