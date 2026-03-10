@@ -69,6 +69,7 @@ Minimum checks:
 - V2 `GET /v2/messages` and `POST /v2/messages/send` return `200/202`
 - Webhook delivery history is visible in `/v2/webhooks/deliveries`
 - Admin endpoints still require `ADMIN_API_TOKEN`
+ - If `webhooks.secret_enc` was introduced, rotate one existing webhook secret via `POST /v1/admin/webhooks/{webhook_id}/rotate-secret` and confirm signed delivery headers
 
 For mail cutover, follow `docs/mailu-cutover-checklist.md`.
 
