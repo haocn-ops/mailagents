@@ -1,5 +1,6 @@
 import { renderAdminDashboardHtml } from "./admin-ui.js";
 import { renderAgentsGuideHtml } from "./agents-guide-ui.js";
+import { renderProjectIntroHtml } from "./project-intro-ui.js";
 import { renderUserAppHtml } from "./user-ui.js";
 
 function htmlResponse(body) {
@@ -58,6 +59,13 @@ export function createPublicRouteHandler({
 
     if (method === "GET" && (path === "/agents-guide" || path === "/agents-guide/")) {
       return htmlResponse(renderAgentsGuideHtml());
+    }
+
+    if (
+      method === "GET" &&
+      (path === "/" || path === "/index.html" || path === "/home" || path === "/home/")
+    ) {
+      return htmlResponse(renderProjectIntroHtml());
     }
 
     return null;
