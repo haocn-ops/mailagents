@@ -21,6 +21,14 @@ The demo script:
 - optionally sends an acknowledgement email if `TO_EMAIL` is set
 - releases the lease
 
+```mermaid
+flowchart TD
+  A["Lease support inbox"] --> B["Receive support email"]
+  B --> C["Classify + draft reply"]
+  C --> D["Send acknowledgement"]
+  D --> E["Release lease"]
+```
+
 ## Expected Outcome
 
 - Support email is received and parsed.

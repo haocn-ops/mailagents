@@ -21,6 +21,14 @@ The demo script:
 - optionally sends an escalation email if `TO_EMAIL` is set
 - releases the lease
 
+```mermaid
+flowchart TD
+  A["Lease alerts inbox"] --> B["Receive alert email"]
+  B --> C["Assess severity"]
+  C --> D["Send escalation"]
+  D --> E["Release lease"]
+```
+
 ## Expected Outcome
 
 - Alert emails are received by the leased inbox.

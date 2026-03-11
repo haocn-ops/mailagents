@@ -37,6 +37,14 @@ The demo script:
 - optionally sends a verification email if `TO_EMAIL` is set
 - releases the lease
 
+```mermaid
+flowchart TD
+  A["Lease inbox"] --> B["Receive signup email"]
+  B --> C["Extract OTP/link"]
+  C --> D["Send confirmation"]
+  D --> E["Release lease"]
+```
+
 ## Expected Outcome
 
 - You receive and parse the signup email.
