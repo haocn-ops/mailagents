@@ -303,6 +303,75 @@ export function renderAgentsGuideHtml() {
 
     <section class="section-grid" style="margin-top: 16px;">
       <article class="panel">
+        <h2>Fast Path (V1 Auth + V2 Leases)</h2>
+        <p>Use V1 SIWE auth to obtain a JWT, then allocate and operate mailboxes through the V2 lease endpoints.</p>
+        <div class="steps">
+          <div class="step">
+            <div class="step-num">1</div>
+            <h3>Authenticate via SIWE (V1)</h3>
+            <pre class="code">curl -s "$API_BASE/v1/auth/siwe/challenge" \\
+  -H 'content-type: application/json' \\
+  -d '{"wallet_address":"0xYOUR_WALLET"}'
+
+curl -s "$API_BASE/v1/auth/siwe/verify" \\
+  -H 'content-type: application/json' \\
+  -d '{"message":"&lt;challenge_message&gt;","signature":"&lt;wallet_signature&gt;"}'</pre>
+          </div>
+          <div class="step">
+            <div class="step-num">2</div>
+            <h3>Allocate a lease (V2)</h3>
+            <pre class="code">curl -s "$API_BASE/v2/mailboxes/leases" \\
+  -H 'content-type: application/json' \\
+  -H 'authorization: Bearer &lt;access_token&gt;' \\
+  -H 'x-payment-proof: &lt;x_payment_proof&gt;' \\
+  -d '{"agent_id":"&lt;agent_id&gt;","purpose":"signup","ttl_hours":1}'</pre>
+          </div>
+          <div class="step">
+            <div class="step-num">3</div>
+            <h3>Read and send (V2)</h3>
+            <pre class="code">curl -s "$API_BASE/v2/messages?mailbox_id=&lt;mailbox_id&gt;&amp;limit=1" \\
+  -H 'authorization: Bearer &lt;access_token&gt;' \\
+  -H 'x-payment-proof: &lt;x_payment_proof&gt;'
+
+curl -s "$API_BASE/v2/messages/send" \\
+  -H 'content-type: application/json' \\
+  -H 'authorization: Bearer &lt;access_token&gt;' \\
+  -H 'x-payment-proof: &lt;x_payment_proof&gt;' \\
+  -d '{"mailbox_id":"&lt;mailbox_id&gt;","mailbox_password":"&lt;mailbox_password&gt;","to":["receiver@example.com"],"subject":"hello","text":"mail body"}'</pre>
+          </div>
+          <div class="step">
+            <div class="step-num">4</div>
+            <h3>Release the lease (V2)</h3>
+            <pre class="code">curl -s "$API_BASE/v2/mailboxes/leases/&lt;lease_id&gt;/release" \\
+  -H 'authorization: Bearer &lt;access_token&gt;'</pre>
+          </div>
+        </div>
+        <div class="callout">
+          <strong>Need the full flow?</strong>
+          <p>See <code>docs/quickstart.md</code> in the repo for a step-by-step walkthrough.</p>
+        </div>
+      </article>
+
+      <article class="panel">
+        <h2>Non-Wallet Onboarding (Planned)</h2>
+        <p>To reduce friction for non-web3 teams, we are preparing a temporary API-key based onboarding path.</p>
+        <div class="callout ok">
+          <strong>Option A: Magic Link</strong>
+          <p>Issue a short-lived login link and create a tenant without requiring wallet signing.</p>
+        </div>
+        <div class="callout ok">
+          <strong>Option B: Temporary API Key</strong>
+          <p>Issue a 30-minute API key that only allows lease creation and message read/send.</p>
+        </div>
+        <div class="callout warn">
+          <strong>Status</strong>
+          <p>Planned experiment for onboarding. Use SIWE until this path is live.</p>
+        </div>
+      </article>
+    </section>
+
+    <section class="section-grid" style="margin-top: 16px;">
+      <article class="panel">
         <h2>Read, Send, Release</h2>
         <h3>Fetch latest messages</h3>
         <pre class="code">curl -s "$API_BASE/v1/payments/proof" \\

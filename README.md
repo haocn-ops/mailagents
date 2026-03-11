@@ -19,6 +19,8 @@ Recommended redesign documents:
 - `docs/sprint-1-implementation-plan.md`
 
 Start with the customer-facing guide: `docs/user-guide.md`.
+For the fastest agent flow, see: `docs/quickstart.md`.
+For demo workflows, see: `examples/README.md`.
 Operational handoff documents:
 - `docs/project-retrospective.md`
 - `docs/current-production-state.md`

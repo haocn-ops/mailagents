@@ -1,6 +1,13 @@
 # Documentation Index
 
 - [User Guide](./user-guide.md)
+- [Agent Quickstart](./quickstart.md)
+- [Growth Plan](./growth-plan.md)
+- [Non-Wallet Onboarding Draft](./non-wallet-onboarding.md)
+- [Outreach Templates](./outreach-templates.md)
+- [Pricing Structure Draft](./pricing-structure.md)
+- [Public Demo Inbox Runbook](./demo-inbox-runbook.md)
+- [Examples](../examples/README.md)
 - [Development Spec](./development.md)
 - [Redesign Architecture](./redesign-architecture.md)
 - [Redesign Schema](./redesign-schema.md)
@@ -53,14 +60,16 @@
 16. `project-retrospective.md` - implementation review, key corrections, and final product shape
 17. `current-production-state.md` - live capabilities, runtime mode, and current deployment caveats
 18. `agent-api-example.md` - minimal agent workflow for sign-in, allocate, read, send, and release
-19. `openapi.yaml` - business API contract
-20. `openapi-v2.yaml` - current V2 preview contract implemented on top of the main control plane
-21. `admin-dashboard.md` - dashboard IA and operation flows
-22. `openapi-admin.yaml` - admin API contract
-23. `mailagents-v2-technical-design.md` - integrated V2 technical design and migration target
-24. `openapi-admin-v2.yaml` - proposed V2 admin API contract
-25. `db-migration-v2.sql` - additive V2 schema migration draft
-26. `sprint-1-implementation-plan.md` - first implementation sprint breakdown
-27. `sprint-2-implementation-plan.md` - second implementation sprint focused on V2 route hardening, read-model split, parser jobs, and webhook persistence
-28. `pr-sprint-1-v2-foundation.md` - reviewer-oriented summary of the Sprint 1 implementation branch
-29. `db/schema.sql` - current schema implementation
+19. `quickstart.md` - fastest path to a working mailbox lease
+20. `growth-plan.md` - 90-day activation and distribution plan
+21. `openapi.yaml` - business API contract
+22. `openapi-v2.yaml` - current V2 preview contract implemented on top of the main control plane
+23. `admin-dashboard.md` - dashboard IA and operation flows
+24. `openapi-admin.yaml` - admin API contract
+25. `mailagents-v2-technical-design.md` - integrated V2 technical design and migration target
+26. `openapi-admin-v2.yaml` - proposed V2 admin API contract
+27. `db-migration-v2.sql` - additive V2 schema migration draft
+28. `sprint-1-implementation-plan.md` - first implementation sprint breakdown
+29. `sprint-2-implementation-plan.md` - second implementation sprint focused on V2 route hardening, read-model split, parser jobs, and webhook persistence
+30. `pr-sprint-1-v2-foundation.md` - reviewer-oriented summary of the Sprint 1 implementation branch
+31. `db/schema.sql` - current schema implementation
