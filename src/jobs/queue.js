@@ -93,6 +93,14 @@ export class BullMqJobQueue {
     this.Worker = null;
   }
 
+  _queueName(type) {
+    const rawPrefix = String(this.prefix || "mailagents");
+    const rawType = String(type || "job");
+    const safePrefix = rawPrefix.replace(/[:\\s]+/g, "-");
+    const safeType = rawType.replace(/[:\\s]+/g, "-");
+    return `${safePrefix}-${safeType}`;
+  }
+
   async _loadBullMq() {
     if (this.Queue && this.Worker) {
       return;
@@ -124,7 +132,7 @@ export class BullMqJobQueue {
   async _getQueue(type) {
     await this._loadBullMq();
     const connection = await this._loadConnection();
-    const name = `${this.prefix}:${type}`;
+    const name = this._queueName(type);
     if (!this.queues.has(name)) {
       this.queues.set(
         name,
@@ -169,7 +177,7 @@ export class BullMqJobQueue {
     const connection = await this._loadConnection();
 
     for (const [type, handler] of this.handlers.entries()) {
-      const name = `${this.prefix}:${type}`;
+      const name = this._queueName(type);
       const worker = new this.Worker(
         name,
         async (job) => handler(job.data, { jobId: String(job.id), type }),
