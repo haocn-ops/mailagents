@@ -57,7 +57,7 @@ export function createPublicRouteHandler({
     }
 
     if (method === "GET" && (path === "/agents-guide" || path === "/agents-guide/")) {
-      return htmlResponse(renderAgentsGuideHtml());
+      return htmlResponse(renderAgentsGuideHtml({ demoInboxAddress: runtimeConfig.demoInboxAddress }));
     }
 
     return null;

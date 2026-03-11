@@ -22,6 +22,14 @@ AUTO_REPLY_SUBJECT=Thanks for trying Mailagents
 AUTO_REPLY_TEXT=We received your email. This is a demo auto-reply from a leased inbox.
 ```
 
+Optional:
+
+```
+DEMO_INBOX_ADDRESS=<current-demo-inbox-address>
+```
+
+If `DEMO_INBOX_ADDRESS` is set on the API runtime, the Agents Guide will display the live demo inbox.
+
 ## Run Locally
 
 ```bash

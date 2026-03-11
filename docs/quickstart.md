@@ -22,7 +22,7 @@ export WALLET_ADDRESS="0xabc0000000000000000000000000000000000123"
 ## Step 1: Request SIWE challenge (V1)
 
 ```bash
-curl -s "$API_BASE/v1/auth/siwe/challenge" \
+curl -s "$API_BASE/v2/auth/siwe/challenge" \
   -H 'content-type: application/json' \
   -d "{\"wallet_address\":\"$WALLET_ADDRESS\"}"
 ```
@@ -30,7 +30,7 @@ curl -s "$API_BASE/v1/auth/siwe/challenge" \
 ## Step 2: Verify SIWE and get access token (V1)
 
 ```bash
-curl -s "$API_BASE/v1/auth/siwe/verify" \
+curl -s "$API_BASE/v2/auth/siwe/verify" \
   -H 'content-type: application/json' \
   -d '{"message":"<challenge_message>","signature":"<wallet_signature>"}'
 ```
@@ -107,3 +107,4 @@ curl -s "$API_BASE/v2/webhooks" \
 
 - For a V1-only flow, see `docs/agent-api-example.md`.
 - `mock-proof` is for local development. In production, use the HMAC proof format described in `docs/user-guide.md`.
+- Non-wallet onboarding (if enabled): `POST /v2/auth/temp-key` returns a short-lived access token.

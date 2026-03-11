@@ -21,11 +21,10 @@ This draft reduces friction for non-web3 teams by introducing a temporary, scope
    - Release lease
 4. After 30 minutes, all calls fail with `401`.
 
-### Proposed Endpoints
+### Proposed Endpoint (Implemented)
 
 ```
-POST /v1/auth/temp-key
-GET /v1/auth/temp-key/status
+POST /v2/auth/temp-key
 ```
 
 ### Example Request
@@ -60,6 +59,14 @@ Authorization: Bearer temp_live_xxx
 - Max 1 active lease per temp key.
 - Enforced `ttl_hours <= 1`.
 - Inbox domain allowlist for outbound send.
+
+### Runtime Configuration
+
+```
+TEMP_KEY_MODE=disabled|allowlist|open
+TEMP_KEY_ALLOWLIST=dev@example.com,other@example.com
+TEMP_KEY_TTL_SECONDS=1800
+```
 
 ## Option B: Magic Link
 

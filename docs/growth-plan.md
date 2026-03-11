@@ -134,7 +134,7 @@ Acceptance criteria:
 - [x] Add fast-path Quickstart to Agents Guide UI
 - [x] Publish quickstart link in README and docs index
 - [x] Create demo README skeletons (3 demos)
-- [ ] Ship public demo inbox + auto-reply workflow (runbook + script ready)
+- [x] Ship public demo inbox + auto-reply workflow (live on VPS)
 - [x] Add non-wallet onboarding spec draft
 - [x] Draft outreach list and message templates
 - [x] Define pricing page structure

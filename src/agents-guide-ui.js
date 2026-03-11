@@ -1,4 +1,4 @@
-export function renderAgentsGuideHtml() {
+export function renderAgentsGuideHtml({ demoInboxAddress = "" } = {}) {
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -219,6 +219,7 @@ export function renderAgentsGuideHtml() {
       <article class="panel"><div class="k">Auth Mode</div><div class="v">SIWE strict</div><p>Agents must sign the SIWE challenge with a real wallet. Do not assume mock signatures work in production.</p></article>
       <article class="panel"><div class="k">Payment Mode</div><div class="v">HMAC proof</div><p>Protected mailbox and message endpoints require a short-lived payment proof issued by the backend.</p></article>
       <article class="panel"><div class="k">Mail Domain</div><div class="v">inbox.mailagents.net</div><p>Allocated mailboxes, Webmail login, and SMTP/IMAP credentials are issued against the live mail domain.</p></article>
+      <article class="panel"><div class="k">Demo Inbox</div><div class="v">${demoInboxAddress || "Not configured"}</div><p>${demoInboxAddress ? "Send a test email to see the auto-reply demo." : "Set DEMO_INBOX_ADDRESS in the API runtime to show the live demo address."}</p></article>
     </section>
 
     <section class="section-grid">
@@ -233,7 +234,7 @@ export function renderAgentsGuideHtml() {
           <div class="step">
             <div class="step-num">1</div>
             <h3>Request a SIWE challenge</h3>
-            <pre class="code">curl -s "$API_BASE/v1/auth/siwe/challenge" \\
+            <pre class="code">curl -s "$API_BASE/v2/auth/siwe/challenge" \\
   -H 'content-type: application/json' \\
   -d '{"wallet_address":"0xYOUR_WALLET"}'</pre>
             <p>Sign the returned <code>message</code> using the live wallet on the configured chain.</p>
@@ -241,7 +242,7 @@ export function renderAgentsGuideHtml() {
           <div class="step">
             <div class="step-num">2</div>
             <h3>Verify the signature and store the session</h3>
-            <pre class="code">curl -s "$API_BASE/v1/auth/siwe/verify" \\
+            <pre class="code">curl -s "$API_BASE/v2/auth/siwe/verify" \\
   -H 'content-type: application/json' \\
   -d '{"message":"&lt;challenge_message&gt;","signature":"&lt;wallet_signature&gt;"}'</pre>
             <p>Persist <code>access_token</code>, <code>agent_id</code>, <code>tenant_id</code>, and <code>did</code>.</p>
@@ -309,11 +310,11 @@ export function renderAgentsGuideHtml() {
           <div class="step">
             <div class="step-num">1</div>
             <h3>Authenticate via SIWE (V1)</h3>
-            <pre class="code">curl -s "$API_BASE/v1/auth/siwe/challenge" \\
+            <pre class="code">curl -s "$API_BASE/v2/auth/siwe/challenge" \\
   -H 'content-type: application/json' \\
   -d '{"wallet_address":"0xYOUR_WALLET"}'
 
-curl -s "$API_BASE/v1/auth/siwe/verify" \\
+curl -s "$API_BASE/v2/auth/siwe/verify" \\
   -H 'content-type: application/json' \\
   -d '{"message":"&lt;challenge_message&gt;","signature":"&lt;wallet_signature&gt;"}'</pre>
           </div>

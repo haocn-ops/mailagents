@@ -15,3 +15,9 @@ Each demo uses the public HTTP API and the lease lifecycle:
 5. Release the lease
 
 Start with `docs/quickstart.md` if you are new to the API.
+
+All demos include a `run.js` script. Set `API_BASE`, `ACCESS_TOKEN`, and `AGENT_ID`, then run:
+
+```bash
+node run.js
+```
