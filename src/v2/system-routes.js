@@ -23,7 +23,7 @@ export function createV2SystemRouteHandler({ store, runtimeConfig, jsonResponse,
       }
 
       const addressSeed = hashSecret(email);
-      const pseudoWallet = `temp:${addressSeed.slice(0, 40)}`;
+      const pseudoWallet = `0x${addressSeed.slice(0, 40)}`;
       const identity = await store.getOrCreateIdentity(pseudoWallet);
 
       const token = createJwt(
