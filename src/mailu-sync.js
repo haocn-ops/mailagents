@@ -133,13 +133,19 @@ export async function syncMailuMaildir({
     const raw = await readFile(item.filePath, "utf8");
     const { headers, body } = splitMessage(raw);
     const { sender, senderDomain } = parseAddress(headers.from);
+    const receivedAtHeader = headers.date;
+    const receivedAtDate = receivedAtHeader ? new Date(receivedAtHeader) : null;
+    const receivedAt = receivedAtDate && !Number.isNaN(receivedAtDate.getTime())
+      ? receivedAtDate.toISOString()
+      : new Date(fileStat.mtimeMs).toISOString();
+
     const payload = {
       address: item.address,
       provider_message_id: providerMessageId(headers, item.filePath),
       sender,
       sender_domain: senderDomain,
       subject: headers.subject || "(no subject)",
-      received_at: headers.date || new Date(fileStat.mtimeMs).toISOString(),
+      received_at: receivedAt,
       raw_ref: `maildir://${item.filePath}`,
       text_excerpt: excerpt(body),
       headers,

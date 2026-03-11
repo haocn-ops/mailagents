@@ -73,16 +73,32 @@ export class InMemoryJobQueue {
 }
 
 export class BullMqJobQueue {
-  constructor({ redisUrl, prefix = "mailagents", mode = "producer" } = {}) {
+  constructor({
+    redisUrl,
+    prefix = "mailagents",
+    mode = "producer",
+    defaultAttempts = 3,
+    defaultBackoffMs = 1000,
+  } = {}) {
     this.redisUrl = redisUrl;
     this.prefix = prefix;
     this.mode = mode;
+    this.defaultAttempts = Math.max(1, Number(defaultAttempts) || 1);
+    this.defaultBackoffMs = Math.max(0, Number(defaultBackoffMs) || 0);
     this.handlers = new Map();
     this.queues = new Map();
     this.workers = [];
     this.connection = null;
     this.Queue = null;
     this.Worker = null;
+  }
+
+  _queueName(type) {
+    const rawPrefix = String(this.prefix || "mailagents");
+    const rawType = String(type || "job");
+    const safePrefix = rawPrefix.replace(/[:\\s]+/g, "-");
+    const safeType = rawType.replace(/[:\\s]+/g, "-");
+    return `${safePrefix}-${safeType}`;
   }
 
   async _loadBullMq() {
@@ -116,7 +132,7 @@ export class BullMqJobQueue {
   async _getQueue(type) {
     await this._loadBullMq();
     const connection = await this._loadConnection();
-    const name = `${this.prefix}:${type}`;
+    const name = this._queueName(type);
     if (!this.queues.has(name)) {
       this.queues.set(
         name,
@@ -132,9 +148,17 @@ export class BullMqJobQueue {
     this.handlers.set(type, handler);
   }
 
-  async enqueue(type, payload) {
+  async enqueue(type, payload, options = {}) {
     const queue = await this._getQueue(type);
-    const job = await queue.add(type, payload);
+    const attempts = Math.max(1, Number(options.attempts ?? this.defaultAttempts) || 1);
+    const backoffMs = Math.max(0, Number(options.backoffMs ?? this.defaultBackoffMs) || 0);
+    const addOptions = {
+      attempts,
+    };
+    if (attempts > 1 && backoffMs > 0) {
+      addOptions.backoff = { type: "fixed", delay: backoffMs };
+    }
+    const job = await queue.add(type, payload, addOptions);
     return {
       id: String(job.id),
       type,
@@ -153,7 +177,7 @@ export class BullMqJobQueue {
     const connection = await this._loadConnection();
 
     for (const [type, handler] of this.handlers.entries()) {
-      const name = `${this.prefix}:${type}`;
+      const name = this._queueName(type);
       const worker = new this.Worker(
         name,
         async (job) => handler(job.data, { jobId: String(job.id), type }),
@@ -176,7 +200,13 @@ export class BullMqJobQueue {
 
 export function createJobQueue(options = {}) {
   if (options.backend === "redis") {
-    return new BullMqJobQueue(options);
+    return new BullMqJobQueue({
+      redisUrl: options.redisUrl,
+      prefix: options.prefix,
+      mode: options.mode,
+      defaultAttempts: options.defaultAttempts,
+      defaultBackoffMs: options.defaultBackoffMs,
+    });
   }
   return new InMemoryJobQueue(options);
 }

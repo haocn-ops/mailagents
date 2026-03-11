@@ -43,5 +43,9 @@ export function createV2Responses({ jsonResponse }) {
         requestId,
       );
     },
+
+    rateLimited(requestId, error, message, extra = {}) {
+      return jsonResponse(429, { error, message, ...extra }, requestId);
+    },
   };
 }

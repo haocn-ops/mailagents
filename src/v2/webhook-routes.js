@@ -63,6 +63,54 @@ export function createV2WebhookRouteHandler({
       return responses.okItems(requestId, items);
     }
 
+    if (method === "GET" && path.startsWith("/v2/webhooks/deliveries/")) {
+      const auth = await authz.requireTenantAuth(request, requestId);
+      if (!auth.ok) return auth.response;
+
+      const deliveryIdResult = parseRequiredPathParam(path, {
+        prefix: "/v2/webhooks/deliveries/",
+        name: "delivery_id",
+      });
+      if (!deliveryIdResult.ok) {
+        return responses.badRequest(requestId, deliveryIdResult.error);
+      }
+
+      const delivery = await webhookService.getWebhookDelivery({
+        tenantId: auth.payload.tenant_id,
+        deliveryId: deliveryIdResult.value,
+      });
+      if (!delivery) {
+        return responses.notFound(requestId, "Webhook delivery not found");
+      }
+      return responses.ok(requestId, delivery);
+    }
+
+    if (
+      method === "GET" &&
+      path.startsWith("/v2/webhooks/") &&
+      path !== "/v2/webhooks/deliveries" &&
+      !path.startsWith("/v2/webhooks/deliveries/") &&
+      !path.endsWith("/rotate-secret")
+    ) {
+      const auth = await authz.requireTenantAuth(request, requestId);
+      if (!auth.ok) return auth.response;
+
+      const webhookIdResult = parseRequiredPathParam(path, {
+        prefix: "/v2/webhooks/",
+        name: "webhook_id",
+      });
+      if (!webhookIdResult.ok) {
+        return responses.badRequest(requestId, webhookIdResult.error);
+      }
+
+      const webhook = await webhookService.getWebhook(auth.payload.tenant_id, webhookIdResult.value);
+      if (!webhook) {
+        return responses.notFound(requestId, "Webhook not found");
+      }
+
+      return responses.ok(requestId, webhook);
+    }
+
     if (method === "POST" && path.startsWith("/v2/webhooks/") && path.endsWith("/rotate-secret")) {
       const auth = await authz.requireTenantAuth(request, requestId);
       if (!auth.ok) return auth.response;
@@ -99,6 +147,28 @@ export function createV2WebhookRouteHandler({
         webhookId,
       });
       return responses.okItems(requestId, items);
+    }
+
+    if (method === "GET" && path.startsWith("/v2/webhooks/deliveries/")) {
+      const auth = await authz.requireTenantAuth(request, requestId);
+      if (!auth.ok) return auth.response;
+
+      const deliveryIdResult = parseRequiredPathParam(path, {
+        prefix: "/v2/webhooks/deliveries/",
+        name: "delivery_id",
+      });
+      if (!deliveryIdResult.ok) {
+        return responses.badRequest(requestId, deliveryIdResult.error);
+      }
+
+      const delivery = await webhookService.getWebhookDelivery({
+        tenantId: auth.payload.tenant_id,
+        deliveryId: deliveryIdResult.value,
+      });
+      if (!delivery) {
+        return responses.notFound(requestId, "Webhook delivery not found");
+      }
+      return responses.ok(requestId, delivery);
     }
 
     return null;

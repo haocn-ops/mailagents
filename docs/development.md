@@ -140,6 +140,7 @@ flowchart LR
 
 ### 6.3 消息
 - `GET /v1/messages/latest`（超額後付費）
+- 冷卻期：若 tenant 尚未綁定錢包，且建立未滿 24 小時，`POST /v1/messages/send` 發信上限 10 封；超過回 `429 cooldown_limit` 並提示綁定錢包。
 
 ### 6.4 Webhook
 - `POST /v1/webhooks`（超額後付費）
@@ -154,7 +155,7 @@ flowchart LR
 - `402` 需支付（x402）
 - `404` 資源不存在
 - `409` 狀態衝突
-- `429` 限流
+- `429` 限流（含 `cooldown_limit`）
 - `5xx` 服務端錯誤
 
 ## 7. 數據模型

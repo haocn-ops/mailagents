@@ -105,6 +105,7 @@ test("memory store persists webhook deliveries in first-class V2 state", async (
     statusCode: 503,
     requestId: "req-1",
     metadata: {
+      delivery_id: "delivery-1",
       event_type: "otp.extracted",
       resource_id: "message-1",
       attempts: 3,
@@ -120,4 +121,131 @@ test("memory store persists webhook deliveries in first-class V2 state", async (
   assert.equal(deliveries[0].resourceId, "message-1");
   assert.equal(deliveries[0].deliveryStatus, "failed");
   assert.equal(deliveries[0].errorMessage, "Webhook returned HTTP 503");
+
+  const listed = await store.listTenantWebhookDeliveries(identity.tenantId, { webhookId: webhook.id });
+  assert.equal(listed.length, 1);
+  assert.equal(listed[0].webhook_id, webhook.id);
+  assert.equal(listed[0].status_code, 503);
+  assert.equal(listed[0].attempts, 3);
+  assert.equal(listed[0].ok, false);
+  assert.equal(listed[0].error_message, "Webhook returned HTTP 503");
+  assert.equal(listed[0].request_id, "req-1");
+  assert.equal(listed[0].delivery_id, "delivery-1");
+
+  const detail = await store.getTenantWebhookDelivery(identity.tenantId, listed[0].delivery_id);
+  assert.ok(detail);
+  assert.equal(detail.delivery_id, listed[0].delivery_id);
+  assert.equal(detail.webhook_id, webhook.id);
+});
+
+test("memory store exposes admin webhook deliveries with tenant and webhook filters", async () => {
+  const store = new MemoryStore({
+    chainId: 84532,
+    challengeTtlMs: 300000,
+    mailboxDomain: "inbox.example.com",
+  });
+  const { identity } = await seedMailboxLease(store);
+
+  const webhook = await store.createWebhook({
+    tenantId: identity.tenantId,
+    eventTypes: ["otp.extracted"],
+    targetUrl: "https://example.com/admin-hook",
+    secret: "1234567890abcdef",
+  });
+
+  await store.recordWebhookDelivery(webhook.id, {
+    statusCode: 200,
+    requestId: "req-admin-1",
+    metadata: {
+      attempts: 1,
+      ok: true,
+    },
+  });
+
+  const listed = await store.adminListWebhookDeliveries({
+    page: 1,
+    pageSize: 20,
+    tenantId: identity.tenantId,
+    webhookId: webhook.id,
+  });
+
+  assert.equal(listed.page, 1);
+  assert.equal(listed.items.length, 1);
+  assert.equal(listed.items[0].tenant_id, identity.tenantId);
+  assert.equal(listed.items[0].webhook_id, webhook.id);
+  assert.equal(listed.items[0].request_id, "req-admin-1");
+});
+
+test("memory store filters admin webhooks by tenant and webhook id", async () => {
+  const store = new MemoryStore({
+    chainId: 84532,
+    challengeTtlMs: 300000,
+    mailboxDomain: "inbox.example.com",
+  });
+  const { identity } = await seedMailboxLease(store);
+
+  const otherIdentity = await store.getOrCreateIdentity("0xabc0000000000000000000000000000000000555");
+
+  const primary = await store.createWebhook({
+    tenantId: identity.tenantId,
+    eventTypes: ["otp.extracted"],
+    targetUrl: "https://example.com/primary-hook",
+    secret: "1234567890abcdef",
+  });
+  await store.createWebhook({
+    tenantId: otherIdentity.tenantId,
+    eventTypes: ["otp.extracted"],
+    targetUrl: "https://example.com/other-hook",
+    secret: "1234567890abcdef",
+  });
+
+  const byTenant = await store.adminListWebhooks({ page: 1, pageSize: 20, tenantId: identity.tenantId });
+  assert.equal(byTenant.items.length, 1);
+  assert.equal(byTenant.items[0].tenant_id, identity.tenantId);
+
+  const byId = await store.adminListWebhooks({
+    page: 1,
+    pageSize: 20,
+    tenantId: identity.tenantId,
+    webhookId: primary.id,
+  });
+  assert.equal(byId.items.length, 1);
+  assert.equal(byId.items[0].webhook_id, primary.id);
+});
+
+test("memory store exposes admin send attempts with filters", async () => {
+  const store = new MemoryStore({
+    chainId: 84532,
+    challengeTtlMs: 300000,
+    mailboxDomain: "inbox.example.com",
+  });
+  const { identity, mailbox } = await seedMailboxLease(store);
+
+  const attempt = await store.createSendAttempt({
+    tenantId: identity.tenantId,
+    agentId: identity.agentId,
+    mailboxId: mailbox.mailbox_id,
+    to: ["dest@example.com"],
+    subject: "admin send list",
+  });
+  await store.completeSendAttempt(attempt.send_attempt_id, {
+    accepted: ["dest@example.com"],
+    rejected: [],
+    messageId: "msg-admin-1",
+    response: "250 ok",
+  });
+
+  const listed = await store.adminListSendAttempts({
+    page: 1,
+    pageSize: 20,
+    tenantId: identity.tenantId,
+    mailboxId: mailbox.mailbox_id,
+    submissionStatus: "accepted",
+  });
+
+  assert.equal(listed.page, 1);
+  assert.equal(listed.items.length, 1);
+  assert.equal(listed.items[0].tenant_id, identity.tenantId);
+  assert.equal(listed.items[0].mailbox_id, mailbox.mailbox_id);
+  assert.equal(listed.items[0].submission_status, "accepted");
 });

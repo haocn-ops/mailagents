@@ -76,3 +76,76 @@ test("webhook delivery job records failure context", async () => {
   assert.equal(recorded.payload.metadata.error_message, "Webhook returned HTTP 503");
   assert.equal(recorded.payload.metadata.response_excerpt, "upstream down");
 });
+
+test("webhook delivery job records thrown dispatcher error and rethrows", async () => {
+  let recorded = null;
+  const store = {
+    async getWebhook() {
+      return {
+        id: "webhook-3",
+        targetUrl: "https://example.com/hook",
+      };
+    },
+    async recordWebhookDelivery(webhookId, payload) {
+      recorded = { webhookId, payload };
+    },
+  };
+  const webhookDispatcher = {
+    async dispatch() {
+      throw new Error("network timeout");
+    },
+  };
+
+  const job = createWebhookDeliveryJob({ store, webhookDispatcher });
+  await assert.rejects(
+    () =>
+      job({
+        webhookId: "webhook-3",
+        requestId: "req-3",
+        eventPayload: { event_type: "otp.extracted", message_id: "message-3" },
+      }),
+    /network timeout/,
+  );
+
+  assert.equal(recorded.webhookId, "webhook-3");
+  assert.equal(recorded.payload.statusCode, null);
+  assert.equal(recorded.payload.metadata.ok, false);
+  assert.equal(recorded.payload.metadata.error_message, "network timeout");
+});
+
+test("webhook delivery job can run against injected repository seam", async () => {
+  let recorded = null;
+  const repository = {
+    async getWebhook(webhookId) {
+      assert.equal(webhookId, "webhook-seam");
+      return {
+        id: "webhook-seam",
+        targetUrl: "https://example.com/hook",
+      };
+    },
+    async recordWebhookDelivery(webhookId, payload) {
+      recorded = { webhookId, payload };
+    },
+  };
+  const webhookDispatcher = {
+    async dispatch() {
+      return {
+        ok: true,
+        statusCode: 202,
+        attempts: 1,
+        deliveryId: "delivery-seam",
+      };
+    },
+  };
+
+  const job = createWebhookDeliveryJob({ webhookDispatcher, repository });
+  const result = await job({
+    webhookId: "webhook-seam",
+    requestId: "req-seam",
+    eventPayload: { event_type: "mail.received", message_id: "message-seam" },
+  });
+
+  assert.equal(result.webhookId, "webhook-seam");
+  assert.equal(result.delivery.statusCode, 202);
+  assert.equal(recorded.webhookId, "webhook-seam");
+});

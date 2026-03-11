@@ -221,6 +221,16 @@ export class MemoryStore {
     };
   }
 
+  async getTenantCreatedAt(tenantId) {
+    const tenant = this.state.tenants.get(tenantId);
+    return tenant?.createdAt || null;
+  }
+
+  async hasPrimaryWalletIdentity(tenantId) {
+    const tenant = this.state.tenants.get(tenantId);
+    return Boolean(tenant?.walletAddress);
+  }
+
   async getRuntimeSettings() {
     return { ...this.state.runtimeSettings };
   }
@@ -594,6 +604,8 @@ export class MemoryStore {
     if (!webhook) return null;
     webhook.lastDeliveryAt = new Date().toISOString();
     webhook.lastStatusCode = statusCode;
+    const deliveryId = metadata.delivery_id || randomUUID();
+    const deliveredAt = new Date().toISOString();
     this._recordAudit({
       tenantId: webhook.tenantId,
       actorDid: "system:webhook",
@@ -603,9 +615,11 @@ export class MemoryStore {
       requestId,
       metadata: { status_code: statusCode, ...metadata },
     });
-    this.state.webhookDeliveries.push({
+    this.state.webhookDeliveries.unshift({
+      id: deliveryId,
+      tenantId: webhook.tenantId,
       webhookId,
-      deliveryId: randomUUID(),
+      eventType: metadata.event_type || null,
       resourceId: metadata.resource_id || null,
       statusCode: statusCode ?? null,
       attempts: metadata.attempts ?? null,
@@ -614,7 +628,7 @@ export class MemoryStore {
       errorMessage: metadata.error_message || null,
       responseExcerpt: metadata.response_excerpt || null,
       requestId,
-      deliveredAt: new Date().toISOString(),
+      deliveredAt,
     });
     return webhook;
   }
@@ -699,6 +713,23 @@ export class MemoryStore {
     };
   }
 
+  async getWebhook(webhookId) {
+    const webhook = this.state.webhooks.get(webhookId);
+    if (!webhook) return null;
+    return {
+      id: webhook.id,
+      tenantId: webhook.tenantId,
+      targetUrl: webhook.targetUrl,
+      eventTypes: webhook.eventTypes,
+      status: webhook.status,
+      secretHash: webhook.secretHash,
+      secretEnc: webhook.secretEnc,
+      createdAt: webhook.createdAt,
+      lastDeliveryAt: webhook.lastDeliveryAt,
+      lastStatusCode: webhook.lastStatusCode,
+    };
+  }
+
   async rotateTenantWebhookSecret(tenantId, webhookId, { actorDid, requestId } = {}) {
     const webhook = this.state.webhooks.get(webhookId);
     if (!webhook || webhook.tenantId !== tenantId) return null;
@@ -717,26 +748,40 @@ export class MemoryStore {
   }
 
   async listTenantWebhookDeliveries(tenantId, { webhookId = null } = {}) {
-    return this.state.auditLogs
+    return this.state.webhookDeliveries
       .filter(
-        (entry) =>
-          entry.tenantId === tenantId &&
-          entry.action === "webhook.deliver" &&
-          entry.resourceType === "webhook" &&
-          (!webhookId || entry.resourceId === webhookId),
+        (entry) => entry.tenantId === tenantId && (!webhookId || entry.webhookId === webhookId),
       )
       .map((entry) => ({
-        webhook_id: entry.resourceId,
+        webhook_id: entry.webhookId,
         delivery_id: entry.id,
-        status_code: entry.metadata?.status_code ?? null,
-        attempts: entry.metadata?.attempts ?? null,
-        ok: entry.metadata?.ok ?? null,
-        error_message: entry.metadata?.error_message ?? null,
-        response_excerpt: entry.metadata?.response_excerpt ?? null,
-        request_id: entry.requestId || entry.metadata?.request_id || null,
-        delivered_at: entry.createdAt,
+        status_code: entry.statusCode ?? null,
+        attempts: entry.attempts ?? null,
+        ok: entry.ok ?? null,
+        error_message: entry.errorMessage || null,
+        response_excerpt: entry.responseExcerpt || null,
+        request_id: entry.requestId || null,
+        delivered_at: entry.deliveredAt || null,
       }))
       .sort((a, b) => String(b.delivered_at).localeCompare(String(a.delivered_at)));
+  }
+
+  async getTenantWebhookDelivery(tenantId, deliveryId) {
+    const entry = this.state.webhookDeliveries.find(
+      (item) => item.tenantId === tenantId && item.id === deliveryId,
+    );
+    if (!entry) return null;
+    return {
+      webhook_id: entry.webhookId,
+      delivery_id: entry.id,
+      status_code: entry.statusCode ?? null,
+      attempts: entry.attempts ?? null,
+      ok: entry.ok ?? null,
+      error_message: entry.errorMessage || null,
+      response_excerpt: entry.responseExcerpt || null,
+      request_id: entry.requestId || null,
+      delivered_at: entry.deliveredAt || null,
+    };
   }
 
   async getInvoice(invoiceId, tenantId) {
@@ -902,6 +947,17 @@ export class MemoryStore {
       .reduce((sum, record) => sum + Number(record.quantity || 0), 0);
   }
 
+  async countTenantEndpointUsageSince(tenantId, endpoint, since) {
+    return this.state.usageRecords
+      .filter(
+        (record) =>
+          record.tenantId === tenantId &&
+          record.endpoint === endpoint &&
+          new Date(record.occurredAt) >= since,
+      )
+      .reduce((sum, record) => sum + Number(record.quantity || 0), 0);
+  }
+
   _getOrCreateCurrentInvoice(tenantId) {
     const now = new Date();
     const periodStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)).toISOString().slice(0, 10);
@@ -971,7 +1027,7 @@ export class MemoryStore {
     );
 
     const messageParses = records
-      .filter((r) => r.endpoint === "GET /v1/messages/latest")
+      .filter((r) => r.endpoint === "GET /v1/messages/latest" || r.endpoint === "GET /v2/messages")
       .reduce((acc, curr) => acc + Number(curr.quantity), 0);
 
     return {
@@ -1036,10 +1092,11 @@ export class MemoryStore {
         status: tenant.status,
         qps: this._getTenantQuota(tenant.id).qps,
         mailbox_limit: this._getTenantQuota(tenant.id).mailbox_limit,
-        primary_did: tenant.did,
+        primary_did: tenant.walletAddress ? tenant.did : null,
         active_agents: activeAgents,
         active_mailboxes: activeMailboxes,
         monthly_usage: Number(this._tenantMonthlyUsage(tenant.id).toFixed(2)),
+        created_at: tenant.createdAt,
         updated_at: tenant.updatedAt || tenant.createdAt,
       };
     });
@@ -1099,6 +1156,21 @@ export class MemoryStore {
     if (tenantId) items = items.filter((mailbox) => mailbox.tenant_id === tenantId);
     items.sort((a, b) => String(a.address).localeCompare(String(b.address)));
     return this._paginate(items, page, pageSize);
+  }
+
+  async adminGetMailboxAccount(accountId) {
+    const mailbox = this.state.mailboxes.get(accountId);
+    if (!mailbox) return null;
+    const lease = this._currentLeaseByMailbox(mailbox.id);
+    return {
+      mailbox_id: mailbox.id,
+      address: mailbox.address,
+      type: mailbox.type || "alias",
+      status: mailbox.status,
+      tenant_id: mailbox.tenantId,
+      agent_id: lease?.agentId || null,
+      lease_expires_at: lease?.expiresAt || null,
+    };
   }
 
   async listMailboxesForReconcile() {
@@ -1167,8 +1239,9 @@ export class MemoryStore {
     return { status: "released" };
   }
 
-  async adminListMessages({ page, pageSize, mailboxId, parsedStatus }) {
+  async adminListMessages({ page, pageSize, tenantId = null, mailboxId, parsedStatus }) {
     let items = [...this.state.messages.values()].map((message) => {
+      const mailbox = this.state.mailboxes.get(message.mailboxId);
       const event = this.state.messageEvents.get(message.id);
       const status = !event
         ? "pending"
@@ -1180,6 +1253,7 @@ export class MemoryStore {
       return {
         message_id: message.id,
         mailbox_id: message.mailboxId,
+        tenant_id: mailbox?.tenantId || null,
         sender_domain: message.senderDomain,
         subject: message.subject,
         received_at: message.receivedAt,
@@ -1187,9 +1261,35 @@ export class MemoryStore {
         otp_extracted: Boolean(event?.otpCode),
       };
     });
+    if (tenantId) items = items.filter((message) => message.tenant_id === tenantId);
     if (mailboxId) items = items.filter((message) => message.mailbox_id === mailboxId);
     if (parsedStatus) items = items.filter((message) => message.parsed_status === parsedStatus);
     items.sort((a, b) => new Date(b.received_at) - new Date(a.received_at));
+    return this._paginate(items, page, pageSize);
+  }
+
+  async adminListSendAttempts({ page, pageSize, tenantId = null, mailboxId = null, submissionStatus = null }) {
+    let items = [...this.state.sendAttempts.values()].map((attempt) => ({
+      send_attempt_id: attempt.id,
+      tenant_id: attempt.tenantId,
+      agent_id: attempt.agentId,
+      mailbox_id: attempt.mailboxId,
+      to: [...attempt.to],
+      subject: attempt.subject,
+      submission_status: attempt.submissionStatus,
+      accepted: [...attempt.accepted],
+      rejected: [...attempt.rejected],
+      message_id: attempt.messageId,
+      response: attempt.response,
+      envelope: attempt.envelope,
+      error: attempt.error,
+      created_at: attempt.createdAt,
+      updated_at: attempt.updatedAt,
+    }));
+    if (tenantId) items = items.filter((item) => item.tenant_id === tenantId);
+    if (mailboxId) items = items.filter((item) => item.mailbox_id === mailboxId);
+    if (submissionStatus) items = items.filter((item) => item.submission_status === submissionStatus);
+    items.sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
     return this._paginate(items, page, pageSize);
   }
 
@@ -1235,8 +1335,8 @@ export class MemoryStore {
     return { status: "accepted" };
   }
 
-  async adminListWebhooks({ page, pageSize }) {
-    const items = [...this.state.webhooks.values()]
+  async adminListWebhooks({ page, pageSize, tenantId = null, webhookId = null }) {
+    let items = [...this.state.webhooks.values()]
       .map((webhook) => ({
         webhook_id: webhook.id,
         tenant_id: webhook.tenantId,
@@ -1247,6 +1347,27 @@ export class MemoryStore {
         last_status_code: webhook.lastStatusCode,
       }))
       .sort((a, b) => String(a.target_url).localeCompare(String(b.target_url)));
+    if (tenantId) items = items.filter((item) => item.tenant_id === tenantId);
+    if (webhookId) items = items.filter((item) => item.webhook_id === webhookId);
+    return this._paginate(items, page, pageSize);
+  }
+
+  async adminListWebhookDeliveries({ page, pageSize, tenantId = null, webhookId = null }) {
+    let items = this.state.webhookDeliveries.map((entry) => ({
+      webhook_id: entry.webhookId,
+      tenant_id: entry.tenantId,
+      delivery_id: entry.id,
+      status_code: entry.statusCode ?? null,
+      attempts: entry.attempts ?? null,
+      ok: entry.ok ?? null,
+      error_message: entry.errorMessage || null,
+      response_excerpt: entry.responseExcerpt || null,
+      request_id: entry.requestId || null,
+      delivered_at: entry.deliveredAt || null,
+    }));
+    if (tenantId) items = items.filter((item) => item.tenant_id === tenantId);
+    if (webhookId) items = items.filter((item) => item.webhook_id === webhookId);
+    items.sort((a, b) => String(b.delivered_at).localeCompare(String(a.delivered_at)));
     return this._paginate(items, page, pageSize);
   }
 

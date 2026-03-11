@@ -35,6 +35,26 @@ export function createV2MailboxRouteHandler({
       return responses.okItems(requestId, items);
     }
 
+    if (method === "GET" && path.startsWith("/v2/mailboxes/leases/")) {
+      const auth = await authz.requireTenantAuth(request, requestId);
+      if (!auth.ok) return auth.response;
+
+      const leaseIdResult = parseRequiredPathParam(path, {
+        prefix: "/v2/mailboxes/leases/",
+        name: "lease_id",
+      });
+      if (!leaseIdResult.ok) {
+        return responses.badRequest(requestId, leaseIdResult.error);
+      }
+
+      const lease = await mailboxService.getLease(auth.payload.tenant_id, leaseIdResult.value);
+      if (!lease) {
+        return responses.notFound(requestId, "Lease not found");
+      }
+
+      return responses.ok(requestId, lease);
+    }
+
     if (method === "POST" && path === "/v2/mailboxes/leases") {
       const auth = await authz.requireTenantAuth(request, requestId);
       if (!auth.ok) return auth.response;
@@ -54,7 +74,7 @@ export function createV2MailboxRouteHandler({
         agentId: parsed.agentId,
         endpoint: "POST /v2/mailboxes/leases",
         checkAllocateHourly: true,
-        allocateHourlyEndpoints: ["POST /v1/mailboxes/allocate", "POST /v2/mailboxes/leases"],
+        allocateHourlyEndpoints: ["POST /v2/mailboxes/leases"],
       });
       if (!access.ok) return access.response;
 

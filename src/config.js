@@ -44,6 +44,8 @@ export function createConfig(source = {}) {
     queueBackend: asLower(source.QUEUE_BACKEND, "memory"),
     queueRedisUrl: String(source.QUEUE_REDIS_URL || "redis://redis:6379"),
     queuePrefix: String(source.QUEUE_PREFIX || "mailagents"),
+    queueJobAttempts: asNumber(source.QUEUE_JOB_ATTEMPTS, 3),
+    queueJobBackoffMs: asNumber(source.QUEUE_JOB_BACKOFF_MS, 1000),
   };
 }
 

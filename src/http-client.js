@@ -21,10 +21,12 @@ export async function requestJson(url, {
   expectedStatuses = [200],
   fetchImpl = fetch,
 } = {}) {
+  const upperMethod = String(method || "GET").toUpperCase();
+  const shouldSendBody = body !== undefined && body !== null && upperMethod !== "GET" && upperMethod !== "HEAD";
   const response = await fetchImpl(url, {
     method,
     headers,
-    body: body === undefined ? undefined : JSON.stringify(body),
+    body: shouldSendBody ? JSON.stringify(body) : undefined,
   });
 
   if (!expectedStatuses.includes(response.status)) {

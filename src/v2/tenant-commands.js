@@ -7,9 +7,12 @@ import {
   toV2SendResult,
 } from "./presenters.js";
 
-export function createV2TenantCommands({ store, mailBackend }) {
-  const mailboxRepository = createV2MailboxRepository({ store });
-  const messageRepository = createV2MessageRepository({ store });
+export function createV2TenantCommands({
+  store,
+  mailBackend,
+  mailboxRepository = createV2MailboxRepository({ store }),
+  messageRepository = createV2MessageRepository({ store }),
+}) {
 
   return {
     async allocateLease({ tenantId, agentId, purpose, ttlHours }) {

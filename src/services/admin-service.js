@@ -5,9 +5,8 @@ export function createAdminService({
   getOverageChargeUsdc,
   getAgentAllocateHourlyLimit,
   updateRuntimeSettings,
+  repository = createAdminRepository({ store }),
 }) {
-  const repository = createAdminRepository({ store });
-
   return {
     getLimitSettings() {
       return {
@@ -52,6 +51,10 @@ export function createAdminService({
       return repository.adminListMailboxes(args);
     },
 
+    adminGetMailboxAccount(accountId) {
+      return repository.adminGetMailboxAccount(accountId);
+    },
+
     adminFreezeMailbox(mailboxId, context) {
       return repository.adminFreezeMailbox(mailboxId, context);
     },
@@ -64,6 +67,10 @@ export function createAdminService({
       return repository.adminListMessages(args);
     },
 
+    adminListSendAttempts(args) {
+      return repository.adminListSendAttempts(args);
+    },
+
     adminReparseMessage(messageId, context) {
       return repository.adminReparseMessage(messageId, context);
     },
@@ -74,6 +81,10 @@ export function createAdminService({
 
     adminListWebhooks(args) {
       return repository.adminListWebhooks(args);
+    },
+
+    adminListWebhookDeliveries(args) {
+      return repository.adminListWebhookDeliveries(args);
     },
 
     adminReplayWebhook(webhookId, args) {

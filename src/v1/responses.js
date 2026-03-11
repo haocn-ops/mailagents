@@ -31,5 +31,9 @@ export function createV1Responses({ jsonResponse }) {
     mailBackendError(requestId, message) {
       return jsonResponse(502, { error: "mail_backend_error", message }, requestId);
     },
+
+    rateLimited(requestId, error, message, extra = {}) {
+      return jsonResponse(429, { error, message, ...extra }, requestId);
+    },
   };
 }

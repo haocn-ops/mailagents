@@ -19,5 +19,9 @@ export function createV2WebhookRepository({ store }) {
     listTenantWebhookDeliveries(tenantId, options) {
       return store.listTenantWebhookDeliveries(tenantId, options);
     },
+
+    getTenantWebhookDelivery(tenantId, deliveryId) {
+      return store.getTenantWebhookDelivery(tenantId, deliveryId);
+    },
   };
 }

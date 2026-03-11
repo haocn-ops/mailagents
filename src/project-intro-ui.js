@@ -1,0 +1,301 @@
+export function renderProjectIntroHtml() {
+  return `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Mailagents · Project Overview</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;700;800&family=Space+Mono:wght@400;700&display=swap');
+    :root {
+      --bg: #0f1417;
+      --bg-soft: #151c20;
+      --panel: rgba(21, 29, 33, 0.9);
+      --ink: #f7f2ea;
+      --muted: #b9b0a6;
+      --accent: #f49b5f;
+      --accent-2: #6dd3b0;
+      --line: rgba(255, 255, 255, 0.12);
+      --shadow: 0 28px 80px rgba(5, 9, 11, 0.55);
+      --radius: 22px;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: 'Manrope', sans-serif;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at 10% 20%, rgba(244, 155, 95, 0.18), transparent 40%),
+        radial-gradient(circle at 80% 10%, rgba(109, 211, 176, 0.12), transparent 42%),
+        linear-gradient(180deg, #0e1215 0%, #12181c 45%, #0c1013 100%);
+    }
+    .shell {
+      max-width: 1120px;
+      margin: 0 auto;
+      padding: 32px 18px 72px;
+    }
+    .hero {
+      position: relative;
+      padding: 32px 32px 40px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--panel);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+    .hero:before {
+      content: "";
+      position: absolute;
+      right: -80px;
+      top: -70px;
+      width: 240px;
+      height: 240px;
+      background: linear-gradient(135deg, rgba(244, 155, 95, 0.45), rgba(109, 211, 176, 0.15));
+      border-radius: 50px;
+      transform: rotate(16deg);
+      filter: blur(2px);
+    }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.2em;
+      color: var(--accent-2);
+      font-weight: 700;
+    }
+    h1 {
+      margin: 12px 0 10px;
+      font-size: clamp(34px, 6vw, 60px);
+      line-height: 1.02;
+      max-width: 18ch;
+    }
+    .lead {
+      margin: 0;
+      color: var(--muted);
+      max-width: 64ch;
+      font-size: 15px;
+      line-height: 1.7;
+    }
+    .hero-actions {
+      margin-top: 18px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+    .hero-actions a {
+      text-decoration: none;
+      padding: 10px 14px;
+      border-radius: 999px;
+      font-weight: 700;
+      font-size: 13px;
+    }
+    .hero-actions a.primary {
+      background: var(--accent);
+      color: #1b120b;
+    }
+    .hero-actions a.secondary {
+      border: 1px solid var(--line);
+      color: var(--ink);
+      background: rgba(255, 255, 255, 0.05);
+    }
+    .grid {
+      display: grid;
+      gap: 16px;
+    }
+    .grid.two {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      margin-top: 18px;
+    }
+    .grid.three {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      margin-top: 16px;
+    }
+    .panel {
+      padding: 18px;
+      border-radius: 18px;
+      border: 1px solid var(--line);
+      background: var(--bg-soft);
+    }
+    .panel h2 {
+      margin: 0 0 10px;
+      font-size: 20px;
+    }
+    .panel h3 {
+      margin: 0 0 8px;
+      font-size: 16px;
+    }
+    p, li {
+      margin: 0;
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.6;
+    }
+    ul {
+      margin: 10px 0 0;
+      padding-left: 18px;
+    }
+    .stat {
+      display: grid;
+      gap: 8px;
+    }
+    .stat .k {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      color: #a79d92;
+    }
+    .stat .v {
+      font-size: 22px;
+      font-weight: 800;
+      color: var(--ink);
+    }
+    .code {
+      margin-top: 12px;
+      font-family: 'Space Mono', monospace;
+      background: #0b0f12;
+      border-radius: 16px;
+      padding: 12px;
+      color: #f5d7c2;
+      font-size: 12px;
+      line-height: 1.6;
+      white-space: pre-wrap;
+      word-break: break-word;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+    .timeline {
+      display: grid;
+      gap: 12px;
+    }
+    .timeline-item {
+      display: grid;
+      gap: 6px;
+      padding: 12px;
+      border-radius: 14px;
+      border: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.03);
+    }
+    .timeline-item span {
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      color: var(--accent-2);
+      font-weight: 700;
+    }
+    .footer {
+      margin-top: 22px;
+      text-align: center;
+      color: var(--muted);
+      font-size: 12px;
+    }
+    .pulse {
+      animation: pulse 3s ease-in-out infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 0.7; }
+      50% { opacity: 1; }
+    }
+    @media (max-width: 980px) {
+      .grid.two, .grid.three { grid-template-columns: 1fr; }
+      .hero { padding: 28px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <section class="hero">
+      <div class="badge">Mailagents · Agent Mail Cloud</div>
+      <h1>Production-grade email infrastructure that agents can rent on demand.</h1>
+      <p class="lead">Mailagents is the control plane for agent-native email: rentable inboxes, wallet-based auth, usage-based overage proofs, and reliable webhook delivery with an operator dashboard.</p>
+      <div class="hero-actions">
+        <a class="primary" href="https://api.mailagents.net/agents-guide">Read the Agents Guide</a>
+        <a class="secondary" href="https://api.mailagents.net/app">Open User Console</a>
+        <a class="secondary" href="https://api.mailagents.net/admin">Open Admin Console</a>
+      </div>
+    </section>
+
+    <section class="grid three">
+      <article class="panel stat">
+        <div class="k">API Base</div>
+        <div class="v">api.mailagents.net</div>
+        <p>All production calls target the API base domain.</p>
+      </article>
+      <article class="panel stat">
+        <div class="k">Auth</div>
+        <div class="v">SIWE</div>
+        <p>Wallet signatures + JWT, with strict production mode.</p>
+      </article>
+      <article class="panel stat">
+        <div class="k">Payments</div>
+        <div class="v">HMAC Proof</div>
+        <p>Over-limit requests use short-lived payment proofs.</p>
+      </article>
+      <article class="panel stat">
+        <div class="k">Demo Inbox</div>
+        <div class="v">5569cf201f-2@inbox.mailagents.net</div>
+        <p>Send a test email to get an auto-reply from a leased inbox.</p>
+      </article>
+    </section>
+
+    <section class="grid two">
+      <article class="panel">
+        <h2>Core Capabilities</h2>
+        <ul>
+          <li>Rent and release inboxes with Mailu-backed adapters.</li>
+          <li>Latest-message retrieval and webhook delivery tracking.</li>
+          <li>Tenant limits, billing, and risk policy controls.</li>
+          <li>Dual runtime support: Node + Cloudflare Worker.</li>
+          <li>Operator dashboard for live admin workflows.</li>
+        </ul>
+      </article>
+      <article class="panel">
+        <h2>Best-fit Use Cases</h2>
+        <ul>
+          <li>Agents that need real inboxes for signup, verification, or alerts.</li>
+          <li>Multi-tenant platforms requiring lease-based mailbox isolation.</li>
+          <li>SaaS products that bill for email workflows as APIs.</li>
+        </ul>
+      </article>
+    </section>
+
+    <section class="grid two">
+      <article class="panel">
+        <h2>Fast Path</h2>
+        <div class="timeline">
+          <div class="timeline-item">
+            <span>Step 1</span>
+            <p>Authenticate with <strong>SIWE</strong> wallet signing.</p>
+          </div>
+          <div class="timeline-item">
+            <span>Step 2</span>
+            <p>Allocate an inbox via the mailbox lease API.</p>
+          </div>
+          <div class="timeline-item">
+            <span>Step 3</span>
+            <p>Receive mail through webhooks or latest-message fetch.</p>
+          </div>
+          <div class="timeline-item">
+            <span>Step 4</span>
+            <p>Release the mailbox when the workflow finishes.</p>
+          </div>
+        </div>
+      </article>
+      <article class="panel">
+        <h2>Engineering Entry Points</h2>
+        <p>We keep V1 running while iterating on V2. Recommended reads:</p>
+        <ul>
+          <li>Agents Guide: <span class="pulse">/agents-guide</span></li>
+          <li>Technical design: docs/mailagents-v2-technical-design.md</li>
+          <li>API spec: docs/openapi-v2.yaml</li>
+          <li>Ops status: docs/current-production-state.md</li>
+        </ul>
+        <div class="code">GET /healthz\nGET /v2/meta/runtime\nPOST /v2/mailboxes/leases\nGET /v2/messages/latest</div>
+      </article>
+    </section>
+
+    <div class="footer">Mailagents · Email infrastructure for autonomous agents.</div>
+  </div>
+</body>
+</html>`;
+}

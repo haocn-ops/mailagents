@@ -1,4 +1,3 @@
-import { createAdminRouteHandler } from "./admin/index.js";
 import { createConfig } from "./config.js";
 import { createRequestContext, handleFetchAppError } from "./fetch-app-runtime.js";
 import { chargeRequiredResponse, jsonResponse, parsePaging, readJsonBody } from "./http-helpers.js";
@@ -6,13 +5,15 @@ import { createMailBackendAdapter } from "./mail-backend/index.js";
 import { createPaymentVerifier } from "./payment.js";
 import { createPublicRouteHandler } from "./public-routes.js";
 import { createInternalRouteHandler } from "./internal/index.js";
+import { createJobQueue } from "./jobs/queue.js";
+import { createMessageParseJob, MESSAGE_PARSE_JOB } from "./jobs/message-parse-job.js";
+import { createWebhookDeliveryJob, WEBHOOK_DELIVERY_JOB } from "./jobs/webhook-delivery-job.js";
 import { createRequestAuth } from "./request-auth.js";
 import { createRuntimeSettingsManager } from "./runtime-settings.js";
 import { createSiweService } from "./siwe.js";
 import { getDefaultStore } from "./store.js";
-import { createV1RouteHandler } from "./v1/index.js";
-import { createV1SystemRouteHandler } from "./v1/system-routes.js";
 import { createV2RouteHandler } from "./v2/index.js";
+import { createV2SystemRouteHandler } from "./v2/system-routes.js";
 import { createWebhookDispatcher } from "./webhook-dispatcher.js";
 
 export function createFetchApp(deps = {}) {
@@ -47,12 +48,23 @@ export function createFetchApp(deps = {}) {
       timeoutMs: runtimeConfig.webhookTimeoutMs,
       retryAttempts: runtimeConfig.webhookRetryAttempts,
     });
+  const queue =
+    deps.queue ||
+    createJobQueue({
+      backend: runtimeConfig.queueBackend,
+      redisUrl: runtimeConfig.queueRedisUrl,
+      prefix: runtimeConfig.queuePrefix,
+      mode: runtimeConfig.queueBackend === "redis" ? "producer" : "inline",
+      defaultAttempts: runtimeConfig.queueJobAttempts,
+      defaultBackoffMs: runtimeConfig.queueJobBackoffMs,
+    });
+
+  queue.register(MESSAGE_PARSE_JOB, createMessageParseJob({ store, queue }));
+  queue.register(WEBHOOK_DELIVERY_JOB, createWebhookDeliveryJob({ store, webhookDispatcher }));
+
   const paidBypassTargets = new Set([
-    "POST /v1/mailboxes/allocate",
-    "POST /v1/messages/send",
-    "GET /v1/messages/latest",
+    "GET /v2/messages",
     "POST /v2/messages/send",
-    "POST /v1/webhooks",
     "POST /v2/mailboxes/leases",
     "POST /v2/webhooks",
   ]);
@@ -75,23 +87,18 @@ export function createFetchApp(deps = {}) {
   });
   const handleInternalRoute = createInternalRouteHandler({
     store,
+    queue,
     requireInternalAuth,
     jsonResponse,
     readJsonBody,
-    webhookDispatcher,
   });
   const handleV2Route = createV2RouteHandler({
     store,
     mailBackend,
+    queue,
     requireAuth,
-    evaluateAccess,
-    jsonResponse,
-    readJsonBody,
-    getOverageChargeUsdc,
-  });
-  const handleAdminRoute = createAdminRouteHandler({
-    store,
     requireAdminAuth,
+    evaluateAccess,
     jsonResponse,
     readJsonBody,
     parsePaging,
@@ -101,16 +108,7 @@ export function createFetchApp(deps = {}) {
       await runtimeSettings.update({ overageChargeUsdc, agentAllocateHourlyLimit });
     },
   });
-  const handleV1Route = createV1RouteHandler({
-    store,
-    mailBackend,
-    requireAuth,
-    evaluateAccess,
-    jsonResponse,
-    readJsonBody,
-    getOverageChargeUsdc,
-  });
-  const handleV1SystemRoute = createV1SystemRouteHandler({
+  const handleV2SystemRoute = createV2SystemRouteHandler({
     store,
     runtimeConfig,
     siweService,
@@ -138,18 +136,18 @@ export function createFetchApp(deps = {}) {
       const publicResponse = await handlePublicRoute({ method, path, requestId });
       if (publicResponse) return publicResponse;
 
+      if (path.startsWith("/v1/")) {
+        return jsonResponse(410, { error: "gone", message: "v1 endpoints are deprecated; use v2" }, requestId);
+      }
+
+      const v2SystemResponse = await handleV2SystemRoute({ method, path, request, requestId, requestUrl });
+      if (v2SystemResponse) return v2SystemResponse;
+
       const v2Response = await handleV2Route({ method, path, request, requestId, requestUrl });
       if (v2Response) return v2Response;
 
-      const adminResponse = await handleAdminRoute({ method, path, request, requestId, requestUrl });
-      if (adminResponse) return adminResponse;
       const internalResponse = await handleInternalRoute({ method, path, request, requestId, requestUrl });
       if (internalResponse) return internalResponse;
-
-      const v1SystemResponse = await handleV1SystemRoute({ method, path, request, requestId, requestUrl });
-      if (v1SystemResponse) return v1SystemResponse;
-      const v1Response = await handleV1Route({ method, path, request, requestId, requestUrl });
-      if (v1Response) return v1Response;
 
       return jsonResponse(404, { error: "not_found", message: "Route not found" }, requestId);
     } catch (err) {

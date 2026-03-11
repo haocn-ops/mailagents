@@ -1,9 +1,10 @@
 import { parseInboundContent } from "../parser.js";
+import { createInternalRepository } from "../internal/repository.js";
 import { WEBHOOK_DELIVERY_JOB } from "./webhook-delivery-job.js";
 
 export const MESSAGE_PARSE_JOB = "message.parse";
 
-export function createMessageParseJob({ store, queue }) {
+export function createMessageParseJob({ store, queue, repository = createInternalRepository({ store }) }) {
   return async function messageParseJob(payload) {
     const parsed = parseInboundContent({
       subject: payload.subject,
@@ -12,7 +13,7 @@ export function createMessageParseJob({ store, queue }) {
       htmlBody: payload.htmlBody,
     });
 
-    await store.applyMessageParseResult({
+    await repository.applyMessageParseResult({
       messageId: payload.messageId,
       otpCode: parsed.otpCode,
       verificationLink: parsed.verificationLink,
@@ -25,8 +26,19 @@ export function createMessageParseJob({ store, queue }) {
     });
 
     const eventType = parsed.parsed ? "otp.extracted" : "mail.received";
-    const message = await store.getMessage(payload.messageId);
-    const webhooks = await store.listActiveWebhooksByEvent(payload.tenantId, eventType);
+    const message = await repository.getMessage(payload.messageId);
+    if (!message) {
+      return {
+        messageId: payload.messageId,
+        eventType,
+        parsed: parsed.parsed,
+        skipped: true,
+        reason: "message_not_found",
+        deliveryJobs: [],
+      };
+    }
+
+    const webhooks = await repository.listActiveWebhooksByEvent(payload.tenantId, eventType);
     const deliveryJobs = [];
 
     for (const webhook of webhooks) {

@@ -635,7 +635,7 @@ export function renderUserAppHtml() {
         return mockHeaders;
       }
 
-      var proof = await fetchJson("/v1/payments/proof", {
+      var proof = await fetchJson("/v2/payments/proof", {
         method: "POST",
         headers: authHeaders(true),
         body: JSON.stringify({ method: method, path: path })
@@ -774,7 +774,7 @@ export function renderUserAppHtml() {
         var creds = state.mailboxCredentials[item.mailbox_id] || null;
         return '<article class="mailbox">' +
           '<div class="mailbox-top">' +
-            '<div><div><strong>' + item.address + '</strong></div><div class="muted">lease expires ' + item.lease_expires_at + '</div></div>' +
+            '<div><div><strong>' + item.address + '</strong></div><div class="muted">lease expires ' + (item.expires_at || item.lease_expires_at || "-") + '</div></div>' +
             '<div><span class="tag">' + (selected ? "selected" : "cached") + '</span></div>' +
           '</div>' +
           '<code>' + item.mailbox_id + '</code>' +
@@ -856,7 +856,7 @@ export function renderUserAppHtml() {
 
     async function loadRuntimeMeta() {
       try {
-        state.runtimeMeta = await fetchJson("/v1/meta/runtime", { method: "GET" });
+        state.runtimeMeta = await fetchJson("/v2/meta/runtime", { method: "GET" });
         var connectHint = document.getElementById("connectHint");
         var sendGuide = document.getElementById("sendGuide");
         if (connectHint) {
@@ -893,7 +893,7 @@ export function renderUserAppHtml() {
         }
       }
       if (!wallet) throw new Error("wallet address is required");
-      var challenge = await fetchJson("/v1/auth/siwe/challenge", {
+      var challenge = await fetchJson("/v2/auth/siwe/challenge", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ wallet_address: wallet })
@@ -914,7 +914,7 @@ export function renderUserAppHtml() {
       } else if (runtimeMeta().siwe_mode === "strict") {
         throw new Error("MetaMask is required in strict SIWE mode");
       }
-      var verify = await fetchJson("/v1/auth/siwe/verify", {
+      var verify = await fetchJson("/v2/auth/siwe/verify", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ message: challenge.message, signature: signature })
@@ -936,7 +936,7 @@ export function renderUserAppHtml() {
 
     async function refreshMailboxes() {
       if (!state.token) throw new Error("sign in first");
-      var data = await fetchJson("/v1/mailboxes", {
+      var data = await fetchJson("/v2/mailboxes/leases", {
         method: "GET",
         headers: authHeaders(false)
       });
@@ -952,8 +952,8 @@ export function renderUserAppHtml() {
 
     async function allocateMailbox() {
       if (!state.agentId) throw new Error("sign in first");
-      var payHeaders = await paymentHeaders("POST", "/v1/mailboxes/allocate", true);
-      var result = await fetchJson("/v1/mailboxes/allocate", {
+      var payHeaders = await paymentHeaders("POST", "/v2/mailboxes/leases", true);
+      var result = await fetchJson("/v2/mailboxes/leases", {
         method: "POST",
         headers: Object.assign(authHeaders(false), payHeaders),
         body: JSON.stringify({
@@ -978,26 +978,27 @@ export function renderUserAppHtml() {
 
     async function releaseMailbox() {
       if (!state.selectedMailboxId) throw new Error("select a mailbox first");
-      var releasedMailboxId = state.selectedMailboxId;
-      await fetchJson("/v1/mailboxes/release", {
+      var selected = state.mailboxes.find(function(item) { return item.mailbox_id === state.selectedMailboxId; });
+      if (!selected || !selected.lease_id) throw new Error("active lease not found for selected mailbox");
+      await fetchJson("/v2/mailboxes/leases/" + encodeURIComponent(selected.lease_id) + "/release", {
         method: "POST",
         headers: authHeaders(true),
-        body: JSON.stringify({ mailbox_id: releasedMailboxId })
+        body: JSON.stringify({})
       });
       await refreshMailboxes();
       state.messages = [];
       renderMessages();
-      delete state.mailboxCredentials[releasedMailboxId];
+      delete state.mailboxCredentials[state.selectedMailboxId];
       saveMailboxState();
       addLog("released selected mailbox");
     }
 
     async function issueWebmailPassword(mailboxId) {
       if (!state.token) throw new Error("sign in first");
-      var result = await fetchJson("/v1/mailboxes/credentials/reset", {
+      var result = await fetchJson("/v2/mailboxes/accounts/" + encodeURIComponent(mailboxId || state.selectedMailboxId) + "/credentials/reset", {
         method: "POST",
         headers: authHeaders(true),
-        body: JSON.stringify({ mailbox_id: mailboxId || state.selectedMailboxId })
+        body: JSON.stringify({})
       });
       state.mailboxCredentials[result.mailbox_id] = {
         login: result.webmail_login,
@@ -1012,12 +1013,12 @@ export function renderUserAppHtml() {
 
     async function refreshMessages() {
       if (!state.selectedMailboxId) throw new Error("select a mailbox first");
-      var payHeaders = await paymentHeaders("GET", "/v1/messages/latest", false);
-      var data = await fetchJson("/v1/messages/latest?mailbox_id=" + encodeURIComponent(state.selectedMailboxId) + "&limit=10", {
+      var payHeaders = await paymentHeaders("GET", "/v2/messages", false);
+      var data = await fetchJson("/v2/messages?mailbox_id=" + encodeURIComponent(state.selectedMailboxId) + "&limit=10", {
         method: "GET",
         headers: Object.assign(authHeaders(false), payHeaders)
       });
-      state.messages = Array.isArray(data.messages) ? data.messages : [];
+      state.messages = Array.isArray(data.items) ? data.items : [];
       renderMessages();
       if (state.messages[0]) {
         await openMessageDetail(state.messages[0].message_id);
@@ -1037,8 +1038,8 @@ export function renderUserAppHtml() {
         throw new Error("to, subject, and text are required");
       }
 
-      var payHeaders = await paymentHeaders("POST", "/v1/messages/send", true);
-      var sent = await fetchJson("/v1/messages/send", {
+      var payHeaders = await paymentHeaders("POST", "/v2/messages/send", true);
+      var res = await fetch(apiBase() + "/v2/messages/send", {
         method: "POST",
         headers: Object.assign(authHeaders(false), payHeaders),
         body: JSON.stringify({
@@ -1049,14 +1050,24 @@ export function renderUserAppHtml() {
           mailbox_password: creds.password
         })
       });
-      els.sendJson.textContent = JSON.stringify(sent, null, 2);
-      addLog("sent mail from " + sent.from + " to " + sent.accepted.join(", "));
-      return sent;
+      var payload = await res.json().catch(function() { return {}; });
+      if (!res.ok) {
+        if (res.status === 429 && payload && payload.error === "cooldown_limit") {
+          setWalletNote("Send limit reached for new accounts. Bind a wallet to remove the 24h cooldown.");
+          addLog("cooldown limit hit; prompt wallet bind");
+          els.sendJson.textContent = JSON.stringify(payload, null, 2);
+          throw new Error(payload.message || "cooldown limit reached");
+        }
+        throw new Error((payload && (payload.message || payload.error)) || ("HTTP " + res.status));
+      }
+      els.sendJson.textContent = JSON.stringify(payload, null, 2);
+      addLog("sent mail to " + payload.accepted.join(", ") + " (status " + payload.submission_status + ")");
+      return payload;
     }
 
     async function openMessageDetail(messageId) {
       if (!state.token) throw new Error("sign in first");
-      var detail = await fetchJson("/v1/messages/" + encodeURIComponent(messageId), {
+      var detail = await fetchJson("/v2/messages/" + encodeURIComponent(messageId), {
         method: "GET",
         headers: authHeaders(false)
       });
@@ -1067,13 +1078,13 @@ export function renderUserAppHtml() {
 
     async function createWebhook() {
       if (!state.token) throw new Error("sign in first");
-      var payHeaders = await paymentHeaders("POST", "/v1/webhooks", true);
+      var payHeaders = await paymentHeaders("POST", "/v2/webhooks", true);
       var payload = {
         event_types: [els.webhookEvent.value],
         target_url: els.webhookUrl.value.trim(),
         secret: els.webhookSecret.value.trim()
       };
-      var created = await fetchJson("/v1/webhooks", {
+      var created = await fetchJson("/v2/webhooks", {
         method: "POST",
         headers: Object.assign(authHeaders(false), payHeaders),
         body: JSON.stringify(payload)
@@ -1085,7 +1096,7 @@ export function renderUserAppHtml() {
 
     async function refreshWebhooks() {
       if (!state.token) throw new Error("sign in first");
-      var data = await fetchJson("/v1/webhooks", {
+      var data = await fetchJson("/v2/webhooks", {
         method: "GET",
         headers: authHeaders(false)
       });
@@ -1099,7 +1110,7 @@ export function renderUserAppHtml() {
       if (!state.token) throw new Error("sign in first");
       var period = els.usagePeriod.value.trim() || nowPeriod();
       els.usagePeriod.value = period;
-      var usage = await fetchJson("/v1/usage/summary?period=" + encodeURIComponent(period), {
+      var usage = await fetchJson("/v2/usage/summary?period=" + encodeURIComponent(period), {
         method: "GET",
         headers: authHeaders(false)
       });
@@ -1112,7 +1123,7 @@ export function renderUserAppHtml() {
     async function refreshInvoices() {
       if (!state.token) throw new Error("sign in first");
       var period = els.usagePeriod.value.trim() || nowPeriod();
-      var data = await fetchJson("/v1/billing/invoices?period=" + encodeURIComponent(period), {
+      var data = await fetchJson("/v2/billing/invoices?period=" + encodeURIComponent(period), {
         method: "GET",
         headers: authHeaders(false)
       });
@@ -1126,7 +1137,7 @@ export function renderUserAppHtml() {
       if (!state.token) throw new Error("sign in first");
       var invoiceId = els.invoiceId.value.trim();
       if (!invoiceId) throw new Error("invoice id is required");
-      var invoice = await fetchJson("/v1/billing/invoices/" + encodeURIComponent(invoiceId), {
+      var invoice = await fetchJson("/v2/billing/invoices/" + encodeURIComponent(invoiceId), {
         method: "GET",
         headers: authHeaders(false)
       });

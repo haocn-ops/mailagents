@@ -172,6 +172,18 @@ export function createAdminRouteHandler({
       return responses.ok(requestId, result);
     }
 
+    if (method === "GET" && path === "/v1/admin/send-attempts") {
+      if (!paging.ok) return responses.badRequest(requestId, paging.message);
+      const result = await adminService.adminListSendAttempts({
+        page: paging.page,
+        pageSize: paging.pageSize,
+        tenantId: requestUrl.searchParams.get("tenant_id"),
+        mailboxId: requestUrl.searchParams.get("mailbox_id"),
+        submissionStatus: requestUrl.searchParams.get("submission_status"),
+      });
+      return responses.ok(requestId, result);
+    }
+
     if (path.startsWith("/v1/admin/messages/") && path.endsWith("/reparse") && method === "POST") {
       const messageIdResult = parseAdminPathParam(path, {
         prefix: "/v1/admin/messages/",
@@ -206,7 +218,23 @@ export function createAdminRouteHandler({
 
     if (method === "GET" && path === "/v1/admin/webhooks") {
       if (!paging.ok) return responses.badRequest(requestId, paging.message);
-      const result = await adminService.adminListWebhooks({ page: paging.page, pageSize: paging.pageSize });
+      const result = await adminService.adminListWebhooks({
+        page: paging.page,
+        pageSize: paging.pageSize,
+        tenantId: requestUrl.searchParams.get("tenant_id"),
+        webhookId: requestUrl.searchParams.get("webhook_id"),
+      });
+      return responses.ok(requestId, result);
+    }
+
+    if (method === "GET" && path === "/v1/admin/webhook-deliveries") {
+      if (!paging.ok) return responses.badRequest(requestId, paging.message);
+      const result = await adminService.adminListWebhookDeliveries({
+        page: paging.page,
+        pageSize: paging.pageSize,
+        tenantId: requestUrl.searchParams.get("tenant_id"),
+        webhookId: requestUrl.searchParams.get("webhook_id"),
+      });
       return responses.ok(requestId, result);
     }
 
