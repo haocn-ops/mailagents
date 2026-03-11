@@ -354,19 +354,18 @@ curl -s "$API_BASE/v2/messages/send" \\
       </article>
 
       <article class="panel">
-        <h2>Non-Wallet Onboarding (Planned)</h2>
-        <p>To reduce friction for non-web3 teams, we are preparing a temporary API-key based onboarding path.</p>
+        <h2>Non-Wallet Onboarding (Temp Key)</h2>
+        <p>Use a short-lived temp key to start testing without a wallet. Tokens expire in 30 minutes.</p>
+        <pre class="code">curl -s "$API_BASE/v2/auth/temp-key" \\
+  -H 'content-type: application/json' \\
+  -d '{"email":"demo@example.com"}'</pre>
         <div class="callout ok">
-          <strong>Option A: Magic Link</strong>
-          <p>Issue a short-lived login link and create a tenant without requiring wallet signing.</p>
+          <strong>Limits</strong>
+          <p>Temp keys are short-lived and scoped to lease creation, message read/send, and release.</p>
         </div>
-        <div class="callout ok">
-          <strong>Option B: Temporary API Key</strong>
-          <p>Issue a 30-minute API key that only allows lease creation and message read/send.</p>
-        </div>
-        <div class="callout warn">
-          <strong>Status</strong>
-          <p>Planned experiment for onboarding. Use SIWE until this path is live.</p>
+        <div class="callout">
+          <strong>Upgrade path</strong>
+          <p>When you are ready for production, switch to SIWE for stronger identity guarantees.</p>
         </div>
       </article>
     </section>
